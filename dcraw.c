@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.207 $
-   $Date: 2004/10/02 21:59:44 $
+   $Revision: 1.208 $
+   $Date: 2004/10/04 20:33:44 $
  */
 
 #define _GNU_SOURCE
@@ -1896,11 +1896,11 @@ void CLASS scale_colors()
 	for (c=0; c < colors; c++) {
 	  val = image[row*width+col][c];
 	  if (!val) continue;
+	  if (min[c] > val) min[c] = val;
+	  if (max[c] < val) max[c] = val;
 	  val -= black;
 	  if (val > rgb_max-100) continue;
 	  if (val < 0) val = 0;
-	  if (min[c] > val) min[c] = val;
-	  if (max[c] < val) max[c] = val;
 	  sum[c] += val;
 	  count[c]++;
 	}
@@ -2268,6 +2268,7 @@ void CLASS get_timestamp()
 	&t.tm_mday, &t.tm_hour, &t.tm_min, &t.tm_sec) != 6)
     return;
   t.tm_year -= 1900;
+  t.tm_mon -= 1;
   putenv ("TZ=");		/* Remove this to assume local time */
   if ((ts = mktime(&t)) > 0)
     timestamp = ts;
@@ -2571,6 +2572,7 @@ void CLASS parse_rollei()
       ty = atoi(val);
   } while (strncmp(line,"EOHD",4));
   t.tm_year -= 1900;
+  t.tm_mon -= 1;
   putenv ("TZ=");
   if ((ts = mktime(&t)) > 0)
     timestamp = ts;
@@ -2743,7 +2745,7 @@ int CLASS identify()
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
   static const char *corp[] =
-    { "Canon", "NIKON", "Kodak", "PENTAX", "Minolta" };
+    { "Canon", "NIKON", "Kodak", "PENTAX", "Minolta", "Konica" };
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
@@ -3156,23 +3158,34 @@ coolpix:
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
     rgb_max = 14000;
+  } else if (!strcmp(model,"Digital Camera KD-400Z")) {
+    height = 1712;
+    width  = 2312;
+    raw_width = 2336;
+    filters = 0x94949494;
+    data_offset = 4034;
+    fseek (ifp, 2032, SEEK_SET);
+    goto konica_400z;
   } else if (!strcmp(model,"Digital Camera KD-510Z")) {
     data_offset = 4032;
     fseek (ifp, 2032, SEEK_SET);
     goto konica_510z;
   } else if (!strcmp(make,"Minolta")) {
     load_raw = be_low_12_load_raw;
-    if (!strncmp(model,"DiMAGE A",8))
+    rgb_max = 15860;
+    if (!strncmp(model,"DiMAGE A",8)) {
       load_raw = packed_12_load_raw;
-    else if (!strncmp(model,"DiMAGE G",8)) {
+      rgb_max = model[8] == '1' ? 15916:16380;
+    } else if (!strncmp(model,"DiMAGE G",8)) {
       data_offset = 4016;
       fseek (ifp, 1936, SEEK_SET);
 konica_510z:
-      load_raw = be_low_10_load_raw;
       height = 1956;
       width  = 2607;
       raw_width = 2624;
       filters = 0x61616161;
+konica_400z:
+      load_raw = be_low_10_load_raw;
       rgb_max = 15856;
       order = 0x4d4d;
       camera_red   = fget2(ifp);
@@ -3844,7 +3857,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.04"
+    "\nRaw Photo Decoder \"dcraw\" v6.05"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
