@@ -5,8 +5,8 @@
    Fuji digital cameras.  Compile with -D_16BIT to rotate 48-bit
    PPM images.
 
-   $Revision: 1.3 $
-   $Date: 2003/11/14 23:44:02 $
+   $Revision: 1.4 $
+   $Date: 2003/11/20 17:21:04 $
 
  */
 
@@ -37,7 +37,7 @@ int main()
   int maxval, i, iwide, ihigh, owide, ohigh;
   unsigned irow, icol, orow, ocol;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(DJGPP)
   if (setmode(0,O_BINARY) < 0) perror("setmode(0)");
   if (setmode(1,O_BINARY) < 0) perror("setmode(1)");
 #endif
