@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.144 $
-   $Date: 2003/10/20 18:35:01 $
+   $Revision: 1.145 $
+   $Date: 2003/10/28 00:20:01 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2151,14 +2151,13 @@ void foveon_coeff()
    The grass is always greener in my PowerShot G2 when this
    function is called.  Use at your own risk!
  */
-void canon_rgb_coeff()
+void canon_rgb_coeff (float juice)
 {
   static const float my_coeff[3][3] =
   { {  1.116187, -0.107427, -0.008760 },
     { -1.551374,  4.157144, -1.605770 },
     {  0.090939, -0.399727,  1.308788 } };
   int i, j;
-  float juice = 0.1;	/* weaken the above matrix */
 
   for (i=0; i < 3; i++)
     for (j=0; j < 3; j++)
@@ -2418,7 +2417,7 @@ nucore:
     filters = 0x94949494;
     load_raw = canon_compressed_load_raw;
     if (write_fun == write_ppm)		/* Pro users may not want my matrix */
-      canon_rgb_coeff();
+      canon_rgb_coeff (0.1);
     pre_mul[0] = 1.965;
     pre_mul[2] = 1.208;
   } else if (is_canon && raw_width == 2672) {
