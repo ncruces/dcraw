@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.36 $
-   $Date: 2001/11/22 17:13:19 $
+   $Revision: 1.37 $
+   $Date: 2001/11/25 21:39:22 $
 */
 
 #include <math.h>
@@ -30,13 +30,12 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-int height, width, colors;
+int height, width, colors, black;
 unsigned filters;
 char name[64];
 ushort (*image)[4];
 void (*read_crw)();
 float gamma_val=0.8, bright=1.0;
-float ymul[4];
 float rgb_mul[3];
 float coeff[3][4];
 
@@ -49,19 +48,67 @@ struct decode {
    In order to inline this calculation, I make the risky
    assumption that all filter patterns can be described
    by a repeating pattern of eight rows and two columns
+
+   Return values are either 0/1/2/3 = G/M/C/Y or 0/1/2 = R/G/B
  */
 #define FC(row,col) \
 	(filters >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
-
 /*
-   Filter pattern of the PowerShot 600:
+   PowerShot 600 uses 0xe1e4e1e4:
 
 	  0 1 2 3 4 5
-	0 G M G M G M		Return values
-	1 C Y C Y C Y		 0  1  2  3
-	2 M G M G M G		 G  M  C  Y
+	0 G M G M G M
+	1 C Y C Y C Y
+	2 M G M G M G
 	3 C Y C Y C Y
+
+   PowerShot A5 uses 0x1e4e1e4e:
+
+	  0 1 2 3 4 5
+	0 C Y C Y C Y
+	1 G M G M G M
+	2 C Y C Y C Y
+	3 M G M G M G
+
+   PowerShot A50 uses 0x1b4e4b1e:
+
+	  0 1 2 3 4 5
+	0 C Y C Y C Y
+	1 M G M G M G
+	2 Y C Y C Y C
+	3 G M G M G M
+	4 C Y C Y C Y
+	5 G M G M G M
+	6 Y C Y C Y C
+	7 M G M G M G
+
+   PowerShot Pro70 uses 0x1e4b4e1b:
+
+	  0 1 2 3 4 5
+	0 Y C Y C Y C
+	1 M G M G M G
+	2 C Y C Y C Y
+	3 G M G M G M
+	4 Y C Y C Y C
+	5 G M G M G M
+	6 C Y C Y C Y
+	7 M G M G M G
+
+   PowerShots Pro90 and G1 use 0xb4b4b4b4:
+
+	  0 1 2 3 4 5
+	0 G M G M G M
+	1 Y C Y C Y C
+
+   All RGB cameras use 0x94949494:
+
+	  0 1 2 3 4 5
+	0 R G R G R G
+	1 G B G B G B
+	2 R G R G R G
+	3 G B G B G B
  */
+
 void ps600_read_crw()
 {
   uchar  data[1120], *dp;
@@ -89,26 +136,20 @@ void ps600_read_crw()
     }
 /*
    Copy 854 pixels into the image[] array.  The other 42 pixels
-   are blank.  Left-shift by 4 for extra precision in upcoming
+   are black.  Left-shift by 4 for extra precision in upcoming
    calculations.
  */
     for (col=0; col < width; col++)
       image[orow*width+col][FC(orow,col)] = pixel[col] << 4;
+    for (col=width; col < 896; col++)
+      black += pixel[col];
 
     if ((orow+=2) > height)	/* Once we've read all the even rows, */
       orow = 1;			/* read the odd rows. */
   }
+  black = ((long long) black << 4) / ((896 - width) * height);
 }
 
-/*
-   Filter pattern of the PowerShot A5:
-
-	  0 1 2 3 4 5
-	0 C Y C Y C Y		Return values
-	1 G M G M G M		 0  1  2  3
-	2 C Y C Y C Y		 G  M  C  Y
-	3 M G M G M G
- */
 void a5_read_crw()
 {
   uchar  data[1240], *dp;
@@ -120,7 +161,7 @@ void a5_read_crw()
  */
   for (row=0; row < height; row++) {
     fread (data, 1240, 1, ifp);
-    for (dp=data, pix=pixel; dp < data+1200; dp+=10, pix+=8)
+    for (dp=data, pix=pixel; dp < data+1240; dp+=10, pix+=8)
     {
       pix[0] = (dp[1] << 2) + (dp[0] >> 6);
       pix[1] = (dp[0] << 4) + (dp[3] >> 4);
@@ -133,27 +174,17 @@ void a5_read_crw()
     }
 /*
    Copy 960 pixels into the image[] array.  The other 32 pixels
-   are blank.  Left-shift by 4 for extra precision in upcoming
+   are black.  Left-shift by 4 for extra precision in upcoming
    calculations.
  */
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
+    for (col=width; col < 992; col++)
+      black += pixel[col] & 0x3ff;
   }
+  black = ((long long) black << 4) / ((992 - width) * height);
 }
 
-/*
-   Filter pattern of the PowerShot A50:
-
-	  0 1 2 3 4 5
-	0 C Y C Y C Y		Return values
-	1 M G M G M G		 0  1  2  3
-	2 Y C Y C Y C		 G  M  C  Y
-	3 G M G M G M
-	4 C Y C Y C Y
-	5 G M G M G M
-	6 Y C Y C Y C
-	7 M G M G M G
- */
 void a50_read_crw()
 {
   uchar  data[1650], *dp;
@@ -178,27 +209,17 @@ void a50_read_crw()
     }
 /*
    Copy 1290 pixels into the image[] array.  The other 30 pixels
-   are blank.  Left-shift by 4 for extra precision in upcoming
+   are black.  Left-shift by 4 for extra precision in upcoming
    calculations.
  */
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
+    for (col=width; col < 1320; col++)
+      black += pixel[col] & 0x3ff;
   }
+  black = ((long long) black << 4) / ((1320 - width) * height);
 }
 
-/*
-   Filter pattern of the PowerShot Pro70:
-
-	  0 1 2 3 4 5
-	0 Y C Y C Y C		Return values
-	1 M G M G M G		 0  1  2  3
-	2 C Y C Y C Y		 G  M  C  Y
-	3 G M G M G M
-	4 Y C Y C Y C
-	5 G M G M G M
-	6 C Y C Y C Y
-	7 M G M G M G
- */
 void pro70_read_crw()
 {
   uchar  data[1940], *dp;
@@ -223,7 +244,7 @@ void pro70_read_crw()
     }
 /*
    Copy all pixels into the image[] array.  Left-shift by 4 for
-   extra precision in upcoming calculations.
+   extra precision in upcoming calculations.  No black pixels?
  */
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
@@ -451,27 +472,27 @@ decompress(ushort *outbuf, int width, int count)
   }
 }
 
-/*
-   Filter pattern of the PowerShot Pro90 and G1:
-
-	  0 1 2 3 4 5		Return values
-	0 G M G M G M		 0  1  2  3
-	1 Y C Y C Y C		 G  M  C  Y
- */
 void pro90_read_crw()
 {
   ushort pixel[1944*8];
   int row, r, col;
 
   decompress(0,0,540);
-
+/*
+   Read eight rows at a time.
+   Each row has 1896 image pixels and 48 black pixels.
+ */
   for (row=0; row < height; row += 8) {
     decompress(pixel,1944,243);
-    for (r=0; r < 8; r++)
+    for (r=0; r < 8; r++) {
       for (col=0; col < width; col++)
 	image[(row+r)*width+col][FC(row+r,col)] =
 		(pixel[(r*1944)+col] & 0x3ff) << 4;
+      for (col=width; col < 1944; col++)
+	black += pixel[(r*1944)+col] & 0x3ff;
+    }
   }
+  black = ((long long) black << 4) / ((1944 - width) * height);
 }
 
 void g1_read_crw()
@@ -480,49 +501,46 @@ void g1_read_crw()
   int row, r, col;
 
   decompress(0,0,540);
-
-/* Read two rows at a time, discarding the first eight */
-
-  for (row = -8; row < height; row += 2) {
+/*
+   Read two rows at a time.
+   The image has a black border, eight pixels wide on top,
+   two on the bottom, four on the left, and 52 on the right.
+ */
+  for (row = -8; row < height+2; row += 2) {
     decompress(pixel,2144,67);
-    if (row < 0) continue;
     for (r=0; r < 2; r++)
-      for (col=0; col < width; col++)
-	image[(row+r)*width+col][FC(row+r,col)] =
+      for (col = -4; col < width+52; col++)
+	if ((unsigned) (row+r) < height && (unsigned) col < width)
+	  image[(row+r)*width+col][FC(row+r,col)] =
 		(pixel[(r*2144)+col+4] & 0x3ff) << 4;
+	  else
+	    black += pixel[(r*2144)+col+4] & 0x3ff;
   }
+  black = ((long long) black << 4) / (10 * 2144 + 56 * height);
 }
 
-/*
-   Filter pattern of the PowerShot G2 and EOS D30:
-
-	  0 1 2 3 4 5		Return values
-	0 R G R G R G		 0  1  2
-	1 G B G B G B		 R  G  B
-	2 R G R G R G
-	3 G B G B G B
- */
 void g2_read_crw()
 {
-  ushort pixel[2376*8], *prow, (*imrow)[4];
-  int row, r, orow, col;
+  ushort pixel[2376*8];
+  int row, r, col;
 
   decompress(0,0,540);
-
-/* Read eight rows at a time, discarding the first six */
-
-  for (row = -6; row < height; row += 8) {
+/*
+   Read eight rows at a time.
+   The image has a black border, six pixels wide on top,
+   two on the bottom, 12 on the left, and 52 on the right.
+ */
+  for (row = -6; row < height+2; row += 8) {
     decompress(pixel,2376,297);
-    for (r=0; r < 8; r++) {
-      orow = row + r;
-      if (orow < 0) continue;
-      if (orow >= height) break;
-      imrow = image + orow*width;
-      prow = pixel + r*2376 + 12;
-      for (col=0; col < width; col++)
-	imrow[col][FC(orow,col)] = (prow[col] & 0x3ff) << 4;
-    }
+    for (r=0; r < 8; r++)
+      for (col = -12; col < width+52; col++)
+	if ((unsigned) (row+r) < height && (unsigned) col < width)
+	  image[(row+r)*width+col][FC(row+r,col)] =
+		(pixel[(r*2376)+col+12] & 0x3ff) << 4;
+	  else
+	    black += pixel[(r*2376)+col+12] & 0x3ff;
   }
+  black = ((long long) black << 4) / (8 * 2376 + 64 * height);
 }
 
 /*
@@ -532,15 +550,17 @@ void g2_read_crw()
  */
 void d30_read_crw()
 {
-  ushort pixel[2224*4], *prow, (*imrow)[4];
-  int i, row, r, orow, col, save;
+  ushort pixel[2224*4], *prow;
+  int i, row, r, col, save;
   uchar c;
 
   decompress(0,0,810076);
-
-/* Read four rows at a time, discarding the first six rows */
-
-  for (row = -6; row < height; row += 4) {
+/*
+   Read four rows at a time.
+   The image has a black border, six pixels wide on top,
+   two on the bottom, 48 on the left, and none on the right.
+ */
+  for (row = -6; row < height+2; row += 4) {
     decompress(pixel,2224,139);
     save = ftell(ifp);
     fseek (ifp, (row+6)*(2224/4) + 26, SEEK_SET);	/* Get low bits */
@@ -550,16 +570,29 @@ void d30_read_crw()
 	*prow++ = (*prow << 2) + ((c >> r) & 3);
     }
     fseek (ifp, save, SEEK_SET);
-    for (r=0; r < 4; r++) {
-      orow = row + r;
-      if (orow < 0) continue;
-      if (orow >= height) break;
-      imrow = image + orow*width;
-      prow = pixel + r*2224 + 48;
-      for (col=0; col < width; col++)
-	imrow[col][FC(orow,col)] = (prow[col] & 0xfff) << 2;
-    }
+    for (r=0; r < 4; r++)
+      for (col = -48; col < width; col++)
+	if ((unsigned) (row+r) < height && col >= 0)
+	  image[(row+r)*width+col][FC(row+r,col)] =
+		(pixel[(r*2224)+col+48] & 0xfff) << 2;
+	else
+	    black += pixel[(r*2224)+col+48] & 0xfff;
   }
+  black = ((long long) black << 2) / (8 * 2224 + 48 * height);
+}
+
+subtract_black()
+{
+  ushort *img;
+  int size;
+
+  img = image[0];
+  size = width * height * 4;
+  while (size--)
+    if (*img > black)
+      *img++ -= black;
+    else
+      *img++ = 0;
 }
 
 /*
@@ -714,7 +747,6 @@ open_and_id(char *fname)
   };
   int hlen, i, r, g;
 
-  for (i=0; i < 4; i++) ymul[i]=1.0;
   rgb_mul[0] = 1.592;
   rgb_mul[1] = 1.0;
   rgb_mul[2] = 1.261;
@@ -746,8 +778,6 @@ open_and_id(char *fname)
     read_crw = ps600_read_crw;
     rgb_mul[0] = 1.667;
     rgb_mul[2] = 1.667;
-    ymul[0] = 0.9866;
-    ymul[2] = 1.0125;
   } else if (!strcmp(name,"Canon PowerShot A5")) {
     height = 776;
     width  = 960;
@@ -755,10 +785,6 @@ open_and_id(char *fname)
     read_crw = a5_read_crw;
     rgb_mul[0] = 1.111;
     rgb_mul[2] = 0.978;
-    ymul[0] = 1.0005;
-    ymul[1] = 1.0056;
-    ymul[2] = 0.9980;
-    ymul[3] = 0.9959;
   } else if (!strcmp(name,"Canon PowerShot A50")) {
     height =  968;
     width  = 1290;
@@ -853,8 +879,7 @@ void write_ppm(FILE *ofp)
   int y, x, i;
   register unsigned c, val;
   uchar (*ppm)[3];
-  float rgb[4], max, max2, expo, scale;
-  float gymul[4];
+  float rgb[4], max, max2, expo, mul, scale;
   int total, histogram[0x1000];
   char p6head[32];
 
@@ -885,15 +910,14 @@ void write_ppm(FILE *ofp)
     exit(1);
   }
   expo = (gamma_val-1)/2;		/* Pull these out of the loop */
-  for (y=0; y < 4; y++)
-    gymul[y] = bright * 362 / max * pow(ymul[y],gamma_val);
+  mul = bright * 362 / max;
 
   for (y=1; y < height-1; y++)
   {
     for (x=1; x < width-1; x++)
     {
       get_rgb(rgb,image[y*width+x]);
-      scale = gymul[y&3] * pow(rgb[3]/max2,expo);
+      scale = mul * pow(rgb[3]/max2,expo);
 
       for (c=0; c < 3; c++)
       {
@@ -1051,7 +1075,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.37"
+    "\nCanon PowerShot Converter v2.50"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
@@ -1106,8 +1130,11 @@ main(int argc, char **argv)
       perror("image calloc failed");
       exit(1);
     }
+    black = 0;
     fprintf (stderr, "Loading data from %s...\n",argv[arg]);
     (*read_crw)();
+    fprintf (stderr, "Subtracting thermal noise (%d)...\n",black);
+    subtract_black();
     fprintf (stderr, "First interpolation...\n");
     first_interpolate();
     fprintf (stderr, "Second interpolation...\n");
