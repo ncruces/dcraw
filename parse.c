@@ -1,13 +1,13 @@
 /*
    Raw Photo Parser
-   Copyright 2003 by Dave Coffin cybercom dot net, user dcoffin
+   Copyright 2004 by Dave Coffin, dcoffin a cybercom o net
 
    This program extracts thumbnail images (preferably JPEGs)
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.10 $
-   $Date: 2003/12/17 05:08:01 $
+   $Revision: 1.11 $
+   $Date: 2004/02/11 00:03:21 $
  */
 
 #include <stdio.h>
@@ -348,9 +348,9 @@ void parse_rollei()
 {
   char line[128], *val;
 
-  while (1) {
+  fseek (ifp, 0, SEEK_SET);
+  do {
     fgets (line, 128, ifp);
-    if (!strncmp(line,"EOHD",4)) break;
     fputs (line, stdout);
     if ((val = strchr(line,'=')))
       *val++ = 0;
@@ -362,7 +362,7 @@ void parse_rollei()
       width = atoi(val);
     if (!strcmp(line,"TY "))
       height = atoi(val);
-  }
+  } while (strncmp(line,"EOHD",4));
   strcpy (make, "Rollei");
   strcpy (model, "d530flex");
   thumb_length = width*height*2;
@@ -501,26 +501,26 @@ void kodak_yuv_decode (FILE *tfp)
  */
 int identify(char *fname)
 {
-  char head[8], thumb_name[256], *thumb, *rgb;
-  unsigned hlen, fsize, magic, toff, tlen, lsize, i;
+  char head[32], thumb_name[256], *thumb, *rgb;
+  unsigned hlen, fsize, toff, tlen, lsize, i;
   FILE *tfp;
 
   make[0] = model[0] = model2[0] = 0;
   thumb_head[0] = thumb_offset = thumb_length = thumb_layers = 0;
   order = fget2(ifp);
   hlen = fget4(ifp);
-  fread (head, 1, 8, ifp);
+  fseek (ifp, 0, SEEK_SET);
+  fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  fseek (ifp, 0, SEEK_SET);
-  magic = fget4(ifp);
-  if (order == 0x4949 || order == 0x4d4d) {
-    if (!memcmp(head,"HEAPCCDR",8)) {
+  if (!memcmp (head,"MMMMRawT",8)) {
+  } else if (order == 0x4949 || order == 0x4d4d) {
+    if (!memcmp(head+6,"HEAPCCDR",8)) {
       parse_ciff (hlen, fsize - hlen, 0);
       fseek (ifp, hlen, SEEK_SET);
     } else
       parse_tiff_file(0);
-  } else if (magic == 0x4d524d) {	/* "\0MRM" (Minolta) */
+  } else if (!memcmp (head,"\0MRM",4)) {
     parse_tiff_file(48);
     strcpy (thumb_head, "\xff");
     fseek (ifp, 4, SEEK_SET);
@@ -530,22 +530,22 @@ int identify(char *fname)
       fseek (ifp, 974, SEEK_SET);
     thumb_offset = fget4(ifp) + 49;
     thumb_length -= thumb_offset;
-  } else if (magic == 0x46554a49) {	/* "FUJI" */
+  } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     toff = fget4(ifp);
     tlen = fget4(ifp);
     parse_tiff_file (toff+12);
     thumb_offset = toff;
     thumb_length = tlen;
-  } else if (magic == 0x4453432d)	/* "DSC-" */
+  } else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
-  else if (magic == 0x464f5662)		/* "FOVb" */
+  else if (!memcmp (head,"FOVb",4))
     parse_foveon();
   if (model[0] == 0) {
     fprintf (stderr, "%s: unsupported file format.\n", fname);
     return 1;
   }
-  if (!strcmp(model,"C5050Z")) {
+  if (!strncmp(model,"C50",3)) {
     thumb_head[0] = 0;
     thumb_offset = 0x1000;
     thumb_length = 0x2c00;
@@ -611,7 +611,7 @@ int main(int argc, char **argv)
   {
     fprintf (stderr,
     "\nRaw Photo Parser and Thumbnail Extracter"
-    "\nby Dave Coffin at cybercom dot net, user dcoffin"
+    "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n", argv[0]);
     exit(1);
   }
