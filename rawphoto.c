@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.13 $
-   $Date: 2004/03/05 17:07:57 $
+   $Revision: 1.14 $
+   $Date: 2004/03/29 19:54:19 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -32,7 +32,7 @@
 #include <libintl.h>
 #define _(String) gettext(String)
 
-#define PLUG_IN_VERSION  "1.1.2 - 5 March 2004"
+#define PLUG_IN_VERSION  "1.1.3 - 29 March 2004"
 
 static void query(void);
 static void run(const gchar *name,
@@ -53,10 +53,10 @@ GimpPlugInInfo PLUG_IN_INFO =
 };
 
 static struct {
-  gboolean check_val[5];
+  gboolean check_val[6];
   gfloat    spin_val[4];
 } cfg = {
-  { FALSE, FALSE, FALSE, FALSE, FALSE },
+  { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE },
   { 0.6, 1, 1, 1 }
 };
 
@@ -95,7 +95,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-    "bay,bmq,cr2,crw,cs1,dcr,fff,jpg,kdc,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
+    "bay,bmq,cr2,crw,cs1,dc2,dcr,fff,jpg,k25,kdc,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
 }
 
 static void run (const gchar *name,
@@ -175,12 +175,13 @@ static gint32 load_image (gchar *filename)
   command = g_malloc (strlen(filename)+100);
   if (!command) return -1;
   sprintf (command,
-	"dcraw -c%s%s%s%s%s -g %0.2f -b %0.2f -r %0.2f -l %0.2f '%s'\n",
+	"dcraw -c%s%s%s%s%s%s -g %0.2f -b %0.2f -r %0.2f -l %0.2f '%s'\n",
 	cfg.check_val[0] ? " -q":"",
-	cfg.check_val[1] ? " -f":"",
-	cfg.check_val[2] ? " -d":"",
-	cfg.check_val[3] ? " -a":"",
-	cfg.check_val[4] ? " -w":"",
+	cfg.check_val[1] ? " -h":"",
+	cfg.check_val[2] ? " -f":"",
+	cfg.check_val[3] ? " -d":"",
+	cfg.check_val[4] ? " -a":"",
+	cfg.check_val[5] ? " -w":"",
 	cfg.spin_val[0], cfg.spin_val[1], cfg.spin_val[2], cfg.spin_val[3],
 	filename );
   fputs (command, stderr);
@@ -238,6 +239,8 @@ static gint32 load_image (gchar *filename)
   return image;
 }
 
+#define NCHECK (sizeof cfg.check_val / sizeof (gboolean))
+
 gint load_dialog (gchar * name)
 {
   GtkWidget *dialog;
@@ -245,9 +248,9 @@ gint load_dialog (gchar * name)
   GtkObject *adj;
   GtkWidget *widget;
   int i;
-  static const char *label[9] =
-  { "Quick interpolation", "Four color interpolation",
-    "Grayscale document",
+  static const char *label[10] =
+  { "Quick interpolation", "Half-size interpolation",
+    "Four color interpolation", "Grayscale document",
     "Automatic white balance", "Camera white balance",
     "Gamma", "Brightness", "Red Multiplier", "Blue Multiplier" };
 
@@ -262,13 +265,13 @@ gint load_dialog (gchar * name)
 
 			NULL);
 
-  table = gtk_table_new (9, 2, FALSE);
+  table = gtk_table_new (10, 2, FALSE);
   gtk_container_set_border_width (GTK_CONTAINER(table), 6);
   gtk_box_pack_start
 	(GTK_BOX(GTK_DIALOG(dialog)->vbox), table, FALSE, FALSE, 0);
   gtk_widget_show (table);
 
-  for (i=0; i < 5; i++) {
+  for (i=0; i < NCHECK; i++) {
     widget = gtk_check_button_new_with_label
 	(_(label[i]));
     gtk_toggle_button_set_active
@@ -281,7 +284,7 @@ gint load_dialog (gchar * name)
     gtk_widget_show (widget);
   }
 
-  for (i=5; i < 9; i++) {
+  for (i=NCHECK; i < NCHECK+4; i++) {
     widget = gtk_label_new (_(label[i]));
     gtk_misc_set_alignment (GTK_MISC (widget), 1.0, 0.5);
     gtk_misc_set_padding   (GTK_MISC (widget), 10, 0);
@@ -289,12 +292,12 @@ gint load_dialog (gchar * name)
 	(GTK_TABLE(table), widget, 0, 1, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
     gtk_widget_show (widget);
     widget = gimp_spin_button_new
-	(&adj, cfg.spin_val[i-5], 0.01, 4.0, 0.01, 0.1, 0.1, 0.1, 2);
+	(&adj, cfg.spin_val[i-NCHECK], 0.01, 4.0, 0.01, 0.1, 0.1, 0.1, 2);
     gtk_table_attach
 	(GTK_TABLE(table), widget, 1, 2, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
     gtk_signal_connect (GTK_OBJECT (adj), "value_changed",
 			GTK_SIGNAL_FUNC (gimp_float_adjustment_update),
-			&cfg.spin_val[i-5]);
+			&cfg.spin_val[i-NCHECK]);
     gtk_widget_show (widget);
   }
 
