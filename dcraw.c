@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.46 $
-   $Date: 2002/03/28 01:05:30 $
+   $Revision: 1.47 $
+   $Date: 2002/03/29 02:23:51 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -669,6 +669,23 @@ void nikon_d1x_read_crw()
   struct decode *dindex;
   register int diff;
 
+/* Read an uncompressed image */
+  fseek (ifp, nef_data_offset+76, SEEK_SET);
+  if (fget2(ifp) != 0x8799) {
+    fseek (ifp, nef_data_offset+160, SEEK_SET);
+    fseek (ifp, fget4(ifp)+8, SEEK_SET);
+    getbits(-1);
+
+    for (row=0; row < 1324; row++)
+      for (col=0; col < 4028; col++) {
+	diff = getbits(12);
+	if (col < width)
+	  image[row*width+col][FC(row,col)] = diff << 2;
+      }
+    return;
+  }
+
+/* Read an compressed image */
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
 
@@ -684,7 +701,8 @@ void nikon_d1x_read_crw()
   for (i=0; i < csize; i++)
     curve[i] = fget2(ifp);
 
-  fseek (ifp, nef_data_offset+244, SEEK_SET);
+  fseek (ifp, nef_data_offset+100, SEEK_SET);
+  fseek (ifp, fget4(ifp), SEEK_SET);
   getbits(-1);
 
   for (row=0; row < 1324; row++)
@@ -702,7 +720,7 @@ void nikon_d1x_read_crw()
 	hpred[col] = vpred[i];
       } else
 	hpred[col & 1] += diff;
-      if (col >= 4024) continue;
+      if (col >= width) continue;
       diff = hpred[col & 1];
       if (diff < 0) diff = 0;
       if (diff >= csize) diff = csize-1;
@@ -1005,7 +1023,6 @@ int open_and_id(char *fname)
     read_crw = eos1d_read_crw;
     rgb_mul[0] = 1.976;
     rgb_mul[2] = 1.282;
-    return 0;
 #else
     fprintf(stderr,"crw.c was compiled without EOS-1D support.\n",fname);
     return 1;
@@ -1269,7 +1286,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.70"
+    "\nCanon PowerShot Converter v2.75"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
