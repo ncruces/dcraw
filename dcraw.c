@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.75 $
-   $Date: 2002/11/13 17:37:41 $
+   $Revision: 1.76 $
+   $Date: 2002/11/24 15:00:57 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1844,7 +1844,7 @@ void write_png(FILE *ofp)
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
 	if (val > 0xffff) val=0xffff;
-	png[x-1][c] = val;
+	png[x-trim][c] = val;
       }
     }
     png_write_row(png_ptr, (png_bytep) png);
@@ -1879,7 +1879,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v3.52"
+    "\nRaw Photo Decoder v3.53"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
