@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.198 $
-   $Date: 2004/07/06 18:36:13 $
+   $Revision: 1.199 $
+   $Date: 2004/07/28 04:25:31 $
  */
 
 #define _GNU_SOURCE
@@ -2841,7 +2841,7 @@ nucore:
     if (memcmp (head+6,"HEAPCCDR",8)) {
       filters = 0x61616161;
       load_raw = lossless_jpeg_load_raw;
-    } else
+    } else if (raw_width)
       load_raw = canon_compressed_load_raw;
   }
   if (!strcmp(make,"NIKON"))
@@ -2856,7 +2856,8 @@ nucore:
     load_raw = canon_600_load_raw;
     pre_mul[0] = 1.137;
     pre_mul[1] = 1.257;
-  } else if (!strcmp(model,"PowerShot A5")) {
+  } else if (!strcmp(model,"PowerShot A5") ||
+	     !strcmp(model,"PowerShot A5 Zoom")) {
     height = 776;
     width  = 960;
     raw_width = 992;
@@ -3744,7 +3745,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.87"
+    "\nRaw Photo Decoder \"dcraw\" v5.88"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
