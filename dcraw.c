@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.28 $
-   $Date: 2001/10/14 20:46:29 $
+   $Revision: 1.29 $
+   $Date: 2001/10/15 04:28:53 $
 */
 
 #include <math.h>
@@ -27,7 +27,9 @@ typedef unsigned short ushort;
 /* Global Variables */
 
 FILE *ifp;
+short order;
 int height, width, colors;
+char name[64];
 ushort (*image)[4];
 int (*filter)(int,int);
 void (*read_crw)();
@@ -664,36 +666,80 @@ second_interpolate()
 }
 
 /*
-   Search for string str in block data of length len.
-   Return pointer to matching string, or zero if not found.
+   Get a 2-byte integer, making no assumptions about CPU byte order.
  */
-char *search(char *data, int len, char *str)
+short fget2 (FILE *f)
 {
-  char *d;
-  int slen, i;
-
-  slen=strlen(str);
-  for (d=data; d < data+len-slen; d++) {
-    for (i=0; d[i]==str[i] && i++ < slen; );
-    if (i >= slen) return d;
+  if (order == 0x4949)		/* "II" means little-endian */
+    return fgetc(f) + (fgetc(f) << 8);
+  else if (order == 0x4d4d)	/* "MM" means big-endian */
+    return (fgetc(f) << 8) + fgetc(f);
+  else {
+    fprintf(stderr,"Unknown byte order!");
+    exit(1);
   }
-  return 0;
 }
 
-#define tlen 0x8000
+/*
+   Same for a 4-byte integer.
+ */
+int fget4 (FILE *f)
+{
+  if (order == 0x4949)
+    return fgetc(f) + (fgetc(f) << 8) + (fgetc(f) << 16) + (fgetc(f) << 24);
+  else if (order == 0x4d4d)
+    return (fgetc(f) << 24) + (fgetc(f) << 16) + (fgetc(f) << 8) + fgetc(f);
+  else {
+    fprintf(stderr,"Unknown byte order!");
+    exit(1);
+  }
+}
+
+/*
+   Parse the CIFF structure looking for two pieces of information:
+   The camera name, and the decode table number.
+ */
+parse (int offset, int length)
+{
+  int save, toff, nrecs, i, type, len, off;
+
+  fseek (ifp, offset+length-4, SEEK_SET);
+  toff = fget4(ifp) + offset;
+  fseek (ifp, toff, SEEK_SET);
+  nrecs = fget2(ifp);
+  for (i=0; i < nrecs; i++) {
+    type = fget2(ifp);
+    len  = fget4(ifp);
+    off  = fget4(ifp);
+    save = ftell(ifp);
+    if (type == 0x080a) {		/* Get the camera name */
+      fseek (ifp, offset+off, SEEK_SET);
+      while (fgetc(ifp));
+      fread (name, 64, 1, ifp);
+    }
+    if (type == 0x1835) {		/* Get the decoder table */
+      fseek (ifp, offset+off, SEEK_SET);
+      init_tables (fget4(ifp));
+    }
+    if (type >> 8 == 0x28 || type >> 8 == 0x30)	/* Get sub-tables */
+      parse (offset+off, len);
+    fseek (ifp, save, SEEK_SET);
+  }
+}
+
 /*
    Open a CRW file, identify which camera created it, and set
    global variables accordingly.  Returns nonzero if an error occurs.
  */
 open_and_id(char *fname)
 {
-  char head[26], tail[tlen], *name, *p;
+  char head[8];
   static const float def_coeff[3][4] = {
     { -2.400719,  3.539540, -2.515721,  3.421035 },	/* red from GMCY */
     {  4.013642, -1.710916,  0.690795,  0.417247 },	/* green from GMCY */
     { -2.345669,  3.385090,  3.521597, -2.249256 }	/* blue from GMCY */
   };
-  int i, r, g;
+  int hlen, i, r, g;
 
   for (i=0; i < 4; i++) ymul[i]=1.0;
   for (i=0; i < 3; i++) rgb_mul[i]=1.0;
@@ -704,24 +750,21 @@ open_and_id(char *fname)
     perror(fname);
     return 1;
   }
-  fread (head,1,26,ifp);
-  if (memcmp(head+6,"HEAPCCDR",8)) {
+  fread (&order, 2, 1, ifp);
+  hlen = fget4(ifp);
+
+  fread (head, 1, 8, ifp);
+  if (memcmp(head,"HEAPCCDR",8)) {
     fprintf(stderr,"%s is not a Canon CRW file.\n",fname);
     return 1;
   }
-/*
-   Read the last tlen bytes of the file
- */
-  fseek (ifp, -tlen, SEEK_END);
-  fread (tail, 1, tlen, ifp);
-  fseek (ifp, 26, SEEK_SET);
 
-  name = search(tail, tlen, "Canon PowerShot ");
-  if (!name) name = search(tail, tlen, "Canon EOS ");
-  if (!name) {
-    fprintf(stderr,"%s: camera is not a Canon PowerShot.\n",fname);
-    return 1;
-  } else if (!strcmp(name,"Canon PowerShot 600")) {
+  name[0] = 0;
+  fseek (ifp, 0, SEEK_END);
+  parse (hlen, ftell(ifp) - hlen);
+  fseek (ifp, hlen, SEEK_SET);
+
+  if (!strcmp(name,"Canon PowerShot 600")) {
     height = 613;
     width  = 854;
     rgb_mul[1] = 0.6;
@@ -755,14 +798,13 @@ open_and_id(char *fname)
     rgb_mul[2] = 0.792;
     filter   = pro70_filter;
     read_crw = pro70_read_crw;
-  } else if (!strncmp(name,"Canon PowerShot Pro90",21)) {
+  } else if (!strcmp(name,"Canon PowerShot Pro90 IS")) {
     height = 1416;
     width  = 1896;
     rgb_mul[1] = 0.628;
     rgb_mul[2] = 0.792;
     filter   = pro90_filter;
     read_crw = pro90_read_crw;
-    init_tables (name[4762]);
   } else if (!strcmp(name,"Canon PowerShot G1")) {
     height = 1550;
     width  = 2088;
@@ -770,7 +812,6 @@ open_and_id(char *fname)
     rgb_mul[2] = 0.792;
     filter   = pro90_filter;
     read_crw = g1_read_crw;
-    init_tables (name[4762]);
   } else if (!strcmp(name,"Canon PowerShot G2") ||
 	     !strcmp(name,"Canon PowerShot S40")) {
     height = 1720;
@@ -780,7 +821,6 @@ open_and_id(char *fname)
     rgb_mul[2] = 0.792;
     filter   = rgb_filter;
     read_crw = g2_read_crw;
-    init_tables (name[4774]);
   } else if (!strcmp(name,"Canon EOS D30")) {
     height = 1448;
     width  = 2176;
@@ -789,7 +829,6 @@ open_and_id(char *fname)
     rgb_mul[2] = 0.792;
     filter   = rgb_filter;
     read_crw = d30_read_crw;
-    init_tables (name[3594]);
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
@@ -800,7 +839,6 @@ open_and_id(char *fname)
   }
   return 0;
 }
-#undef tlen
 
 /*
    Convert a GMCY quadruplet to an RGB triplet.
@@ -917,7 +955,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.00"
+    "\nCanon PowerShot Converter v2.10"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
