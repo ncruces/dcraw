@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.209 $
-   $Date: 2004/10/07 01:11:51 $
+   $Revision: 1.210 $
+   $Date: 2004/10/08 02:34:46 $
  */
 
 #define _GNU_SOURCE
@@ -761,31 +761,45 @@ int CLASS nikon_e2100()
   return 1;
 }
 
+/*
+   Separates a Minolta DiMAGE Z2 from a Nikon E4300.
+ */
+int CLASS minolta_z2()
+{
+  int i;
+  char tail[424];
+
+  fseek (ifp, -sizeof tail, SEEK_END);
+  fread (tail, 1, sizeof tail, ifp);
+  for (i=0; i < sizeof tail; i++)
+    if (tail[i]) return 1;
+  return 0;
+}
+
 void CLASS nikon_e2100_load_raw()
 {
-  uchar   data[2424], *dp;
-  ushort pixel[1616], *pix;
+  uchar   data[3432], *dp;
+  ushort pixel[2288], *pix;
   int row, col;
 
   for (row=0; row <= height; row+=2) {
     if (row == height) {
-      fseek (ifp, 8792, SEEK_CUR);
+      fseek (ifp, width==1616 ? 8792:424, SEEK_CUR);
       row = 1;
     }
-    fread (data, 2424, 1, ifp);
-    for (dp=data, pix=pixel; dp < data+2424; dp+=12, pix+=8)
-    {
-      pix[0] = (dp[ 3] << 2) + (dp[2] >> 6);
-      pix[1] = (dp[ 1] >> 2) + (dp[2] << 6);
-      pix[2] = (dp[ 0] << 2) + (dp[7] >> 6);
-      pix[3] = (dp[ 6] >> 2) + (dp[7] << 6);
-      pix[4] = (dp[ 5] << 2) + (dp[4] >> 6);
-      pix[5] = (dp[11] >> 2) + (dp[4] << 6);
-      pix[6] = (dp[10] << 2) + (dp[9] >> 6);
-      pix[7] = (dp[ 8] >> 2) + (dp[9] << 6);
+    fread (data, 1, width*3/2, ifp);
+    for (dp=data, pix=pixel; pix < pixel+width; dp+=12, pix+=8) {
+      pix[0] = (dp[2] >> 4) + (dp[ 3] << 4);
+      pix[1] = (dp[2] << 8) +  dp[ 1];
+      pix[2] = (dp[7] >> 4) + (dp[ 0] << 4);
+      pix[3] = (dp[7] << 8) +  dp[ 6];
+      pix[4] = (dp[4] >> 4) + (dp[ 5] << 4);
+      pix[5] = (dp[4] << 8) +  dp[11];
+      pix[6] = (dp[9] >> 4) + (dp[10] << 4);
+      pix[7] = (dp[9] << 8) +  dp[ 8];
     }
     for (col=0; col < width; col++)
-      BAYER(row,col) = (pixel[col] & 0x3ff) << 4;
+      BAYER(row,col) = (pixel[col] & 0xfff) << 2;
   }
 }
 
@@ -3105,6 +3119,11 @@ nucore:
     height = 1710;
     width  = 2288;
     filters = 0x16161616;
+    if (minolta_z2()) {
+      strcpy (make, "Minolta");
+      strcpy (model,"DiMAGE Z2");
+      load_raw = nikon_e2100_load_raw;
+    }
   } else if (!strcmp(model,"E4500")) {
     height = 1708;
     width  = 2288;
@@ -3867,7 +3886,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.06"
+    "\nRaw Photo Decoder \"dcraw\" v6.07"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
