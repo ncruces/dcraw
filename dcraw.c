@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.226 $
-   $Date: 2005/01/10 07:04:46 $
+   $Revision: 1.227 $
+   $Date: 2005/01/14 00:01:30 $
  */
 
 #define _GNU_SOURCE
@@ -71,7 +71,7 @@ time_t timestamp;
 int data_offset, curve_offset, curve_length;
 int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
-int height, width, colors, black, rgb_max;
+int height, width, fuji_width, colors, black, rgb_max;
 int iheight, iwidth, shrink;
 int is_canon, is_cmy, is_foveon, use_coeff, trim, flip, xmag, ymag;
 int zero_after_ff;
@@ -2967,7 +2967,7 @@ nucore:
   load_raw = NULL;
   height = raw_height;
   width  = raw_width;
-  top_margin = left_margin = 0;
+  fuji_width = top_margin = left_margin = 0;
   colors = 3;
   filters = 0x94949494;
   black = is_cmy = is_foveon = use_coeff = 0;
@@ -3259,6 +3259,7 @@ coolpix:
   } else if (!strcmp(model,"FinePixS2Pro")) {
     height = 3584;
     width  = 3583;
+    fuji_width = 2144;
     filters = 0x61616161;
     load_raw = fuji_s2_load_raw;
     black = 512;
@@ -3268,12 +3269,14 @@ coolpix:
   } else if (!strcmp(model,"FinePix S3Pro")) {
     height = 3583;
     width  = 3584;
+    fuji_width = 2144;
     filters = 0x49494949;
     load_raw = fuji_s3_load_raw;
     rgb_max = 0xffff;
   } else if (!strcmp(model,"FinePix S5000")) {
     height = 2499;
     width  = 2500;
+    fuji_width = 1423;
     filters = 0x49494949;
     load_raw = fuji_s5000_load_raw;
     pre_mul[0] = 1.639;
@@ -3300,6 +3303,7 @@ coolpix:
 fuji_s7000:
     height = 3587;
     width  = 3588;
+    fuji_width = 2047;
     filters = 0x49494949;
     load_raw = fuji_s7000_load_raw;
     rgb_max = 0xf800;
@@ -3307,6 +3311,7 @@ fuji_s7000:
 	     !strcmp(model,"FinePix S20Pro")) {
     height = 2523;
     width  = 2524;
+    fuji_width = 1440;
     filters = 0x49494949;
     load_raw = fuji_f700_load_raw;
     pre_mul[0] = 1.639;
@@ -3869,6 +3874,43 @@ norgb:
     }
 }
 
+void CLASS fuji_rotate()
+{
+  int i, wide, high, row, col;
+  double step;
+  float r, c, fr, fc;
+  unsigned ur, uc;
+  ushort (*img)[4], (*pix)[4];
+
+  if (!fuji_width) return;
+  if (verbose)
+    fprintf (stderr, "Rotating image 45 degrees...\n");
+  fuji_width = (fuji_width + shrink) >> shrink;
+  step = sqrt(0.5);
+  wide = fuji_width / step;
+  high = (height - fuji_width) / step;
+  img = calloc (wide*high, sizeof *img);
+  merror (img, "fuji_rotate()");
+
+  for (row=0; row < high; row++)
+    for (col=0; col < wide; col++) {
+      ur = r = fuji_width + (row-col)*step;
+      uc = c = (row+col)*step;
+      if (ur >= height || uc >= width) continue;
+      fr = r - ur;
+      fc = c - uc;
+      pix = image + ur*width + uc;
+      for (i=0; i < 4; i++)
+	img[row*wide+col][i] =
+	  (pix[    0][i]*(1-fc) + pix[      1][i]*fc) * (1-fr) +
+	  (pix[width][i]*(1-fc) + pix[width+1][i]*fc) * fr;
+    }
+  free (image);
+  width  = wide;
+  height = high;
+  image  = img;
+}
+
 void CLASS flip_image()
 {
   unsigned *flag;
@@ -3933,7 +3975,7 @@ void CLASS write_ppm (FILE *ofp)
 /* Set the white point to the 99th percentile. */
 
   i = width * height * 0.01;
-  if (!strcmp(make,"FUJIFILM") && abs(width-height) < 2) i /= 2;
+  if (fuji_width) i /= 2;
   for (val=0x2000, total=0; --val; )
     if ((total += histogram[val]) > i) break;
   max = val << 4;
@@ -4056,7 +4098,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.23"
+    "\nRaw Photo Decoder \"dcraw\" v6.25"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -4191,6 +4233,7 @@ int CLASS main (int argc, char **argv)
     if (verbose)
       fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
+    fuji_rotate();
     if (user_flip >= 0)
       flip = user_flip;
     if (flip) {
