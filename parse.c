@@ -1,13 +1,13 @@
 /*
    Raw Photo Parser
-   Copyright 2003 by Dave Coffin <dcoffin@shore.net>
+   Copyright 2003 by Dave Coffin cybercom dot net, user dcoffin
 
    This program extracts thumbnail images (preferably JPEGs)
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.7 $
-   $Date: 2003/09/19 15:15:18 $
+   $Revision: 1.8 $
+   $Date: 2003/09/21 19:31:42 $
  */
 
 #include <stdio.h>
@@ -609,7 +609,7 @@ int main(int argc, char **argv)
   {
     fprintf (stderr,
     "\nRaw Photo Parser and Thumbnail Extracter"
-    "\nby Dave Coffin (dcoffin@shore.net)"
+    "\nby Dave Coffin at cybercom dot net, user dcoffin"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n", argv[0]);
     exit(1);
   }
