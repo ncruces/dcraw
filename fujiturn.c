@@ -5,8 +5,8 @@
    Fuji digital cameras.  Compile with -D_16BIT to rotate 48-bit
    PPM images.
 
-   $Revision: 1.4 $
-   $Date: 2003/11/20 17:21:04 $
+   $Revision: 1.5 $
+   $Date: 2004/04/24 03:18:57 $
 
  */
 
@@ -34,7 +34,7 @@ int main()
   FILE *ifp, *ofp;
   value (*in)[3], (*mid)[3], (*pix)[3], (*out)[3];
   char nl;
-  int maxval, i, iwide, ihigh, owide, ohigh;
+  int maxval, i, j, iwide, ihigh, owide, ohigh;
   unsigned irow, icol, orow, ocol;
 
 #if defined(WIN32) || defined(DJGPP)
@@ -48,9 +48,10 @@ int main()
     fprintf (stderr, "Input is not a Fuji image processed by dcraw.\n");
     exit(1);
   }
-  i = (1 << 8*sizeof (value)) - 1;
-  if (maxval != i) {
-    fprintf (stderr, "Input has maxval %d, should be %d\n", maxval, i);
+  i = (maxval > 255) ? 16 : 8;
+  j = 8 * sizeof (value);
+  if (i != j) {
+    fprintf (stderr, "Input is %d-bit, fujiturn is %d-bit\n", i, j);
     exit(1);
   }
   in = calloc (iwide, sizeof *in);
