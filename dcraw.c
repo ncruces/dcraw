@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.132 $
-   $Date: 2003/09/18 02:21:21 $
+   $Revision: 1.133 $
+   $Date: 2003/09/19 04:02:26 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -68,6 +68,8 @@ int four_color_rgb=0, use_camera_wb=0, document_mode=0, quick_interpolate=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
 int histogram[0x1000];
+void write_ppm(FILE *);
+void (*write_fun)(FILE *) = write_ppm;
 
 struct decode {
   struct decode *branch[2];
@@ -2055,18 +2057,36 @@ void foveon_coeff()
   use_coeff = 1;
 }
 
+/*
+   The grass is always greener in my PowerShot G2 when this
+   function is called.  Use at your own risk!
+ */
+void canon_rgb_coeff()
+{
+  static const float my_coeff[3][3] =
+  { {  1.116187, -0.107427, -0.008760 },
+    { -1.551374,  4.157144, -1.605770 },
+    {  0.090939, -0.399727,  1.308788 } };
+  int i, j;
+  float juice = 0.1;	/* weaken the above matrix */
+
+  for (i=0; i < 3; i++)
+    for (j=0; j < 3; j++)
+      coeff[i][j] = my_coeff[i][j] * juice + (i==j) * (1-juice);
+  use_coeff = 1;
+}
+
 void nikon_e950_coeff()
 {
   int r, g;
-  float my_coeff[3][4] =
+  static const float my_coeff[3][4] =
   { { -1.936280,  1.800443, -1.448486,  2.584324 },
     {  1.405365, -0.524955, -0.289090,  0.408680 },
     { -1.204965,  1.082304,  2.941367, -1.818705 } };
 
-  for (r=0; r < 3; r++) {
+  for (r=0; r < 3; r++)
     for (g=0; g < 4; g++)
       coeff[r][g] = my_coeff[r][g];
-  }
   use_coeff = 1;
 }
 
@@ -2130,7 +2150,7 @@ void gmcy_coeff()
 int identify(char *fname)
 {
   char head[26], *c;
-  unsigned hlen, fsize, magic, g;
+  unsigned hlen, fsize, magic, i;
 
   pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
   camera_red = camera_blue = black = timestamp = 0;
@@ -2308,6 +2328,8 @@ nucore:
     width  = 2312;
     filters = 0x94949494;
     load_raw = canon_compressed_load_raw;
+    if (write_fun == write_ppm)		/* Pro users may not want my matrix */
+      canon_rgb_coeff();
     pre_mul[0] = 1.965;
     pre_mul[2] = 1.208;
   } else if (!strcmp(model,"PowerShot G5")  ||
@@ -2669,24 +2691,26 @@ coolpix:
   }
   if (colors == 4 && !use_coeff)
     gmcy_coeff();
-  if (use_coeff)
-    for (g=0; g < colors; g++) {
-      coeff[0][g] *= red_scale;
-      coeff[2][g] *= blue_scale;
+  if (use_coeff)		 /* Apply user-selected color balance */
+    for (i=0; i < colors; i++) {
+      coeff[0][i] *= red_scale;
+      coeff[2][i] *= blue_scale;
     }
-  else if (colors == 3) {
-    pre_mul[0] *= red_scale;	/* Apply user-selected color balance */
+  else {
+    pre_mul[0] *= red_scale;
     pre_mul[2] *= blue_scale;
-    if (four_color_rgb) {		/* Use two types of green */
-      magic = filters;
-      for (g=0; g < 32; g+=4) {
-	if ((filters >> g & 15) == 9)
-	  filters |= 2 << g;
-	if ((filters >> g & 15) == 6)
-	  filters |= 8 << g;
-      }
-      if (filters != magic) colors++;
+  }
+  if (four_color_rgb && filters && colors == 3) {
+    for (i=0; i < 32; i+=4) {
+      if ((filters >> i & 15) == 9)
+	filters |= 2 << i;
+      if ((filters >> i & 15) == 6)
+	filters |= 8 << i;
     }
+    colors++;
+    if (use_coeff)
+      for (i=0; i < 3; i++)
+	coeff[i][3] = coeff[i][1] /= 2;
   }
   return 0;
 }
@@ -2856,14 +2880,13 @@ int main(int argc, char **argv)
 {
   char data[256], *cp;
   int arg, id, identify_only=0, write_to_files=1, minuso=0;
-  void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
 
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.94"
+    "\nRaw Photo Decoder v5.00"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
