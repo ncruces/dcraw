@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.122 $
-   $Date: 2003/06/21 02:06:35 $
+   $Revision: 1.123 $
+   $Date: 2003/06/22 17:01:02 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -25,6 +25,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <errno.h>
+#include <unistd.h>
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -51,6 +53,7 @@ FILE *ifp;
 short order;
 char make[64], model[64], model2[64];
 int raw_height, raw_width;	/* Including black borders */
+int timestamp;
 int tiff_data_offset, tiff_data_compression;
 int kodak_data_compression;
 int nef_curve_offset;
@@ -1342,6 +1345,59 @@ void foveon_interpolate()
 }
 
 /*
+   Seach from the current directory up to the root looking for
+   a ".badpixels" file, and fix those pixels now.
+ */
+void bad_pixels()
+{
+  FILE *fp;
+  char *fname, *cp, line[128];
+  int len, time, row, col, r, c, rad, tot, n, fixed=0;
+
+  for (len=16 ; ; len *= 2) {
+    fname = malloc (len);
+    if (!fname) return;
+    if (getcwd (fname, len-12)) break;
+    free (fname);
+    if (errno != ERANGE) return;
+  }
+  if (*fname != '/') return;
+  cp = fname + strlen(fname);
+  if (cp[-1] == '/') cp--;
+  while (1) {
+    strcpy (cp, "/.badpixels");
+    if ((fp = fopen (fname, "r"))) break;
+    if (cp == fname) break;
+    while (*--cp != '/');
+  }
+  free (fname);
+  if (!fp) return;
+  while (1) {
+    fgets (line, 128, fp);
+    if (feof(fp)) break;
+    cp = strchr (line, '#');
+    if (cp) *cp = 0;
+    if (sscanf (line, "%d %d %d", &col, &row, &time) != 3) continue;
+    if ((unsigned) col >= width || (unsigned) row >= height) continue;
+    if (time > timestamp) continue;
+    for (tot=n=0, rad=1; rad < 3 && n==0; rad++)
+      for (r = row-rad; r <= row+rad; r++)
+	for (c = col-rad; c <= col+rad; c++)
+	  if ((unsigned) r < height && (unsigned) c < width &&
+		(r != row || c != col) && FC(r,c) == FC(row,col)) {
+	    tot += image[r*width+c][FC(r,c)];
+	    n++;
+	  }
+    image[row*width+col][FC(row,col)] = tot/n;
+    if (!fixed++)
+      fprintf (stderr, "Fixed bad pixels at:");
+    fprintf (stderr, " %d,%d", col, row);
+  }
+  if (fixed) fputc ('\n', stderr);
+  fclose (fp);
+}
+
+/*
    Automatic color balance, currently used only in Document Mode.
  */
 void auto_scale()
@@ -1821,6 +1877,10 @@ void parse_ciff(int offset, int length)
       raw_width  = fget2(ifp);
       raw_height = fget2(ifp);
     }
+    if (type == 0x180e) {		/* Get the timestamp */
+      fseek (ifp, aoff, SEEK_SET);
+      timestamp = fget4(ifp);
+    }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
       init_tables (fget4(ifp));
@@ -1957,7 +2017,7 @@ int identify(char *fname)
   unsigned hlen, fsize, magic, g;
 
   pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
-  camera_red = camera_blue = black = 0;
+  camera_red = camera_blue = black = timestamp = 0;
   rgb_max = 0x4000;
   colors = 3;
   is_cmy = is_foveon = use_coeff = 0;
@@ -2644,7 +2704,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.81"
+    "\nRaw Photo Decoder v4.83"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2735,6 +2795,7 @@ int main(int argc, char **argv)
       fprintf (stderr, "Foveon interpolation...\n");
       foveon_interpolate();
     } else {
+      bad_pixels();
       fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
       if (document_mode)
 	auto_scale();
