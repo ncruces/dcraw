@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.52 $
-   $Date: 2002/04/17 21:29:10 $
+   $Revision: 1.53 $
+   $Date: 2002/04/26 03:29:48 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -1042,6 +1042,8 @@ int open_and_id(char *fname)
     colors = 3;
     filters = 0x94949494;
     read_crw = d30_read_crw;
+    rgb_mul[0] = 2.242;
+    rgb_mul[2] = 1.245;
   } else if (!strcmp(name,"Canon EOS-1D")) {
 #ifdef LJPEG_DECODE
     height = 1662;
@@ -1315,7 +1317,7 @@ void exten(char *new, const char *old, const char *ext)
 int main(int argc, char **argv)
 {
   char data[256];
-  int i, arg, write_to_files=1;
+  int i, arg, smooth=1, write_to_files=1;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
@@ -1323,7 +1325,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.86"
+    "\nCanon PowerShot Converter v2.88"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
@@ -1331,6 +1333,7 @@ int main(int argc, char **argv)
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
     "\n-c        Write to standard output"
+    "\n-s <num>  Number of times to smooth colors (1 by default)"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
     "\n-2        Write 24-bit PPM (default)"
@@ -1350,6 +1353,8 @@ int main(int argc, char **argv)
     {
       case 'c':
 	write_to_files = 0;  break;
+      case 's':
+	smooth = atoi(argv[++arg]);  break;
       case 'g':
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
@@ -1396,9 +1401,10 @@ int main(int argc, char **argv)
     }
     fprintf (stderr, "First interpolation...\n");
     first_interpolate();
-    fprintf (stderr, "Second interpolation...\n");
-    second_interpolate();
-
+    for (i=0; i < smooth; i++) {
+      fprintf (stderr, "Second interpolation...\n");
+      second_interpolate();
+    }
     ofp = stdout;
     strcpy (data, "standard output");
     if (write_to_files) {
