@@ -1,5 +1,5 @@
 /*
-   Canon PowerShot Converter v0.95
+   Canon PowerShot Converter v0.96
 
    by Dave Coffin (dcoffin@shore.net)
 
@@ -7,11 +7,10 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.15 $
-   $Date: 2000/05/01 07:06:04 $
+   $Revision: 1.16 $
+   $Date: 2000/05/02 12:18:24 $
 */
 
-#include <ctype.h>
 #include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
@@ -49,8 +48,8 @@ const float ymul[4] = { 1.0005, 1.0056, 0.9980, 0.9959 };
 #define W 1290
 
 #define RED_MUL 1.0
-#define GRN_MUL 0.90
-#define BLU_MUL 0.88
+#define GRN_MUL 0.76
+#define BLU_MUL 0.59
 
 const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
 
@@ -412,7 +411,7 @@ second_interpolate()
    get_rgb() is based on this table.
 */
 
-get_rgb(float rgb[4], ushort gmcy[4])		/* 3.70 seconds */
+get_rgb(float rgb[4], ushort gmcy[4])
 {
   int r, g;
   static const float coeff[3][4] =
@@ -444,6 +443,7 @@ write_ppm(char *fname)
   register unsigned c, val;
   uchar ppm[W][3];
   float rgb[4], max, max2, expo, scale;
+  float gymul[4];
   int histo[1024], total;
   char p6head[32];
 
@@ -492,14 +492,14 @@ write_ppm(char *fname)
 
   expo = (gamma_val-1)/2;		/* Pull these out of the loop */
   for (y=0; y < 4; y++)
-    ymul[y] = bright * 362 / max * pow(ymul[y],gamma_val);
+    gymul[y] = bright * 362 / max * pow(ymul[y],gamma_val);
 
   for (y=1; y < H-1; y++)
   {
     for (x=1; x < W-1; x++)
     {
       get_rgb(rgb,gmcy[y][x]);
-      scale = ymul[y&3] * pow(rgb[3]/max2,expo);
+      scale = gymul[y&3] * pow(rgb[3]/max2,expo);
 
       for (c=0; c < 3; c++)
       {
@@ -534,7 +534,7 @@ main(int argc, char **argv)
 #elif defined(PS_A50)
     "A50"
 #endif
-    " Converter v0.95"
+    " Converter v0.96"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
