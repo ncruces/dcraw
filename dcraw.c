@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.47 $
-   $Date: 2002/03/29 02:23:51 $
+   $Revision: 1.48 $
+   $Date: 2002/04/02 13:44:26 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -1036,7 +1036,6 @@ int open_and_id(char *fname)
     read_crw = nikon_d1x_read_crw;
     rgb_mul[0] = 1.910;
     rgb_mul[2] = 1.220;
-    return 0;
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
