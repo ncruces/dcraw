@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.106 $
-   $Date: 2003/03/23 02:49:33 $
+   $Revision: 1.107 $
+   $Date: 2003/03/29 23:22:37 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -62,6 +62,7 @@ float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
 int four_color_rgb=0, use_camera_wb=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
+int histogram[0x1000];
 
 struct decode {
   struct decode *branch[2];
@@ -2260,41 +2261,46 @@ coolpix:
   return 0;
 }
 
-void get_rgb(float rgb[4], ushort image[4])
+/*
+   Convert the entire image to RGB colorspace and build a histogram.
+ */
+void convert_to_rgb()
 {
-  int r, g;
-  float cmy[4];
+  int row, col, r, g;
+  ushort *img;
+  float rgb[4];
 
-  memset (rgb, 0, 4 * sizeof (float));
-  if (colors == 1) {
-    for (r=0; r < 3; r++)		/* RGB from grayscale */
-      rgb[r] = image[0];
-    rgb[3] = 3 * rgb[0]*rgb[0];
-  } else if (!use_coeff)
-    for (r=0; r < 3; r++) {		/* RGB from RGB */
-      if (r == 1 && colors == 4)
-	rgb[1] = (image[1] + image[3]) >> 1;
-      else
-	rgb[r] = image[r];
-      rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
+  memset (histogram, 0, sizeof histogram);
+  for (row = trim; row < height-trim; row++)
+    for (col = trim; col < width-trim; col++) {
+      img = image[row*width+col];
+      if (colors == 4 && !use_coeff)	/* Recombine the greens */
+	img[1] = (img[1] + img[3]) >> 1;
+      if (colors == 1)			/* RGB from grayscale */
+	for (r=0; r < 3; r++)
+	  rgb[r] = img[0];
+      else if (use_coeff) {		/* RGB from GMCY or Foveon */
+	for (r=0; r < 3; r++)
+	  for (rgb[r]=g=0; g < colors; g++)
+	    rgb[r] += img[g] * coeff[r][g];
+      } else if (is_cmy) {		/* RGB from CMY */
+	rgb[0] = img[0] + img[1] - img[2];
+	rgb[1] = img[1] + img[2] - img[0];
+	rgb[2] = img[2] + img[0] - img[1];
+      } else				/* RGB from RGB (easy) */
+	for (r=0; r < 3; r++)
+	  rgb[r] = img[r];
+      for (rgb[3]=r=0; r < 3; r++) {	/* Compute the magnitude */
+	if (rgb[r] < 0) rgb[r] = 0;
+	if (rgb[r] > rgb_max) rgb[r] = rgb_max;
+	rgb[3] += rgb[r]*rgb[r];
+      }
+      rgb[3] = sqrt(rgb[3]);
+      if (rgb[3] > 0xffff) rgb[3] = 0xffff;
+      for (r=0; r < 4; r++)
+	img[r] = rgb[r];
+      histogram[img[3] >> 4]++;		/* bin width is 16 */
     }
-  else
-    for (r=0; r < 3; r++) {		/* RGB from GMCY or Foveon */
-      for (g=0; g < colors; g++)
-	rgb[r] += image[g] * coeff[r][g];
-      if (rgb[r] < 0) rgb[r] = 0;
-      if (rgb[r] > rgb_max) rgb[r] = rgb_max;
-      rgb[3] += rgb[r]*rgb[r];
-    }
-  if (is_cmy) {
-    memcpy (cmy, rgb, sizeof cmy);
-    rgb[0] = cmy[0] + cmy[1] - cmy[2];
-    rgb[1] = cmy[1] + cmy[2] - cmy[0];
-    rgb[2] = cmy[2] + cmy[0] - cmy[1];
-    for (r=0; r < 3; r++)
-      if (rgb[r] < 0) rgb[r] = 0;
-    rgb[3] = rgb[0]*rgb[0] + rgb[1]*rgb[1] + rgb[2]*rgb[2];
-  }
 }
 
 /*
@@ -2302,30 +2308,17 @@ void get_rgb(float rgb[4], ushort image[4])
  */
 void write_ppm(FILE *ofp)
 {
-  int y, x, i;
-  unsigned c, val;
+  int row, col, i, c, val, total;
+  float max, mul, scale;
+  ushort *rgb;
   uchar (*ppm)[3];
-  float rgb[4], max, max2, expo, mul, scale;
-  int total, histogram[0x1000];
 
 /*
-   Build a histogram of magnitudes using 4096 bins of 64 values each.
- */
-  memset (histogram, 0, sizeof histogram);
-  for (y=trim; y < height-trim; y++)
-    for (x=trim; x < width-trim; x++) {
-      get_rgb (rgb, image[y*width+x]);
-      val = (int) sqrt(rgb[3]) >> 6;
-      if (val > 0xfff) val=0xfff;
-      histogram[val]++;
-    }
-/*
-   Set the white point to the 99.66th percentile
+   Set the white point to the 99th percentile
  */
   for (val=0x1000, total=0; --val; )
     if ((total+=histogram[val]) > (int)(width*height*0.01)) break;
-  max = val << 6;
-  max2 = max * max;
+  max = val << 4;
 
   fprintf (ofp, "P6\n%d %d\n255\n",
 	xmag*(width-trim*2), ymag*(height-trim*2));
@@ -2335,24 +2328,18 @@ void write_ppm(FILE *ofp)
     perror("write_ppm() calloc failed");
     exit(1);
   }
-  expo = (gamma_val-1)/2;		/* Pull these out of the loop */
   mul = bright * 442 / max;
 
-  for (y=trim; y < height-trim; y++)
-  {
-    for (x=trim; x < width-trim; x++)
-    {
-      get_rgb (rgb, image[y*width+x]);
+  for (row=trim; row < height-trim; row++) {
+    for (col=trim; col < width-trim; col++) {
+      rgb = image[row*width+col];
 /* In some math libraries, pow(0,expo) doesn't return zero */
-      scale = 0;
-      if (rgb[3]) scale = mul * pow(rgb[3]/max2,expo);
-
-      for (c=0; c < 3; c++)
-      {
-	val=rgb[c]*scale;
+      scale = rgb[3] ? mul * pow (rgb[3]/max, gamma_val-1) : 0;
+      for (c=0; c < 3; c++) {
+	val = rgb[c] * scale;
 	if (val > 255) val=255;
 	for (i=0; i < xmag; i++)
-	  ppm[xmag*(x-trim)+i][c] = val;
+	  ppm[xmag*(col-trim)+i][c] = val;
       }
     }
     for (i=0; i < ymag; i++)
@@ -2379,9 +2366,8 @@ void write_psd(FILE *ofp)
     0,0,0,0,			/* layer/mask info */
     0,0				/* no compression */
   };
-  int hw[2], psize, y, x, c, val;
-  float rgb[4];
-  ushort *buffer, *pred;
+  int hw[2], psize, row, col, c, val;
+  ushort *buffer, *pred, *rgb;
 
   hw[0] = htonl(height-trim*2);	/* write the header */
   hw[1] = htonl(width-trim*2);
@@ -2396,9 +2382,9 @@ void write_psd(FILE *ofp)
   }
   pred = buffer;
 
-  for (y=trim; y < height-trim; y++) {
-    for (x=trim; x < width-trim; x++) {
-      get_rgb (rgb, image[y*width+x]);
+  for (row = trim; row < height-trim; row++) {
+    for (col = trim; col < width-trim; col++) {
+      rgb = image[row*width+col];
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
 	if (val > 0xffff) val=0xffff;
@@ -2416,9 +2402,8 @@ void write_psd(FILE *ofp)
  */
 void write_ppm16(FILE *ofp)
 {
-  ushort (*ppm)[3];
-  int y, x, c, val;
-  float rgb[4];
+  int row, col, c, val;
+  ushort *rgb, (*ppm)[3];
 
   fprintf (ofp, "P6\n%d %d\n65535\n",
 	width-trim*2, height-trim*2);
@@ -2429,13 +2414,13 @@ void write_ppm16(FILE *ofp)
     exit(1);
   }
 
-  for (y=trim; y < height-trim; y++) {
-    for (x=trim; x < width-trim; x++) {
-      get_rgb (rgb, image[y*width+x]);
+  for (row = trim; row < height-trim; row++) {
+    for (col = trim; col < width-trim; col++) {
+      rgb = image[row*width+col];
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
 	if (val > 0xffff) val=0xffff;
-	ppm[x-trim][c] = htons(val);
+	ppm[col-trim][c] = htons(val);
       }
     }
     fwrite (ppm, width-trim*2, 6, ofp);
@@ -2454,7 +2439,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.54"
+    "\nRaw Photo Decoder v4.60"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2553,6 +2538,8 @@ int main(int argc, char **argv)
       fprintf (stderr, "VNG interpolation...\n");
       vng_interpolate();
     }
+    fprintf (stderr, "Converting to RGB colorspace...\n");
+    convert_to_rgb();
     ofp = stdout;
     strcpy (data, "standard output");
     if (write_to_files) {
