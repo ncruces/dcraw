@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.151 $
-   $Date: 2003/11/16 08:39:38 $
+   $Revision: 1.152 $
+   $Date: 2003/11/25 02:25:27 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1020,14 +1020,14 @@ void le_high_12_load_raw()
   unpacked_load_raw (0xaa55, 2);
 }
 
-void olympus_c5050z_load_raw()
+void olympus_cseries_load_raw()
 {
   int irow, row, col;
 
   for (irow=0; irow < height; irow++) {
     row = irow * 2 % height + irow / (height/2);
     if (row < 2) {
-      fseek (ifp, 15360 + row*(width*height*3/4 + 184), SEEK_SET);
+      fseek (ifp, 15360 - row*(-width*height*3/4 & -2048), SEEK_SET);
       getbits(-1);
     }
     for (col=0; col < width; col++)
@@ -2718,9 +2718,14 @@ coolpix:
     height = 1926;
     width  = 2576;
     filters = 0x16161616;
-    load_raw = olympus_c5050z_load_raw;
+    load_raw = olympus_cseries_load_raw;
     pre_mul[0] = 1.533;
     pre_mul[2] = 1.880;
+  } else if (!strcmp(model,"C5060WZ")) {
+    height = 1950;
+    width  = 2608;
+    filters = 0x94949494;
+    load_raw = olympus_cseries_load_raw;
   } else if (!strcmp(model,"N DIGITAL")) {
     height = 2047;
     width  = 3072;
@@ -3092,7 +3097,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.18"
+    "\nRaw Photo Decoder v5.19"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
