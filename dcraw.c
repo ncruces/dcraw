@@ -29,7 +29,7 @@ uchar pgm[613][854];
 #define BLACK 6
 
 /* Matrix used for solving equations */
-float mat[3][4];
+double mat[3][4];
 
 /* DOS likes to trash binary files!! */
 #ifndef O_BINARY
@@ -52,7 +52,14 @@ float mat[3][4];
 	 0	 1	 1	cyan
 	 1	 1	 0	yellow
 */
-float coeff[4][3] =
+const float coeff[4][3] =
+{
+  { 0.052296, 0.255409,-0.047466 },
+  { 0.156993, 0.046792, 0.046537 },
+  {-0.004344, 0.280239, 0.045865 },
+  { 0.145482, 0.309211,-0.089371 },
+};
+
 #if 0
 {
 /*  red *   + green *  + blue *     =   pixel color */
@@ -62,13 +69,6 @@ float coeff[4][3] =
   { 0.184652, 0.391803, -0.127791 },	/* yellow */
 };
 #endif
-
-{
-  { 0.052296, 0.255409,-0.047466 },
-  { 0.156993, 0.046792, 0.046537 },
-  {-0.004344, 0.280239, 0.045865 },
-  { 0.145482, 0.309211,-0.089371 },
-};
 
 /* Read a CRW file into the pgm[] array */
 read_crw(int in)
@@ -180,70 +180,80 @@ solve()
   sub(1,2);
 }
 
-/* Add one pixel to the equation */
-add_pixel (int row, unsigned x, unsigned y)
+/*
+   Converts a GMCY quadruplet into an RGB triplet.
+   The tough part is, we have four equations with three
+   unknowns.  The best answer is to solve the system
+   four times, omitting one equation each time, then
+   average the results.
+*/
+get_rgb(float rgb[3], uchar gmcy[4])
 {
-  int color, value, i;
+  int omit, color, equ, i;
 
-  if (x >= 854 || y >= 613) return;	/* Don't count this pixel */
+  memset(rgb,0,12);
+  for (omit=0; omit < 4; omit++)
+  {
+    for (color=equ=0; color < 4; color++)
+      if (color != omit)
+      {
+	for (i=0; i < 3; i++)
+	  mat[equ][i] = coeff[color][i];
+	mat[equ++][3] = gmcy[color];
+      }
+    solve();
+    for (i=0; i < 3; i++)	/* Save this solution */
+      rgb[i] += mat[i][3];
+  }
+}
+
+/*
+   Returns the color of the given pixel.  The pattern goes:
+
+(0,0)->	G M G M G M
+	C Y C Y C Y
+	M G M G M G
+	C Y C Y C Y
+*/
+color (unsigned x, unsigned y)
+{
+  int color;
+
   color = ((y & 1) << 1) + (x & 1);
   if ((y & 3) == 2)		/* 0=green, 1=magenta, 2=cyan, 3=yellow */
     color ^= 1;			/* Swap green and magenta */
-  value = pgm[y][x] - BLACK;
-#if BLACK
-  if (value < 0) value=0;
-#endif
-  for (i=0; i < 3; i++)
-    mat[row][i] += coeff[color][i];
-  mat[row][3] += value;
+  return color;
 }
 
 write_ppm(char *fname)
 {
-  int out, y, x, c, val;
-  uchar ppm[854*3], *pptr, max[4];
-  float scale=1;
+  int out, y, x, sy, sx, c, val;
+  uchar gmcy[4], ppm[853][3];
+  float rgb[3];
 
   out = open(fname,WFLAGS,0644);
   if (out < 0)
   { perror(fname);
     return; }
-  write(out,"P6\n854 613\n255\n",15);
+  write(out,"P6\n853 612\n255\n",15);
 
-#if 0
-  memset(max,0,4);
-  for (y=0; y < 613; y++)
-    for (x=0; x < 854; x++)
-    {
-      c = ((y & 1) << 1) + (x & 1);
-      if ((y & 3) == 2)		/* 0=green, 1=magenta, 2=cyan, 3=yellow */
-	c ^= 1;			/* Swap green and magenta */
-      if (max[c] < pgm[y][x])
-	max[c] = pgm[y][x];
-    }
-#endif
-
-  for (y=0; y < 613; y++)
+  for (y=0; y < 612; y++)
   {
-    pptr=ppm;
-    for (x=0; x < 854; x++)
+    for (x=0; x < 853; x++)
     {
-      memset(mat,0,sizeof mat);	/* Zero out the matrix */
-      add_pixel(0,x,y);		/* Equation 0 uses this pixel */
-      add_pixel(1,x-1,y);	/* Equation 1 uses pixels left and right */
-      add_pixel(1,x+1,y);
-      add_pixel(2,x,y-1);	/* Equation 2 uses pixels above and below */
-      add_pixel(2,x,y+1);
-      solve();			/* Solve for red, green, and blue */
-      for (c=0; c < 3; c++)	/* Scale and save these values */
+      for (sy=y; sy < y+2; sy++)
+	for (sx=x; sx < x+2; sx++)
+	  gmcy[color(sx,sy)] = pgm[sy][sx] - BLACK;
+      get_rgb(rgb,gmcy);
+      for (c=0; c < 3; c++)	/* Scale and save the RGB values */
       {
-	val = floor(mat[c][3] * scale);
+	val = floor(rgb[c]/4);
 	if (val < 0) val=0;
 	if (val > 255) val=255;
-	*pptr++ = val;
+	ppm[x][c] = val;
       }
     }
-    write (out, ppm, 854*3);
+    write (out, ppm, sizeof ppm);
   }
   close(out);
 }
