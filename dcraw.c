@@ -20,16 +20,10 @@ typedef unsigned char uchar;
 uchar pgm[613][854];
 
 /*
-   Write the raw pixel values to a PGM file before RGB conversion.
-   Useful for debugging.
+   Write the raw pixel values to a PGM file before
+   RGB conversion.  Useful for debugging.
 */
 #define WANT_PGM_FILE
-
-/* Subtract this number from all pixels after writing PGM file. */
-#define BLACK 6
-
-/* Matrix used for solving equations */
-double mat[3][4];
 
 /* DOS likes to trash binary files!! */
 #ifndef O_BINARY
@@ -38,37 +32,28 @@ double mat[3][4];
 
 #define WFLAGS O_WRONLY | O_CREAT | O_TRUNC | O_BINARY
 
+/* Subtract this number from all input pixels */
+#define BLACK 6
+
 /*
      This table describes the color response of the four
-  pixel types, according to experiment.  I have no idea
-  why some terms are negative.  Perhaps Canon would like
-  to fill in the correct values?
+  pixel types, according to experiment.  It is used by
+  get_rgb() to convert GMCY colorspace to RGB.
 
-     An intuitive, but incorrect, table would be:
-
-	red	green	blue
-	 0	 1	 0	green
-	 1	 0	 1	magenta
-	 0	 1	 1	cyan
-	 1	 1	 0	yellow
+     Notice that blue light generates a negative response
+  in green and yellow pixels.  Strange.
 */
 const float coeff[4][3] =
 {
-  { 0.052296, 0.255409,-0.047466 },
-  { 0.156993, 0.046792, 0.046537 },
-  {-0.004344, 0.280239, 0.045865 },
-  { 0.145482, 0.309211,-0.089371 },
+/*  red *   + green *  + blue *     =   pixel color */
+  { 0.052296, 0.255409,-0.047466 },    /* green */
+  { 0.156993, 0.046792, 0.046537 },    /* magenta */
+  {-0.004344, 0.280239, 0.045865 },    /* cyan */
+  { 0.145482, 0.309211,-0.089371 },    /* yellow */
 };
 
-#if 0
-{
-/*  red *   + green *  + blue *     =   pixel color */
-  { 0.051146, 0.319806, -0.067939 },	/* green */
-  { 0.219660, 0.045533,  0.048611 },	/* magenta */
-  {-0.045775, 0.337888,  0.057842 },	/* cyan */
-  { 0.184652, 0.391803, -0.127791 },	/* yellow */
-};
-#endif
+/* Matrix used for solving equations */
+double mat[3][4];
 
 /* Read a CRW file into the pgm[] array */
 read_crw(int in)
@@ -144,8 +129,8 @@ read_pgm(int in)
 /*
      These three functions solve a 4x3 matrix (three equations,
   three unknowns), leaving the answers in the last column.  To
-  improve performance, this should be inlined or written in
-  assembly.
+  improve performance, they should be combined, inlined, and
+  written in assembly.
 */
 norm(row)
 {
@@ -182,12 +167,13 @@ solve()
 
 /*
    Converts a GMCY quadruplet into an RGB triplet.
-   The tough part is, we have four equations with three
-   unknowns.  The best answer is to solve the system
-   four times, omitting one equation each time, then
-   average the results.
+   We have four equations with three unknowns.  My
+   answer is to solve the system four times, omitting
+   one equation each time, then average the results.
+
+   Canon must know a better way--this method is SLOW!!!
 */
-get_rgb(float rgb[3], uchar gmcy[4])
+get_rgb(float rgb[3], int gmcy[4])
 {
   int omit, color, equ, i;
 
@@ -208,7 +194,7 @@ get_rgb(float rgb[3], uchar gmcy[4])
 }
 
 /*
-   Returns the color of the given pixel.  The pattern goes:
+   Returns the color of a given pixel.  The pattern goes:
 
 (0,0)->	G M G M G M
 	C Y C Y C Y
@@ -225,29 +211,37 @@ color (unsigned x, unsigned y)
   return color;
 }
 
+/*
+   Interpolate GMCY values for each non-edge pixel (using
+   all eight neighbors), then convert the result to RGB.
+*/
 write_ppm(char *fname)
 {
-  int out, y, x, sy, sx, c, val;
-  uchar gmcy[4], ppm[853][3];
+  int out, y, x, sy, sx, c, val, gmcy[4];
+  uchar ppm[852][3];
   float rgb[3];
+  uchar shift[]={ 0,1,0, 1,2,1, 0,1,0 }, *sp;
 
   out = open(fname,WFLAGS,0644);
   if (out < 0)
   { perror(fname);
     return; }
-  write(out,"P6\n853 612\n255\n",15);
+  write(out,"P6\n852 611\n255\n",15);
 
-  for (y=0; y < 612; y++)
+  for (y=0; y < 611; y++)
   {
-    for (x=0; x < 853; x++)
+    for (x=0; x < 852; x++)
     {
-      for (sy=y; sy < y+2; sy++)
-	for (sx=x; sx < x+2; sx++)
-	  gmcy[color(sx,sy)] = pgm[sy][sx] - BLACK;
-      get_rgb(rgb,gmcy);
-      for (c=0; c < 3; c++)	/* Scale and save the RGB values */
+      memset(gmcy,0,sizeof gmcy);
+      sp=shift;
+      for (sy=y; sy < y+3; sy++) /* Average a 3x3 block */
+	for (sx=x; sx < x+3; sx++)
+	  gmcy[color(sx,sy)] += pgm[sy][sx] - BLACK << *sp++;
+
+      get_rgb(rgb,gmcy);	/* Convert GMCY averages to RGB */
+      for (c=0; c < 3; c++)
       {
-	val = floor(rgb[c]/4);
+	val = floor(rgb[c]/24);	/* Scale and save the RGB values */
 	if (val < 0) val=0;
 	if (val > 255) val=255;
 	ppm[x][c] = val;
