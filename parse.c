@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.19 $
-   $Date: 2004/09/16 20:02:19 $
+   $Revision: 1.20 $
+   $Date: 2004/10/25 04:10:34 $
  */
 
 #include <stdio.h>
@@ -87,8 +87,8 @@ void tiff_dump(int base, int tag, int type, int count, int level)
   if (count * size[type < 13 ? type:0] > 4)
     fseek (ifp, fget4(ifp)+base, SEEK_SET);
   save = ftell(ifp);
-  printf("%*stag=0x%x, type=%d, count=%d, data=",
-	level*2, "", tag, type, count);
+  printf("%*stag=0x%x, type=%d, count=%d, offset=%06x, data=",
+	level*2, "", tag, type, count, save);
   if (type==2) putchar('\"');
   for (j = 0; j < count && j < DLEN; j++)
     switch (type) {
@@ -382,6 +382,38 @@ void parse_ciff (int offset, int length, int level)
   }
 }
 
+void parse_mos(int level)
+{
+  uchar data[64];
+  int skip, save;
+  char *cp;
+
+  save = ftell(ifp);
+  while (1) {
+    fread (data, 1, 8, ifp);
+    if (strcmp(data,"PKTS")) break;
+    strcpy (model, "Valeo");
+    printf ("%*s%s ", level, "", data);
+    fread (data, 1, 40, ifp);
+    skip = fget4(ifp);
+    printf ("%s %d bytes: ", data, skip);
+    if (!strcmp(data,"JPEG_preview_data")) {
+      thumb_head[0] = 0;
+      thumb_offset = ftell(ifp);
+      thumb_length = skip;
+    }
+    fread (data, 1, 64, ifp);
+    fseek (ifp, -64, SEEK_CUR);
+    data[63] = 0;
+    while ((cp=index(data,'\n')))
+      *cp = ' ';
+    printf ("%s\n",data);
+    parse_mos(level+2);
+    fseek (ifp, skip, SEEK_CUR);
+  }
+  fseek (ifp, save, SEEK_SET);
+}
+
 void parse_rollei()
 {
   char line[128], *val;
@@ -651,6 +683,10 @@ int identify(char *fname)
     parse_rollei();
   else if (!memcmp (head,"FOVb",4))
     parse_foveon();
+  fseek (ifp, 8, SEEK_SET);
+  parse_mos(0);
+  fseek (ifp, 3472, SEEK_SET);
+  parse_mos(0);
   if (model[0] == 0) {
     fprintf (stderr, "%s: unsupported file format.\n", fname);
     return 1;
