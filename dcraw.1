@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "December 17, 2003"
+.TH dcraw 1 "December 22, 2003"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -58,14 +58,20 @@ Use simple bilinear interpolation for quick results.  The
 default is to use a slow, high-quality adaptive algorithm.
 .TP
 .B -g gamma
-Specify the gamma value for eight-bit output.  Default is 0.8.
+Specify the gamma value for eight-bit output.  Default is 0.6.
 .TP
 .B -b brightness
 Specify the output brightness.  Default is 1.0.
 .TP
+.B -a
+Automatic color balance.  The default is to use a fixed
+color balance based on a white card photographed in sunlight.
+.TP
 .B -w
-Use the camera's custom white-balance settings.  The default is
-to use fixed daylight values, calculated from sample images.
+Use the color balance specified by the camera.
+If this can't be found,
+.B dcraw
+prints a warning and reverts to the default.
 .TP
 .B -r red_mul -l blue_mul
 After all other color adjustments, multiply the red and blue
@@ -89,7 +95,7 @@ ppm(5), ppm2tiff(1), pnmtopng(1), gphoto2(1).
 .SH BUGS
 The
 .B -w
-option does not work with most cameras.
+option does not work with many cameras.
 .P
 No attempt is made to save camera settings or thumbnail images.
 .P
