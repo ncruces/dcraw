@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.107 $
-   $Date: 2003/03/29 23:22:37 $
+   $Revision: 1.108 $
+   $Date: 2003/04/12 15:31:58 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1915,9 +1915,9 @@ int identify(char *fname)
     colors = 4;
     filters = 0x1e4e1e4e;
     load_raw = a5_load_raw;
-    pre_mul[0] = 1.550;
-    pre_mul[1] = 1.354;
-    pre_mul[3] = 1.014;
+    pre_mul[0] = 1.5842;
+    pre_mul[1] = 1.2966;
+    pre_mul[2] = 1.0419;
   } else if (!strcmp(model,"PowerShot A50")) {
     height =  968;
     width  = 1290;
@@ -2439,7 +2439,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.60"
+    "\nRaw Photo Decoder v4.61"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
