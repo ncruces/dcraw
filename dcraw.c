@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.33 $
-   $Date: 2001/10/24 17:56:06 $
+   $Revision: 1.34 $
+   $Date: 2001/10/28 01:00:19 $
 */
 
 #include <math.h>
@@ -119,7 +119,7 @@ void a5_read_crw()
    Each data row is 992 ten-bit pixels, packed into 1240 bytes.
  */
   for (row=0; row < height; row++) {
-    fread(data, 1240, 1, ifp);
+    fread (data, 1240, 1, ifp);
     for (dp=data, pix=pixel; dp < data+1200; dp+=10, pix+=8)
     {
       pix[0] = (dp[1] << 2) + (dp[0] >> 6);
@@ -164,7 +164,7 @@ void a50_read_crw()
   Each row is 1320 ten-bit pixels, packed into 1650 bytes.
  */
   for (row=0; row < height; row++) {
-    fread(data, 1650, 1, ifp);
+    fread (data, 1650, 1, ifp);
     for (dp=data, pix=pixel; dp < data+1650; dp+=10, pix+=8)
     {
       pix[0] = (dp[1] << 2) + (dp[0] >> 6);
@@ -209,7 +209,7 @@ void pro70_read_crw()
   Each row is 1552 ten-bit pixels, packed into 1940 bytes.
  */
   for (row=0; row < height; row++) {
-    fread(data, 1940, 1, ifp);
+    fread (data, 1940, 1, ifp);
     for (dp=data, pix=pixel; dp < data+1940; dp+=10, pix+=8)
     {
       pix[0] = (dp[1] << 2) + (dp[0] >> 6);
@@ -650,14 +650,10 @@ second_interpolate()
  */
 short fget2 (FILE *f)
 {
-  if (order == 0x4949)		/* "II" means little-endian */
-    return fgetc(f) + (fgetc(f) << 8);
-  else if (order == 0x4d4d)	/* "MM" means big-endian */
+  if (order == 0x4d4d)		/* "MM" means big-endian */
     return (fgetc(f) << 8) + fgetc(f);
-  else {
-    fprintf(stderr,"Unknown byte order!");
-    exit(1);
-  }
+  else
+    return fgetc(f) + (fgetc(f) << 8);
 }
 
 /*
@@ -665,14 +661,10 @@ short fget2 (FILE *f)
  */
 int fget4 (FILE *f)
 {
-  if (order == 0x4949)
-    return fgetc(f) + (fgetc(f) << 8) + (fgetc(f) << 16) + (fgetc(f) << 24);
-  else if (order == 0x4d4d)
+  if (order == 0x4d4d)
     return (fgetc(f) << 24) + (fgetc(f) << 16) + (fgetc(f) << 8) + fgetc(f);
-  else {
-    fprintf(stderr,"Unknown byte order!");
-    exit(1);
-  }
+  else
+    return fgetc(f) + (fgetc(f) << 8) + (fgetc(f) << 16) + (fgetc(f) << 24);
 }
 
 /*
@@ -681,28 +673,29 @@ int fget4 (FILE *f)
  */
 parse (int offset, int length)
 {
-  int save, toff, nrecs, i, type, len, off;
+  int tboff, nrecs, i, type, len, roff, aoff, save;
 
   fseek (ifp, offset+length-4, SEEK_SET);
-  toff = fget4(ifp) + offset;
-  fseek (ifp, toff, SEEK_SET);
+  tboff = fget4(ifp) + offset;
+  fseek (ifp, tboff, SEEK_SET);
   nrecs = fget2(ifp);
   for (i=0; i < nrecs; i++) {
     type = fget2(ifp);
     len  = fget4(ifp);
-    off  = fget4(ifp);
+    roff = fget4(ifp);
+    aoff = offset + roff;
     save = ftell(ifp);
     if (type == 0x080a) {		/* Get the camera name */
-      fseek (ifp, offset+off, SEEK_SET);
+      fseek (ifp, aoff, SEEK_SET);
       while (fgetc(ifp));
       fread (name, 64, 1, ifp);
     }
     if (type == 0x1835) {		/* Get the decoder table */
-      fseek (ifp, offset+off, SEEK_SET);
+      fseek (ifp, aoff, SEEK_SET);
       init_tables (fget4(ifp));
     }
     if (type >> 8 == 0x28 || type >> 8 == 0x30)	/* Get sub-tables */
-      parse (offset+off, len);
+      parse (aoff, len);
     fseek (ifp, save, SEEK_SET);
   }
 }
@@ -732,11 +725,11 @@ open_and_id(char *fname)
     perror(fname);
     return 1;
   }
-  fread (&order, 2, 1, ifp);
-  hlen = fget4(ifp);
+  order = fget2(ifp);
+  hlen  = fget4(ifp);
 
   fread (head, 1, 8, ifp);
-  if (memcmp(head,"HEAPCCDR",8)) {
+  if (memcmp(head,"HEAPCCDR",8) || (order != 0x4949 && order != 0x4d4d)) {
     fprintf(stderr,"%s is not a Canon CRW file.\n",fname);
     return 1;
   }
@@ -992,7 +985,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.30"
+    "\nCanon PowerShot Converter v2.32"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"

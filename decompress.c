@@ -1,19 +1,23 @@
 /*
-   Simple reference decompresser for the Canon PowerShot Pro90,
-   PowerShot G1, and possibly other cameras.  Outputs raw 16-bit
-   CCD data, no header, native byte order.
+   Simple reference decompresser for Canon digital cameras.
+   Outputs raw 16-bit CCD data, no header, native byte order.
+
+   $Revision: 1.4 $
+   $Date: 2001/10/28 00:56:51 $
 */
 
 #include <stdio.h>
 #include <string.h>
 
 typedef unsigned char uchar;
-/* typedef unsigned short ushort; */
+typedef unsigned short ushort;
 
 /* Global Variables */
 
 FILE *ifp;
+short order;
 int height, width, table;
+char name[64];
 
 struct decode {
   struct decode *branch[2];
@@ -21,66 +25,102 @@ struct decode {
 } first_decode[32], second_decode[512];
 
 /*
-   Search for string str in block data of length len.
-   Return pointer to matching string, or zero if not found.
+   Get a 2-byte integer, making no assumptions about CPU byte order.
  */
-char *search(char *data, int len, char *str)
+short fget2 (FILE *f)
 {
-  char *d;
-  int slen, i;
-
-  slen=strlen(str);
-  for (d=data; d < data+len-slen; d++) {
-    for (i=0; d[i]==str[i] && i++ < slen; );
-    if (i >= slen) return d;
-  }
-  return 0;
+  if (order == 0x4d4d)		/* "MM" means big-endian */
+    return (fgetc(f) << 8) + fgetc(f);
+  else
+    return fgetc(f) + (fgetc(f) << 8);
 }
 
-#define tlen 0x8000
+/*
+   Same for a 4-byte integer.
+ */
+int fget4 (FILE *f)
+{
+  if (order == 0x4d4d)
+    return (fgetc(f) << 24) + (fgetc(f) << 16) + (fgetc(f) << 8) + fgetc(f);
+  else
+    return fgetc(f) + (fgetc(f) << 8) + (fgetc(f) << 16) + (fgetc(f) << 24);
+}
+
+/*
+   Parse the CIFF structure looking for two pieces of information:
+   The camera name, and the decode table number.
+ */
+parse (int offset, int length)
+{
+  int tboff, nrecs, i, type, len, roff, aoff, save;
+
+  fseek (ifp, offset+length-4, SEEK_SET);
+  tboff = fget4(ifp) + offset;
+  fseek (ifp, tboff, SEEK_SET);
+  nrecs = fget2(ifp);
+  for (i = 0; i < nrecs; i++) {
+    type = fget2(ifp);
+    len  = fget4(ifp);
+    roff = fget4(ifp);
+    aoff = offset + roff;
+    save = ftell(ifp);
+    if (type == 0x080a) {		/* Get the camera name */
+      fseek (ifp, aoff, SEEK_SET);
+      while (fgetc(ifp));
+      fread (name, 64, 1, ifp);
+    }
+    if (type == 0x1031) {		/* Get the width and height */
+      fseek (ifp, aoff+2, SEEK_SET);
+      width  = fget2(ifp);
+      height = fget2(ifp);
+    }
+    if (type == 0x1835) {		/* Get the decoder table */
+      fseek (ifp, aoff, SEEK_SET);
+      table = fget4(ifp);
+    }
+    if (type >> 8 == 0x28 || type >> 8 == 0x30)	/* Get sub-tables */
+      parse (aoff, len);
+    fseek (ifp, save, SEEK_SET);
+  }
+}
+
 /*
    Open a CRW file, identify which camera created it, and set
    global variables accordingly.  Returns nonzero if an error occurs.
  */
 open_and_id(char *fname)
 {
-  uchar head[26], tail[tlen], *model;
+  char head[8];
+  int hlen;
 
   ifp = fopen(fname,"rb");
   if (!ifp) {
     perror(fname);
     return 1;
   }
-  fread (head,1,26,ifp);
-  if (memcmp(head+6,"HEAPCCDR",8)) {
+  order = fget2(ifp);
+  hlen  = fget4(ifp);
+
+  fread (head, 1, 8, ifp);
+  if (memcmp(head,"HEAPCCDR",8) || (order != 0x4949 && order != 0x4d4d)) {
     fprintf(stderr,"%s is not a Canon CRW file.\n",fname);
     return 1;
   }
-/*
-   Read the last tlen bytes of the file
- */
-  fseek (ifp, -tlen, SEEK_END);
-  fread (tail, 1, tlen, ifp);
 
-  model = search(tail, tlen, "Canon PowerShot ");
-  if (!model) {
-    fprintf(stderr,"Cannot find camera model!\n");
+  name[0] = 0;
+  table = -1;
+  fseek (ifp, 0, SEEK_END);
+  parse (hlen, ftell(ifp) - hlen);
+  fseek (ifp, hlen, SEEK_SET);
+
+  fprintf(stderr,"name = %s, width = %d, height = %d, table = %d\n",
+	name,width,height,table);
+  if (table < 0) {
+    fprintf(stderr,"Cannot decompress %s!!\n",fname);
     return 1;
   }
-  width  = model[4730] + (model[4731]<<8);
-  height = model[4732] + (model[4733]<<8);
-  table  = model[4762];
-  if (!strcmp(model,"Canon PowerShot G2") ||
-      !strcmp(model,"Canon PowerShot S40")) {
-    width  = model[4742] + (model[4743]<<8);
-    height = model[4744] + (model[4745]<<8);
-    table  = model[4774];
-  }
-  fprintf(stderr,"model = %s, width = %d, height = %d, table = %d\n",
-	model,width,height,table);
   return 0;
 }
-#undef tlen
 
 /*
    A rough description of Canon's compression algorithm:
@@ -154,7 +194,7 @@ int make_decoder(struct decode *dest, const uchar *source, int level)
     dest->leaf = source[16 + leaf++];
 }
 
-init_tables()
+init_tables(unsigned table)
 {
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
@@ -217,6 +257,7 @@ init_tables()
       0xe2,0x82,0xf1,0xa3,0xc2,0xa1,0xc1,0xe3,0xa2,0xe1,0xff,0xff  }
   };
 
+  if (table > 2) table = 2;
   memset( first_decode, 0, sizeof first_decode);
   memset(second_decode, 0, sizeof second_decode);
   make_decoder( first_decode,  first_tree[table], 0);
@@ -263,9 +304,10 @@ unsigned long getbits(int nbits)
 main(int argc, char **argv)
 {
   struct decode *decode, *dindex;
-  int i, leaf, len, sign, diff, diffbuf[64];
+  int i, j, leaf, len, sign, diff, diffbuf[64], r, save;
   int carry=0, column=0, base[2];
   unsigned short outbuf[64];
+  uchar c;
 
   if (argc < 2) {
     fprintf(stderr,"Usage:  %s file.crw\n",argv[0]);
@@ -276,7 +318,10 @@ main(int argc, char **argv)
 
   init_tables();
 
-  fseek (ifp, 540, SEEK_SET);
+  if (!strcmp(name,"Canon EOS D30"))
+    fseek (ifp, 810076, SEEK_SET);
+  else
+    fseek (ifp, 540, SEEK_SET);
   getbits(-1);			/* Prime the bit buffer */
 
   while (column < width * height) {
@@ -308,6 +353,16 @@ main(int argc, char **argv)
       if (column++ % width == 0)
 	base[0] = base[1] = 512;
       outbuf[i] = ( base[i & 1] += diffbuf[i] );
+    }
+    if (!strcmp(name,"Canon EOS D30")) {
+      save = ftell(ifp);
+      fseek (ifp, (column-64)/4 + 26, SEEK_SET);
+      for (i=j=0; j < 64/4; j++ ) {
+	c = fgetc(ifp);
+	for (r = 0; r < 8; r += 2)
+	  outbuf[i++] = (outbuf[i] << 2) + ((c >> r) & 3);
+      }
+      fseek (ifp, save, SEEK_SET);
     }
     fwrite(outbuf,2,64,stdout);
   }
