@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.54 $
-   $Date: 2002/05/02 19:44:17 $
+   $Revision: 1.55 $
+   $Date: 2002/05/05 04:52:02 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -952,7 +952,7 @@ int open_and_id(char *fname)
   rgb_mul[0] = 1.592;
   rgb_mul[1] = 1.0;
   rgb_mul[2] = 1.261;
-  rgb_max = 0x4000 * bright;
+  rgb_max = 0x4000;
   colors = 4;
   canon = 1;
 
@@ -1046,7 +1046,7 @@ int open_and_id(char *fname)
     read_crw = d30_read_crw;
     rgb_mul[0] = 2.242;
     rgb_mul[2] = 1.245;
-    rgb_max = 16000 * bright;
+    rgb_max = 16000;
   } else if (!strcmp(name,"Canon EOS-1D")) {
 #ifdef LJPEG_DECODE
     height = 1662;
@@ -1321,7 +1321,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.90"
+    "\nCanon PowerShot Converter v2.91"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
