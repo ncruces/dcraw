@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.23 $
-   $Date: 2004/12/01 21:54:52 $
+   $Revision: 1.24 $
+   $Date: 2004/12/22 20:48:54 $
  */
 
 #include <stdio.h>
@@ -153,9 +153,13 @@ void nef_parse_makernote (base)
     tag  = fget2(ifp);
     type = fget2(ifp);
     count= fget4(ifp);
+    val  = fget4(ifp);
+    fseek (ifp, -4, SEEK_CUR);
+    if (tag == 0x100 && type == 7 && !strncmp(make,"OLYMPUS",7)) {
+      thumb_offset = base+val;
+      thumb_length = count;
+    }
     if (strstr(make,"Minolta") || strstr(make,"MINOLTA")) {
-      val  = fget4(ifp);
-      fseek (ifp, -4, SEEK_CUR);
       switch (tag) {
 	case 0x81:
 	  thumb_length = count;
@@ -479,11 +483,12 @@ void rollei_decode (FILE *tfp)
     }
 }
 
-void get_utf8 (char *buf, int len)
+void get_utf8 (int offset, char *buf, int len)
 {
   ushort c;
   char *cp;
 
+  fseek (ifp, offset, SEEK_SET);
   for (cp=buf; (c = fget2(ifp)) && cp+3 < buf+len; ) {
     if (c < 0x80)
       *cp++ = c;
@@ -642,10 +647,8 @@ void parse_foveon()
 	for (i=0; i < pent*2; i++)
 	  poff[0][i] = off + fget4(ifp)*2;
 	for (i=0; i < pent; i++) {
-	  fseek (ifp, poff[i][0], SEEK_SET);
-	  get_utf8 (name, 128);
-	  fseek (ifp, poff[i][1], SEEK_SET);
-	  get_utf8 (value, 128);
+	  get_utf8 (poff[i][0], name, 128);
+	  get_utf8 (poff[i][1], value, 128);
 	  printf ("  %s = %s\n", name, value);
 	  if (!strcmp (name,"CAMMANUF"))
 	    strcpy (make, value);
@@ -847,16 +850,6 @@ int identify()
   if (model[0] == 0) {
     fprintf (stderr, "%s: unsupported file format.\n", fname);
     return 1;
-  }
-  if (!strncmp(model,"C50",3)) {
-    thumb_head[0] = 0;
-    thumb_offset = 0x1000;
-    thumb_length = 0x2c00;
-  }
-  if (!strncmp(model,"C80",3)) {
-    thumb_head[0] = 0;
-    thumb_offset = 0x1584;
-    thumb_length = 0x2c00;
   }
   fprintf (stderr, "Findings for %s:\n", fname);
   fprintf (stderr, "Make   is \"%s\"\n", make);

@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.221 $
-   $Date: 2004/12/17 07:31:32 $
+   $Revision: 1.222 $
+   $Date: 2004/12/22 20:48:54 $
  */
 
 #define _GNU_SOURCE
@@ -3455,6 +3455,10 @@ konica_400z:
     load_raw = olympus_cseries_load_raw;
     pre_mul[0] = 2.285;
     pre_mul[2] = 1.023;
+  } else if (!strncmp(model,"C70Z",4)) {
+    load_raw = olympus_cseries_load_raw;
+    pre_mul[0] = 1.648;
+    pre_mul[2] = 1.660;
   } else if (!strcmp(model,"C8080WZ")) {
     filters = 0x16161616;
     load_raw = olympus_cseries_load_raw;
@@ -4015,7 +4019,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.18"
+    "\nRaw Photo Decoder \"dcraw\" v6.19"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
