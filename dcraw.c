@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.129 $
-   $Date: 2003/09/11 20:35:53 $
+   $Revision: 1.130 $
+   $Date: 2003/09/15 03:12:54 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -59,7 +59,7 @@ int tiff_data_offset, tiff_data_compression;
 int kodak_data_compression;
 int nef_curve_offset;
 int height, width, colors, black, rgb_max;
-int is_canon, is_cmy, is_foveon, use_coeff, trim, xmag, ymag;
+int is_canon, is_cmy, is_foveon, use_coeff, trim, ymag;
 unsigned filters;
 ushort (*image)[4];
 void (*load_raw)();
@@ -130,15 +130,15 @@ struct decode {
 	0 G M G M G M
 	1 Y C Y C Y C
 
-   These are Bayer grids, used by most RGB cameras:
+   All RGB cameras use one of these Bayer grids:
 
-	0x94949494:	0x61616161:	0x16161616:
+	0x16161616:	0x61616161:	0x49494949:	0x94949494:
 
-	  0 1 2 3 4 5	  0 1 2 3 4 5	  0 1 2 3 4 5
-	0 R G R G R G	0 G R G R G R	0 B G B G B G
-	1 G B G B G B	1 B G B G B G	1 G R G R G R
-	2 R G R G R G	2 G R G R G R	2 B G B G B G
-	3 G B G B G B	3 B G B G B G	3 G R G R G R
+	  0 1 2 3 4 5	  0 1 2 3 4 5	  0 1 2 3 4 5	  0 1 2 3 4 5
+	0 B G B G B G	0 G R G R G R	0 G B G B G B	0 R G R G R G
+	1 G R G R G R	1 B G B G B G	1 R G R G R G	1 G B G B G B
+	2 B G B G B G	2 G R G R G R	2 G B G B G B	2 R G R G R G
+	3 G R G R G R	3 B G B G B G	3 R G R G R G	3 G B G B G B
 
  */
 
@@ -637,7 +637,7 @@ int    fget4 (FILE *f);
 
 void nikon_compressed_load_raw()
 {
-  int waste=0;
+  int left=0, right=0;
   static const uchar nikon_tree[] = {
     0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
     5,4,3,6,2,7,1,0,8,9,11,10,12
@@ -647,7 +647,11 @@ void nikon_compressed_load_raw()
   struct decode *dindex;
 
   if (!strcmp(model,"D1X"))
-    waste = 4;
+    right = 4;
+  if (!strcmp(model,"D2H")) {
+    left  = 6;
+    right = 8;
+  }
 
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
@@ -665,7 +669,7 @@ void nikon_compressed_load_raw()
   getbits(-1);
 
   for (row=0; row < height; row++)
-    for (col=0; col < width+waste; col++)
+    for (col=-left; col < width+right; col++)
     {
       for (dindex=first_decode; dindex->branch[0]; )
 	dindex = dindex->branch[getbits(1)];
@@ -673,13 +677,13 @@ void nikon_compressed_load_raw()
       diff = getbits(len);
       if ((diff & (1 << (len-1))) == 0)
 	diff -= (1 << len) - 1;
-      if (col < 2) {
-	i = 2*(row & 1) + col;
+      if (col+left < 2) {
+	i = 2*(row & 1) + (col & 1);
 	vpred[i] += diff;
-	hpred[col] = vpred[i];
+	hpred[col & 1] = vpred[i];
       } else
 	hpred[col & 1] += diff;
-      if (col >= width) continue;
+      if ((unsigned) col >= width) continue;
       diff = hpred[col & 1];
       if (diff < 0) diff = 0;
       if (diff >= csize) diff = csize-1;
@@ -711,7 +715,7 @@ int nikon_is_compressed()
 
 void nikon_load_raw()
 {
-  int waste=0, skip16=0;
+  int left=0, right=0, skip16=0;
   int irow, row, col, i;
 
   if (!strcmp(model,"D100"))
@@ -721,11 +725,15 @@ void nikon_load_raw()
     return;
   }
   if (!strcmp(model,"D1X"))
-    waste = 4;
+    right = 4;
   if (!strcmp(model,"D100") && tiff_data_compression == 34713) {
-    waste = 3;
+    right = 3;
     skip16 = 1;
     width = 3037;
+  }
+  if (!strcmp(model,"D2H")) {
+    left  = 6;
+    right = 8;
   }
 
   fseek (ifp, tiff_data_offset, SEEK_SET);
@@ -740,9 +748,9 @@ void nikon_load_raw()
 	getbits(-1);
       }
     }
-    for (col=0; col < width+waste; col++) {
+    for (col=-left; col < width+right; col++) {
       i = getbits(12);
-      if (col < width)
+      if ((unsigned) col < width)
 	image[row*width+col][FC(row,col)] = i << 2;
       if (skip16 && (col % 10) == 9)
 	getbits(8);
@@ -828,6 +836,25 @@ void fuji_f700_load_raw()
       image[r*width+c][FC(r,c)] = val >> 1;
     }
   }
+}
+
+void rollei_load_raw()
+{
+  ushort *pixel, val;
+  int row, col;
+
+  pixel = calloc (width, 2);
+  merror (pixel, "rollei_load_raw()");
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (pixel, 2, width, ifp);
+    for (col=0; col < width; col++) {
+      val = ntohs(pixel[col]);
+      val = val << 6 | val >> 10;
+      image[row*width+col][FC(row,col)] = val >> 2;
+    }
+  }
+  free (pixel);
 }
 
 void minolta_load_raw()
@@ -1942,6 +1969,34 @@ void parse_ciff(int offset, int length)
   }
 }
 
+void parse_rollei()
+{
+  char line[128], *val;
+  int tx=0, ty=0;
+
+  do {
+    fgets (line, 128, ifp);
+    if ((val = strchr(line,'=')))
+      *val++ = 0;
+    else
+      val = line + strlen(line);
+    if (!strcmp(line,"HDR"))
+      tiff_data_offset = atoi(val);
+    if (!strcmp(line,"X  "))
+      raw_width = atoi(val);
+    if (!strcmp(line,"Y  "))
+      raw_height = atoi(val);
+    if (!strcmp(line,"TX "))
+      tx = atoi(val);
+    if (!strcmp(line,"TY "))
+      ty = atoi(val);
+  } while (strncmp(line,"EOHD",4));
+  tiff_data_offset += tx * ty * 2;
+  tiff_data_offset += raw_width * (raw_width == 1316 ? 2:4);
+  strcpy (make, "Rollei");
+  strcpy (model,"d530flex");
+}
+
 void parse_foveon()
 {
   char *buf, *bp, *np;
@@ -2072,7 +2127,7 @@ int identify(char *fname)
   rgb_max = 0x4000;
   colors = 3;
   is_cmy = is_foveon = use_coeff = 0;
-  xmag = ymag = 1;
+  ymag = 1;
 
   strcpy (make, "NIKON");		/* wild guess */
   model[0] = model2[0] = 0;
@@ -2128,7 +2183,9 @@ nucore:
     order = 0x4d4d;
     fseek (ifp, 100, SEEK_SET);
     tiff_data_offset = fget4(ifp);
-  } else if (magic == 0x464f5662)	/* "FOVb" */
+  } else if (magic == 0x4453432d)	/* "DSC-" */
+    parse_rollei();
+  else if (magic == 0x464f5662)		/* "FOVb" */
     parse_foveon();
   else if (fsize == 2465792)		/* Nikon "DIAG RAW" formats */
     strcpy (model,"E950");
@@ -2321,6 +2378,13 @@ nucore:
     pre_mul[0] = 2.374;
     pre_mul[2] = 1.677;
     rgb_max = 15632;
+  } else if (!strcmp(model,"D2H")) {
+    height = 1648;
+    width  = 2482;
+    filters = 0x49494949;
+    load_raw = nikon_load_raw;
+    pre_mul[0] = 2.8;
+    pre_mul[2] = 1.2;
   } else if (!strcmp(model,"E950")) {
     height = 1203;
     width  = 1616;
@@ -2525,6 +2589,13 @@ coolpix:
 		fname, make, model, tiff_data_compression);
 	return 1;
     }
+  } else if (!strcmp(make,"Rollei")) {
+    height = raw_height;
+    width = raw_width;
+    filters = 0x16161616;
+    load_raw = rollei_load_raw;
+    pre_mul[0] = 1.8;
+    pre_mul[2] = 1.3;
   } else if (!strcmp(model,"SD9")) {
     switch (height = raw_height) {
       case  763: height =  756;  break;
@@ -2673,9 +2744,9 @@ void write_ppm(FILE *ofp)
   max = val << 4;
 
   fprintf (ofp, "P6\n%d %d\n255\n",
-	xmag*(width-trim*2), ymag*(height-trim*2));
+	width-trim*2, ymag*(height-trim*2));
 
-  ppm = calloc (width-trim*2, 3*xmag);
+  ppm = calloc (width-trim*2, 3);
   merror (ppm, "write_ppm()");
   mul = bright * 442 / max;
 
@@ -2687,12 +2758,11 @@ void write_ppm(FILE *ofp)
       for (c=0; c < 3; c++) {
 	val = rgb[c] * scale;
 	if (val > 255) val=255;
-	for (i=0; i < xmag; i++)
-	  ppm[xmag*(col-trim)+i][c] = val;
+	ppm[col-trim][c] = val;
       }
     }
     for (i=0; i < ymag; i++)
-      fwrite (ppm, width-trim*2, 3*xmag, ofp);
+      fwrite (ppm, width-trim*2, 3, ofp);
   }
   free (ppm);
 }
@@ -2782,7 +2852,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.90"
+    "\nRaw Photo Decoder v4.92"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
