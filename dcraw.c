@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.62 $
-   $Date: 2002/06/24 14:58:04 $
+   $Revision: 1.63 $
+   $Date: 2002/06/28 03:55:09 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -772,15 +772,21 @@ compressed:
 
 void olympus_read_crw()
 {
-  ushort pixel[2256];
+  ushort *pixel;
   int row, col;
 
+  pixel = calloc (width, sizeof *pixel);
+  if (!pixel) {
+    perror("olympus_read_crw() calloc failed");
+    exit(1);
+  }
   fseek (ifp, 0x4000, SEEK_SET);
   for (row=0; row < height; row++) {
-    fread (pixel, 2, 2256, ifp);
+    fread (pixel, 2, width, ifp);
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = ntohs(pixel[col]) >> 2;
   }
+  free (pixel);
 }
 
 void subtract_black()
@@ -1238,6 +1244,14 @@ int open_and_id(char *fname)
     read_crw = olympus_read_crw;
     rgb_mul[0] = 1.43;
     rgb_mul[2] = 1.77;
+  } else if (!strncmp(name,"E-20",4)) {
+    height = 1924;
+    width  = 2576;
+    colors = 3;
+    filters = 0x94949494;
+    read_crw = olympus_read_crw;
+    rgb_mul[0] = 1.43;
+    rgb_mul[2] = 1.77;
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
@@ -1515,7 +1529,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v3.01"
+    "\nCanon PowerShot Converter v3.02"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
