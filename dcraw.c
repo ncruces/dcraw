@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.205 $
-   $Date: 2004/09/16 20:29:15 $
+   $Revision: 1.206 $
+   $Date: 2004/09/19 05:00:32 $
  */
 
 #define _GNU_SOURCE
@@ -59,8 +59,11 @@ typedef long long INT64;
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
-/* Global Variables */
-
+/*
+   All global variables are defined here, and all functions that
+   access them are prefixed with "CLASS".  Note that a thread-safe
+   C++ class cannot have non-const static local variables.
+ */
 FILE *ifp;
 short order;
 char *ifname, make[64], model[64], model2[64];
@@ -89,6 +92,8 @@ struct decode {
   struct decode *branch[2];
   int leaf;
 } first_decode[2048], *second_decode, *free_decode;
+
+#define CLASS
 
 /*
    In order to inline this calculation, I make the risky
@@ -174,7 +179,7 @@ char *memmem (char *haystack, size_t haystacklen,
 }
 #endif
 
-void merror (void *ptr, char *where)
+void CLASS merror (void *ptr, char *where)
 {
   if (ptr) return;
   fprintf (stderr, "%s: Out of memory in %s\n", ifname, where);
@@ -185,7 +190,7 @@ void merror (void *ptr, char *where)
    Get a 2-byte integer, making no assumptions about CPU byte order.
    Nor should we assume that the compiler evaluates left-to-right.
  */
-ushort fget2 (FILE *f)
+ushort CLASS fget2 (FILE *f)
 {
   uchar a, b;
 
@@ -200,7 +205,7 @@ ushort fget2 (FILE *f)
 /*
    Same for a 4-byte integer.
  */
-int fget4 (FILE *f)
+int CLASS fget4 (FILE *f)
 {
   uchar a, b, c, d;
 
@@ -214,7 +219,7 @@ int fget4 (FILE *f)
     return (a << 24) + (b << 16) + (c << 8) + d;
 }
 
-void canon_600_load_raw()
+void CLASS canon_600_load_raw()
 {
   uchar  data[1120], *dp;
   ushort pixel[896], *pix;
@@ -244,7 +249,7 @@ void canon_600_load_raw()
   black = ((INT64) black << 4) / ((896 - width) * height);
 }
 
-void canon_a5_load_raw()
+void CLASS canon_a5_load_raw()
 {
   uchar  data[1940], *dp;
   ushort pixel[1552], *pix;
@@ -276,7 +281,7 @@ void canon_a5_load_raw()
    getbits(-1) initializes the buffer
    getbits(n) where 0 <= n <= 25 returns an n-bit integer
  */
-unsigned getbits (int nbits)
+unsigned CLASS getbits (int nbits)
 {
   static unsigned long bitbuf=0;
   static int vbits=0;
@@ -299,7 +304,7 @@ unsigned getbits (int nbits)
   return ret;
 }
 
-void init_decoder()
+void CLASS init_decoder()
 {
   memset (first_decode, 0, sizeof first_decode);
   free_decode = first_decode;
@@ -331,7 +336,7 @@ void init_decoder()
 	1111110		0x0b
 	1111111		0xff
  */
-uchar *make_decoder (const uchar *source, int level)
+uchar * CLASS make_decoder (const uchar *source, int level)
 {
   struct decode *cur;
   static int leaf;
@@ -357,7 +362,7 @@ uchar *make_decoder (const uchar *source, int level)
   return (uchar *) source + 16 + leaf;
 }
 
-void crw_init_tables (unsigned table)
+void CLASS crw_init_tables (unsigned table)
 {
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
@@ -433,7 +438,7 @@ void crw_init_tables (unsigned table)
 
    In Canon compressed data, 0xff is always followed by 0x00.
  */
-int canon_has_lowbits()
+int CLASS canon_has_lowbits()
 {
   uchar test[0x4000];
   int ret=1, i;
@@ -448,7 +453,7 @@ int canon_has_lowbits()
   return ret;
 }
 
-void canon_compressed_load_raw()
+void CLASS canon_compressed_load_raw()
 {
   ushort *pixel, *prow;
   int lowbits, shift, i, row, r, col, save, val;
@@ -522,7 +527,7 @@ void canon_compressed_load_raw()
     black = (bblack << shift) / ((raw_width - width) * height);
 }
 
-void kodak_curve (ushort *curve)
+void CLASS kodak_curve (ushort *curve)
 {
   int i, entries, tag, type, len, val;
 
@@ -558,7 +563,7 @@ void kodak_curve (ushort *curve)
    Not a full implementation of Lossless JPEG,
    just enough to decode Canon and Kodak images.
  */
-void lossless_jpeg_load_raw()
+void CLASS lossless_jpeg_load_raw()
 {
   int tag, len, jhigh=0, jwide=0, trick, row, col, diff;
   uchar data[256], *dp;
@@ -625,7 +630,7 @@ void lossless_jpeg_load_raw()
     black = min << 2;
 }
 
-void nikon_compressed_load_raw()
+void CLASS nikon_compressed_load_raw()
 {
   static const uchar nikon_tree[] = {
     0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
@@ -674,7 +679,7 @@ void nikon_compressed_load_raw()
   free (curve);
 }
 
-void nikon_load_raw()
+void CLASS nikon_load_raw()
 {
   int irow, row, col, i;
 
@@ -704,7 +709,7 @@ void nikon_load_raw()
    are only needed for the D100, thanks to a bug in some cameras
    that tags all images as "compressed".
  */
-int nikon_is_compressed()
+int CLASS nikon_is_compressed()
 {
   uchar test[256];
   int i;
@@ -723,7 +728,7 @@ int nikon_is_compressed()
 /*
    Returns 1 for a Coolpix 990, 0 for a Coolpix 995.
  */
-int nikon_e990()
+int CLASS nikon_e990()
 {
   int i, histo[256];
   const uchar often[] = { 0x00, 0x55, 0xaa, 0xff };
@@ -741,7 +746,7 @@ int nikon_e990()
 /*
    Returns 1 for a Coolpix 2100, 0 for anything else.
  */
-int nikon_e2100()
+int CLASS nikon_e2100()
 {
   uchar t[12];
   int i;
@@ -756,7 +761,7 @@ int nikon_e2100()
   return 1;
 }
 
-void nikon_e2100_load_raw()
+void CLASS nikon_e2100_load_raw()
 {
   uchar   data[2424], *dp;
   ushort pixel[1616], *pix;
@@ -784,7 +789,7 @@ void nikon_e2100_load_raw()
   }
 }
 
-void nikon_e950_load_raw()
+void CLASS nikon_e950_load_raw()
 {
   int irow, row, col;
 
@@ -801,7 +806,7 @@ void nikon_e950_load_raw()
 /*
    The Fuji Super CCD is just a Bayer grid rotated 45 degrees.
  */
-void fuji_s2_load_raw()
+void CLASS fuji_s2_load_raw()
 {
   ushort pixel[2944];
   int row, col, r, c;
@@ -817,7 +822,7 @@ void fuji_s2_load_raw()
   }
 }
 
-void fuji_common_load_raw (int ncol, int icol, int nrow)
+void CLASS fuji_common_load_raw (int ncol, int icol, int nrow)
 {
   ushort pixel[2048];
   int row, col, r, c;
@@ -834,13 +839,13 @@ void fuji_common_load_raw (int ncol, int icol, int nrow)
   }
 }
 
-void fuji_s5000_load_raw()
+void CLASS fuji_s5000_load_raw()
 {
   fseek (ifp, (1472*4+24)*2, SEEK_CUR);
   fuji_common_load_raw (1472, 1423, 2152);
 }
 
-void fuji_s7000_load_raw()
+void CLASS fuji_s7000_load_raw()
 {
   fuji_common_load_raw (2048, 2047, 3080);
 }
@@ -850,7 +855,7 @@ void fuji_s7000_load_raw()
    The secondary has about 1/16 the sensitivity of the primary,
    but this ratio may vary.
  */
-void fuji_f700_load_raw()
+void CLASS fuji_f700_load_raw()
 {
   ushort pixel[2944];
   int row, col, r, c, val;
@@ -874,7 +879,7 @@ void fuji_f700_load_raw()
   }
 }
 
-void rollei_load_raw()
+void CLASS rollei_load_raw()
 {
   uchar pixel[10];
   unsigned iten=0, isix, i, buffer=0, row, col, todo[16];
@@ -899,7 +904,7 @@ void rollei_load_raw()
   }
 }
 
-void phase_one_load_raw()
+void CLASS phase_one_load_raw()
 {
   int row, col, a, b;
   ushort pixel[4134], akey, bkey;
@@ -922,7 +927,7 @@ void phase_one_load_raw()
   }
 }
 
-void ixpress_load_raw()
+void CLASS ixpress_load_raw()
 {
   ushort pixel[4090];
   int row, col;
@@ -938,7 +943,7 @@ void ixpress_load_raw()
 }
 
 /* For this function only, raw_width is in bytes, not pixels! */
-void packed_12_load_raw()
+void CLASS packed_12_load_raw()
 {
   int row, col;
 
@@ -951,7 +956,7 @@ void packed_12_load_raw()
   }
 }
 
-void unpacked_load_raw (int order, int rsh)
+void CLASS unpacked_load_raw (int order, int rsh)
 {
   ushort *pixel;
   int row, col;
@@ -968,32 +973,32 @@ void unpacked_load_raw (int order, int rsh)
   free (pixel);
 }
 
-void be_16_load_raw()		/* "be" = "big-endian" */
+void CLASS be_16_load_raw()		/* "be" = "big-endian" */
 {
   unpacked_load_raw (0x55aa, 0);
 }
 
-void be_high_12_load_raw()
+void CLASS be_high_12_load_raw()
 {
   unpacked_load_raw (0x55aa, 2);
 }
 
-void be_low_12_load_raw()
+void CLASS be_low_12_load_raw()
 {
   unpacked_load_raw (0x55aa,-2);
 }
 
-void be_low_10_load_raw()
+void CLASS be_low_10_load_raw()
 {
   unpacked_load_raw (0x55aa,-4);
 }
 
-void le_high_12_load_raw()	/* "le" = "little-endian" */
+void CLASS le_high_12_load_raw()	/* "le" = "little-endian" */
 {
   unpacked_load_raw (0xaa55, 2);
 }
 
-void olympus_cseries_load_raw()
+void CLASS olympus_cseries_load_raw()
 {
   int irow, row, col;
 
@@ -1008,7 +1013,7 @@ void olympus_cseries_load_raw()
   }
 }
 
-void eight_bit_load_raw()
+void CLASS eight_bit_load_raw()
 {
   uchar *pixel;
   int row, col;
@@ -1023,7 +1028,7 @@ void eight_bit_load_raw()
   free (pixel);
 }
 
-void casio_qv5700_load_raw()
+void CLASS casio_qv5700_load_raw()
 {
   uchar  data[3232],  *dp;
   ushort pixel[2576], *pix;
@@ -1042,7 +1047,7 @@ void casio_qv5700_load_raw()
   }
 }
 
-void nucore_load_raw()
+void CLASS nucore_load_raw()
 {
   uchar *data, *dp;
   int irow, row, col;
@@ -1061,7 +1066,7 @@ void nucore_load_raw()
   free (data);
 }
 
-const int *make_decoder_int (const int *source, int level)
+const int * CLASS make_decoder_int (const int *source, int level)
 {
   struct decode *cur;
 
@@ -1078,7 +1083,7 @@ const int *make_decoder_int (const int *source, int level)
   return source;
 }
 
-int radc_token (int tree)
+int CLASS radc_token (int tree)
 {
   int t;
   static struct decode *dstart[18], *dindex;
@@ -1124,7 +1129,7 @@ int radc_token (int tree)
 #define PREDICTOR (c ? (buf[c][y-1][x] + buf[c][y][x+1]) / 2 \
 : (buf[c][y-1][x+1] + 2*buf[c][y-1][x] + buf[c][y][x+1]) / 4)
 
-void kodak_radc_load_raw()
+void CLASS kodak_radc_load_raw()
 {
   int row, col, tree, nreps, rep, step, i, c, s, r, x, y, val;
   short last[3] = { 16,16,16 }, mul[3], buf[3][3][386];
@@ -1192,7 +1197,7 @@ void kodak_radc_load_raw()
 #undef PREDICTOR
 
 #ifdef NO_JPEG
-void kodak_jpeg_load_raw() {}
+void CLASS kodak_jpeg_load_raw() {}
 #else
 
 METHODDEF(boolean)
@@ -1208,7 +1213,7 @@ fill_input_buffer (j_decompress_ptr cinfo)
   return TRUE;
 }
 
-void kodak_jpeg_load_raw()
+void CLASS kodak_jpeg_load_raw()
 {
   struct jpeg_decompress_struct cinfo;
   struct jpeg_error_mgr jerr;
@@ -1249,7 +1254,7 @@ void kodak_jpeg_load_raw()
 
 #endif
 
-void kodak_dc120_load_raw()
+void CLASS kodak_dc120_load_raw()
 {
   static const int mul[4] = { 162, 192, 187,  92 };
   static const int add[4] = {   0, 636, 424, 212 };
@@ -1265,7 +1270,7 @@ void kodak_dc120_load_raw()
   }
 }
 
-void kodak_dc20_coeff (float juice)
+void CLASS kodak_dc20_coeff (float juice)
 {
   static const float my_coeff[3][4] =
   { {  2.25,  0.75, -1.75, -0.25 },
@@ -1283,7 +1288,7 @@ void kodak_dc20_coeff (float juice)
   use_coeff = 1;
 }
 
-void kodak_easy_load_raw()
+void CLASS kodak_easy_load_raw()
 {
   uchar *pixel;
   ushort curve[0x1000];
@@ -1311,7 +1316,7 @@ void kodak_easy_load_raw()
   free (pixel);
 }
 
-void kodak_compressed_load_raw()
+void CLASS kodak_compressed_load_raw()
 {
   uchar c, blen[256];
   ushort raw[6], curve[0x1000];
@@ -1375,7 +1380,7 @@ void kodak_compressed_load_raw()
     }
 }
 
-void kodak_yuv_load_raw()
+void CLASS kodak_yuv_load_raw()
 {
   uchar c, blen[384];
   unsigned row, col, len, bits=0;
@@ -1432,7 +1437,7 @@ void kodak_yuv_load_raw()
     }
 }
 
-void sony_decrypt (unsigned *data, int len, int start, int key)
+void CLASS sony_decrypt (unsigned *data, int len, int start, int key)
 {
   static unsigned pad[128], p;
 
@@ -1449,7 +1454,7 @@ void sony_decrypt (unsigned *data, int len, int start, int key)
     *data++ ^= pad[p++ & 127] = pad[(p+1) & 127] ^ pad[(p+65) & 127];
 }
 
-void sony_load_raw()
+void CLASS sony_load_raw()
 {
   uchar head[40];
   ushort pixel[3360];
@@ -1478,7 +1483,7 @@ void sony_load_raw()
   black = bblack / ((3343 - width) * height);
 }
 
-void sony_rgbe_coeff()
+void CLASS sony_rgbe_coeff()
 {
   int r, g;
   static const float my_coeff[3][4] =
@@ -1492,7 +1497,7 @@ void sony_rgbe_coeff()
   use_coeff = 1;
 }
 
-void foveon_decoder (unsigned huff[1024], unsigned code)
+void CLASS foveon_decoder (unsigned huff[1024], unsigned code)
 {
   struct decode *cur;
   int i, len;
@@ -1518,7 +1523,7 @@ void foveon_decoder (unsigned huff[1024], unsigned code)
   foveon_decoder (huff, code+1);
 }
 
-void foveon_load_raw()
+void CLASS foveon_load_raw()
 {
   struct decode *dindex;
   short diff[1024], pred[3];
@@ -1556,7 +1561,7 @@ void foveon_load_raw()
   }
 }
 
-int apply_curve(int i, const int *curve)
+int CLASS apply_curve (int i, const int *curve)
 {
   if (i <= -curve[0])
     return -curve[curve[0]]-1;
@@ -1568,7 +1573,7 @@ int apply_curve(int i, const int *curve)
     return  curve[curve[0]]+1;
 }
 
-void foveon_interpolate()
+void CLASS foveon_interpolate()
 {
   float mul[3] =
   { 1.0321, 1.0, 1.1124 };
@@ -1819,7 +1824,7 @@ void foveon_interpolate()
    Seach from the current directory up to the root looking for
    a ".badpixels" file, and fix those pixels now.
  */
-void bad_pixels()
+void CLASS bad_pixels()
 {
   FILE *fp=NULL;
   char *fname, *cp, line[128];
@@ -1876,7 +1881,7 @@ void bad_pixels()
   fclose (fp);
 }
 
-void scale_colors()
+void CLASS scale_colors()
 {
   int row, col, c, val;
   int min[4], max[4], count[4];
@@ -1966,7 +1971,7 @@ void scale_colors()
    I've extended the basic idea to work with non-Bayer filter arrays.
    Gradients are numbered clockwise from NW=0 to W=7.
  */
-void vng_interpolate()
+void CLASS vng_interpolate()
 {
   static const signed char *cp, terms[] = {
     -2,-2,+0,-1,0,0x01, -2,-2,+0,+0,1,0x01, -2,-1,-1,+0,0,0x01,
@@ -2130,7 +2135,7 @@ void vng_interpolate()
   free (brow[4]);
 }
 
-void tiff_parse_subifd(int base)
+void CLASS tiff_parse_subifd (int base)
 {
   int entries, tag, type, len, val, save;
 
@@ -2181,7 +2186,7 @@ void tiff_parse_subifd(int base)
   }
 }
 
-void nef_parse_makernote()
+void CLASS nef_parse_makernote()
 {
   int base=0, offset=0, entries, tag, type, len, val, save;
   short sorder;
@@ -2257,7 +2262,7 @@ void nef_parse_makernote()
    Since the TIFF DateTime string has no timezone information,
    assume that the camera's clock was set to Universal Time.
  */
-void get_timestamp()
+void CLASS get_timestamp()
 {
   struct tm t;
   time_t ts;
@@ -2271,7 +2276,7 @@ void get_timestamp()
     timestamp = ts;
 }
 
-void nef_parse_exif(int base)
+void CLASS nef_parse_exif (int base)
 {
   int entries, tag, type, len, val, save;
 
@@ -2295,7 +2300,7 @@ void nef_parse_exif(int base)
 /*
    Parse a TIFF file looking for camera model and decompress offsets.
  */
-void parse_tiff(int base)
+void CLASS parse_tiff (int base)
 {
   int doff, entries, tag, type, len, val, save;
   char software[64];
@@ -2407,7 +2412,7 @@ void parse_tiff(int base)
    CIFF block 0x1030 contains an 8x8 white sample.
    Load this into white[][] for use in scale_colors().
  */
-void ciff_block_1030()
+void CLASS ciff_block_1030()
 {
   static const ushort key[] = { 0x410, 0x45f3 };
   int i, bpp, row, col, vbits=0;
@@ -2434,7 +2439,7 @@ void ciff_block_1030()
    Parse the CIFF structure looking for two pieces of information:
    The camera model, and the decode table number.
  */
-void parse_ciff(int offset, int length)
+void CLASS parse_ciff (int offset, int length)
 {
   int tboff, nrecs, i, type, len, roff, aoff, save, wbi=-1;
   static const int remap[] = { 1,2,3,4,5,1 };
@@ -2539,7 +2544,7 @@ common:
     camera_red = -1;			/* Use my auto WB for this photo */
 }
 
-void parse_rollei()
+void CLASS parse_rollei()
 {
   char line[128], *val;
   int tx=0, ty=0;
@@ -2577,7 +2582,7 @@ void parse_rollei()
   strcpy (model,"d530flex");
 }
 
-void parse_foveon()
+void CLASS parse_foveon()
 {
   char *buf, *bp, *np;
   int off1, off2, len, i;
@@ -2612,7 +2617,7 @@ void parse_foveon()
   free (buf);
 }
 
-void foveon_coeff()
+void CLASS foveon_coeff()
 {
   static const float foveon[3][3] = {
     {  2.0343955, -0.727533, -0.3067457 },
@@ -2631,7 +2636,7 @@ void foveon_coeff()
    The grass is always greener in my PowerShot G2 when this
    function is called.  Use at your own risk!
  */
-void canon_rgb_coeff (float juice)
+void CLASS canon_rgb_coeff (float juice)
 {
   static const float my_coeff[3][3] =
   { {  1.116187, -0.107427, -0.008760 },
@@ -2645,7 +2650,7 @@ void canon_rgb_coeff (float juice)
   use_coeff = 1;
 }
 
-void nikon_e950_coeff()
+void CLASS nikon_e950_coeff()
 {
   int r, g;
   static const float my_coeff[3][4] =
@@ -2665,7 +2670,7 @@ void nikon_e950_coeff()
    four 3x3 matrices by omitting a different GMCY color in each one.
    The final coeff[][] matrix is the sum of these four.
  */
-void gmcy_coeff()
+void CLASS gmcy_coeff()
 {
   static const float gmcy[4][3] = {
 /*    red  green  blue			   */
@@ -2716,7 +2721,7 @@ void gmcy_coeff()
    Identify which camera created this file, and set global variables
    accordingly.  Return nonzero if the file cannot be decoded.
  */
-int identify()
+int CLASS identify()
 {
   char head[32], *c;
   unsigned hlen, fsize, i;
@@ -3609,7 +3614,7 @@ konica_510z:
 /*
    Convert the entire image to RGB colorspace and build a histogram.
  */
-void convert_to_rgb()
+void CLASS convert_to_rgb()
 {
   int row, col, r, g, c=0;
   ushort *img;
@@ -3658,7 +3663,7 @@ norgb:
     }
 }
 
-void flip_image()
+void CLASS flip_image()
 {
   unsigned *flag;
   int size, base, dest, next, row, col, temp;
@@ -3707,7 +3712,7 @@ void flip_image()
 /*
    Write the image to a 24-bpp PPM file.
  */
-void write_ppm(FILE *ofp)
+void CLASS write_ppm (FILE *ofp)
 {
   int row, col, i, c, val, total;
   float max, mul, scale[0x10000];
@@ -3751,7 +3756,7 @@ void write_ppm(FILE *ofp)
 /*
    Write the image to a 48-bpp Photoshop file.
  */
-void write_psd(FILE *ofp)
+void CLASS write_psd (FILE *ofp)
 {
   char head[] = {
     '8','B','P','S',		/* signature */
@@ -3798,7 +3803,7 @@ void write_psd(FILE *ofp)
 /*
    Write the image to a 48-bpp PPM file.
  */
-void write_ppm16(FILE *ofp)
+void CLASS write_ppm16 (FILE *ofp)
 {
   int row, col, c, val;
   ushort *rgb, (*ppm)[3];
@@ -3829,7 +3834,7 @@ void write_ppm16(FILE *ofp)
   free (ppm);
 }
 
-int main(int argc, char **argv)
+int CLASS main (int argc, char **argv)
 {
   int arg, status=0, user_flip=-1;
   int identify_only=0, write_to_stdout=0, half_size=0;
