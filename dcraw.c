@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.240 $
-   $Date: 2005/03/18 22:15:37 $
+   $Revision: 1.241 $
+   $Date: 2005/03/19 01:40:04 $
  */
 
 #define _GNU_SOURCE
@@ -2589,6 +2589,11 @@ void CLASS parse_makernote()
 	camera_blue/= get2();
       }
     }
+    if (tag == 0xe0 && len == 17) {
+      get2();
+      raw_width  = get2();
+      raw_height = get2();
+    }
     if (tag == 0x200 && len == 4)
       black = (get2()+get2()+get2()+get2())/4;
     if (tag == 0x201 && len == 4) {
@@ -2776,10 +2781,12 @@ int CLASS parse_tiff_ifd (int base, int level)
 	camera_blue = get4() / 256.0;
 	break;
       case 0x100:			/* ImageWidth */
-	raw_width = type==3 ? get2() : get4();
+	if (strcmp(make,"Canon") || level)
+	  raw_width = type==3 ? get2() : get4();
 	break;
       case 0x101:			/* ImageHeight */
-	raw_height = type==3 ? get2() : get4();
+	if (strcmp(make,"Canon") || level)
+	  raw_height = type==3 ? get2() : get4();
 	break;
       case 0x102:			/* Bits per sample */
 	fuji_secondary = len == 2;
@@ -2928,9 +2935,6 @@ guess_cfa_pc:
 
   if ((raw_height & 1) && !strncmp (make,"OLYMPUS",7))
        raw_height++;
-
-  if (!strcmp(make,"Canon") && strcmp(model,"EOS D2000C"))
-    raw_width = raw_height = 0;
 
   if (make[0] == 0 && raw_width == 680 && raw_height == 680) {
     strcpy (make, "Imacon");
@@ -3735,13 +3739,9 @@ nucore:
 /*  We'll try to decode anything from Canon or Nikon. */
 
   if (!filters) filters = 0x94949494;
-  if ((is_canon = !strcmp(make,"Canon"))) {
-    if (memcmp (head+6,"HEAPCCDR",8)) {
-      filters = 0x61616161;
-      load_raw = lossless_jpeg_load_raw;
-    } else if (raw_width)
-      load_raw = canon_compressed_load_raw;
-  }
+  if ((is_canon = !strcmp(make,"Canon")))
+    load_raw = memcmp (head+6,"HEAPCCDR",8) ?
+	lossless_jpeg_load_raw : canon_compressed_load_raw;
   if (!strcmp(make,"NIKON"))
     load_raw = nikon_is_compressed() ?
 	nikon_compressed_load_raw : nikon_load_raw;
@@ -3826,39 +3826,34 @@ nucore:
     width  = 3288;
     top_margin  = 6;
     left_margin = 4;
+  } else if (!strcmp(model,"EOS D2000C")) {
+    filters = 0x61616161;
+    black = curve[200];
   } else if (!strcmp(model,"EOS-1D")) {
-    height = 1662;
-    width  = 2496;
+    raw_height = height = 1662;
+    raw_width  = width  = 2496;
     data_offset = 288912;
+    filters = 0x61616161;
   } else if (!strcmp(model,"EOS-1DS")) {
-    height = 2718;
-    width  = 4082;
+    raw_height = height = 2718;
+    raw_width  = width  = 4082;
     data_offset = 289168;
-  } else if (!strcmp(model,"EOS-1D Mark II") ||
-	     !strcmp(model,"EOS 20D")) {
-    raw_height = 2360;
-    raw_width  = 3596;
+    filters = 0x61616161;
+  } else if (is_canon && raw_width == 3516) {
+    top_margin  = 14;
+    left_margin = 42;
+    goto canon_cr2;
+  } else if (is_canon && raw_width == 3596) {
     top_margin  = 12;
     left_margin = 74;
     goto canon_cr2;
-  } else if (!strcmp(model,"EOS-1Ds Mark II")) {
-    raw_height = 3349;
-    raw_width  = 5108;
+  } else if (is_canon && raw_width == 5108) {
     top_margin  = 13;
     left_margin = 98;
     maximum = 0xe80;
-    goto canon_cr2;
-  } else if (!strcmp(model,"EOS DIGITAL REBEL XT")) {
-    raw_height = 2328;
-    raw_width  = 3516;
-    top_margin  = 14;
-    left_margin = 42;
 canon_cr2:
     height = raw_height - top_margin;
     width  = raw_width - left_margin;
-    filters = 0x94949494;
-  } else if (!strcmp(model,"EOS D2000C")) {
-    black = curve[200];
   } else if (!strcmp(model,"D1")) {
     camera_red  *= 256/527.0;
     camera_blue *= 256/317.0;
@@ -4756,7 +4751,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.03"
+    "\nRaw Photo Decoder \"dcraw\" v7.04"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
