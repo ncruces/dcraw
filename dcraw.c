@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.176 $
-   $Date: 2004/03/01 15:17:47 $
+   $Revision: 1.177 $
+   $Date: 2004/03/05 17:25:30 $
  */
 
 #define _GNU_SOURCE
@@ -22,6 +22,7 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,6 +72,7 @@ float pre_mul[4], coeff[3][4];
 int histogram[0x2000];
 void write_ppm(FILE *);
 void (*write_fun)(FILE *) = write_ppm;
+jmp_buf failure;
 
 struct decode {
   struct decode *branch[2];
@@ -161,7 +163,7 @@ void merror (void *ptr, char *where)
 {
   if (ptr) return;
   fprintf (stderr, "%s: Out of memory in %s\n", ifname, where);
-  exit(1);
+  longjmp (failure, 1);
 }
 
 void canon_600_load_raw()
@@ -281,7 +283,7 @@ void init_decoder()
 	1111110		0x0b
 	1111111		0xff
  */
-void make_decoder (const uchar *source, int level)
+uchar *make_decoder (const uchar *source, int level)
 {
   struct decode *cur;
   static int leaf;
@@ -291,17 +293,20 @@ void make_decoder (const uchar *source, int level)
   cur = free_decode++;
   if (free_decode > first_decode+2048) {
     fprintf (stderr, "%s: decoder table overflow\n", ifname);
-    exit(1);
+    longjmp (failure, 2);
   }
   for (i=next=0; i <= leaf && next < 16; )
     i += source[next++];
-  if (level < next && i > leaf) {
-    cur->branch[0] = free_decode;
-    make_decoder (source, level+1);
-    cur->branch[1] = free_decode;
-    make_decoder (source, level+1);
-  } else
-    cur->leaf = source[16 + leaf++];
+  if (i > leaf) {
+    if (level < next) {
+      cur->branch[0] = free_decode;
+      make_decoder (source, level+1);
+      cur->branch[1] = free_decode;
+      make_decoder (source, level+1);
+    } else
+      cur->leaf = source[16 + leaf++];
+  }
+  return (uchar *) source + 16 + leaf;
 }
 
 void crw_init_tables (unsigned table)
@@ -448,6 +453,7 @@ void canon_compressed_load_raw()
   int lowbits, shift, i, row, r, col, save;
   unsigned irow, icol;
   uchar c;
+  INT64 bblack=0;
 
   pixel = calloc (raw_width*8, sizeof *pixel);
   merror (pixel, "canon_compressed_load_raw()");
@@ -475,13 +481,17 @@ void canon_compressed_load_raw()
 	  image[irow*width+icol][FC(irow,icol)] =
 		pixel[r*raw_width+col] << shift;
 	else
-	    black += pixel[r*raw_width+col];
+	  bblack += pixel[r*raw_width+col];
       }
     }
   }
   free (pixel);
-  black = ((INT64) black << shift) / ((raw_width - width) * height);
+  if (raw_width > width)
+    black = (bblack << shift) / ((raw_width - width) * height);
 }
+
+ushort fget2 (FILE *);
+int    fget4 (FILE *);
 
 /*
    Not a full implementation of Lossless JPEG,
@@ -489,22 +499,41 @@ void canon_compressed_load_raw()
  */
 void lossless_jpeg_load_raw()
 {
-  uchar head[64];
-  int jwide, trick, row, col, len, diff;
+  int tag, len, jhigh=0, jwide=0, trick, row, col, irow, icol, diff;
+  uchar data[256], *dp;
   int vpred[2] = { 0x800, 0x800 }, hpred[2];
-  struct decode *dindex;
+  struct decode *dstart[2], *dindex;
+  INT64 bblack=0;
 
-  fread (head, 1, 64, ifp);
-  init_decoder();
-  make_decoder (head+7, 0);
-  jwide = (head[43] << 8) + head[44];
+  order = 0x4d4d;
+  if (fget2(ifp) != 0xffd8) return;
+  do {
+    tag = fget2(ifp);
+    len = fget2(ifp);
+    if (tag <= 0xff00 || len > 255) return;
+    fread (data, 1, len-2, ifp);
+    switch (tag) {
+      case 0xffc3:
+	jhigh = (data[1] << 8) + data[2];
+	jwide = (data[3] << 8) + data[4];
+	break;
+      case 0xffc4:
+	init_decoder();
+	dstart[0] = dstart[1] = free_decode;
+	for (dp = data; dp < data+len && *dp < 2; ) {
+	  dstart[*dp] = free_decode;
+	  dp = make_decoder (++dp, 0);
+	}
+    }
+  } while (tag != 0xffda);
+
   trick = 2 * jwide / width;
   zero_after_ff = 1;
   getbits(-1);
-  for (row=0; row < height; row++)
-    for (col=0; col < width; col++)
+  for (row=0; row < raw_height; row++)
+    for (col=0; col < raw_width; col++)
     {
-      for (dindex=first_decode; dindex->branch[0]; )
+      for (dindex = dstart[col & 1]; dindex->branch[0]; )
 	dindex = dindex->branch[getbits(1)];
       len = dindex->leaf;
       diff = getbits(len);
@@ -517,12 +546,16 @@ void lossless_jpeg_load_raw()
 	hpred[col & 1] += diff;
       diff = hpred[col & 1];
       if (diff < 0) diff = 0;
-      image[row*width+col][FC(row,col)] = diff << 2;
+      if ((unsigned) (irow = row-top_margin) >= height)
+	continue;
+      if ((unsigned) (icol = col-left_margin) < width)
+	image[irow*width+icol][FC(irow,icol)] = diff << 2;
+      else
+	bblack += diff;
     }
+  if (raw_width > width)
+    black = (bblack << 2) / ((raw_width - width) * height);
 }
-
-ushort fget2 (FILE *);
-int    fget4 (FILE *);
 
 void nikon_compressed_load_raw()
 {
@@ -963,7 +996,7 @@ void kodak_easy_load_raw()
 	black += pixel[col];
     }
   }
-  if (width < raw_width)
+  if (raw_width > width)
     black = ((INT64) black << 6) / ((raw_width - width) * height);
   free (pixel);
 }
@@ -1150,7 +1183,7 @@ void foveon_decoder (unsigned huff[1024], unsigned code)
   cur = free_decode++;
   if (free_decode > first_decode+2048) {
     fprintf (stderr, "%s: decoder table overflow\n", ifname);
-    exit(1);
+    longjmp (failure, 2);
   }
   if (code) {
     for (i=0; i < 1024; i++)
@@ -1942,7 +1975,7 @@ void parse_tiff(int base)
 {
   int doff, entries, tag, type, len, val, save;
   char software[64];
-  int wide=0, high=0, offset=0;
+  int wide=0, high=0, cr2_offset=0, offset=0;
 
   nef_curve_offset = 0;
   fseek (ifp, base, SEEK_SET);
@@ -1972,6 +2005,7 @@ void parse_tiff(int base)
 	  fgets (model, 64, ifp);
 	  break;
 	case 273:			/* StripOffset */
+	  cr2_offset = val;
 	  offset = fget4(ifp);
 	  break;
 	case 33405:			/* Model2 tag */
@@ -2007,6 +2041,9 @@ void parse_tiff(int base)
     raw_height = - (-high & -2);
     data_offset = offset;
   }
+  if (!strcmp(model,"Canon EOS-1D Mark II"))
+    data_offset = cr2_offset;
+
   if (make[0] == 0 && wide == 0x2a80000 && high == 0x2a80000) {
     strcpy (make, "Imacon");
     strcpy (model,"Ixpress");
@@ -2549,6 +2586,13 @@ nucore:
     pre_mul[0] = 2.242;
     pre_mul[2] = 1.245;
     rgb_max = 16000;
+  } else if (is_canon && raw_width == 3344) {
+    height = 2472;
+    width  = 3288;
+    top_margin  = 6;
+    left_margin = 4;
+    pre_mul[0] = 1.621;
+    pre_mul[2] = 1.528;
   } else if (!strcmp(model,"EOS-1D")) {
     height = 1662;
     width  = 2496;
@@ -2562,6 +2606,16 @@ nucore:
     pre_mul[0] = 1.66;
     pre_mul[2] = 1.13;
     rgb_max = 14464;
+  } else if (!strcmp(model,"EOS-1D Mark II")) {
+    raw_height = 2360;
+    raw_width  = 3596;
+    top_margin  = 12;
+    left_margin = 74;
+    height = raw_height - top_margin;
+    width  = raw_width - left_margin;
+    filters = 0x94949494;
+    pre_mul[0] = 2.248;
+    pre_mul[2] = 1.174;
   } else if (!strcmp(model,"EOS D2000C")) {
     black = 800;
     pre_mul[2] = 1.25;
@@ -3172,15 +3226,15 @@ void write_ppm16(FILE *ofp)
 
 int main(int argc, char **argv)
 {
-  int arg, id, identify_only=0, write_to_stdout=0;
+  int arg, status=0, identify_only=0, write_to_stdout=0;
   char opt, *ofname, *cp;
   const char *write_ext = ".ppm";
-  FILE *ofp;
+  FILE *ofp = stdout;
 
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.58"
+    "\nRaw Photo Decoder v5.60"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -3200,7 +3254,7 @@ int main(int argc, char **argv)
     "\n-3        Write 48-bpp PSD (Adobe Photoshop)"
     "\n-4        Write 48-bpp PPM"
     "\n\n", argv[0]);
-    exit(1);
+    return 1;
   }
 
   argv[argc] = "";
@@ -3208,7 +3262,7 @@ int main(int argc, char **argv)
     opt = argv[arg++][1];
     if (strchr ("gbrl", opt) && !isdigit(argv[arg][0])) {
       fprintf (stderr, "\"-%c\" requires a numeric argument.\n", opt);
-      exit(1);
+      return 1;
     }
     switch (opt)
     {
@@ -3232,40 +3286,48 @@ int main(int argc, char **argv)
 
       default:
 	fprintf (stderr, "Unknown option \"-%c\".\n", opt);
-	exit(1);
+	return 1;
     }
   }
   if (arg == argc) {
     fprintf (stderr, "No files to process.\n");
-    exit(1);
+    return 1;
   }
   if (write_to_stdout) {
     if (isatty(1)) {
       fprintf (stderr, "Will not write an image to the terminal!\n");
-      exit(1);
+      return 1;
     }
 #if defined(WIN32) || defined(DJGPP)
     if (setmode(1,O_BINARY) < 0) {
       perror ("setmode()");
-      exit(1);
+      return 1;
     }
 #endif
   }
 
   for ( ; arg < argc; arg++)
   {
-    ifname = argv[arg];
-    ifp = fopen (ifname, "rb");
-    if (!ifp) perror(ifname);
-    if (identify_only) {
-      if (!(id = !ifp || identify()))
-	fprintf (stderr, "%s is a %s %s image.\n", ifname, make, model);
-      if (ifp) fclose(ifp);
-      if (arg+1 < argc) continue;
-      exit(id);
+    status = 1;
+    image = NULL;
+    if (setjmp (failure)) {
+      if (fileno(ifp) > 2) fclose(ifp);
+      if (fileno(ofp) > 2) fclose(ofp);
+      if (image) free (image);
+      status = 1;
+      continue;
     }
-    if (!ifp) continue;
-    if (identify()) {
+    ifname = argv[arg];
+    if (!(ifp = fopen (ifname, "rb"))) {
+      perror (ifname);
+      continue;
+    }
+    if ((status = identify())) {
+      fclose(ifp);
+      continue;
+    }
+    if (identify_only) {
+      fprintf (stderr, "%s is a %s %s image.\n", ifname, make, model);
       fclose(ifp);
       continue;
     }
@@ -3297,15 +3359,15 @@ int main(int argc, char **argv)
     convert_to_rgb();
     ofname = malloc (strlen(ifname) + 16);
     merror (ofname, "main()");
-    if (write_to_stdout) {
+    if (write_to_stdout)
       strcpy (ofname, "standard output");
-      ofp = stdout;
-    } else {
+    else {
       strcpy (ofname, ifname);
       if ((cp = strrchr (ofname, '.'))) *cp = 0;
       strcat (ofname, write_ext);
       ofp = fopen (ofname, "wb");
       if (!ofp) {
+	status = 1;
 	perror (ofname);
 	goto cleanup;
       }
@@ -3319,5 +3381,5 @@ cleanup:
     free (ofname);
     free (image);
   }
-  return 0;
+  return status;
 }
