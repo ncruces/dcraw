@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.169 $
-   $Date: 2004/02/20 04:22:08 $
+   $Revision: 1.170 $
+   $Date: 2004/02/20 18:37:17 $
  */
 
 #define _GNU_SOURCE
@@ -3051,7 +3051,7 @@ void convert_to_rgb()
 void write_ppm(FILE *ofp)
 {
   int row, col, i, c, val, total;
-  float max, mul, scale;
+  float max, mul, scale[0x10000];
   ushort *rgb;
   uchar (*ppm)[3];
 
@@ -3069,14 +3069,15 @@ void write_ppm(FILE *ofp)
   ppm = calloc (width-trim*2, 3);
   merror (ppm, "write_ppm()");
   mul = bright * 442 / max;
+  scale[0] = 0;
+  for (i=1; i < 0x10000; i++)
+    scale[i] = mul * pow (i*2/max, gamma_val-1);
 
   for (row=trim; row < height-trim; row++) {
     for (col=trim; col < width-trim; col++) {
       rgb = image[row*width+col];
-/* In some math libraries, pow(0,expo) doesn't return zero */
-      scale = rgb[3] ? mul * pow (rgb[3]*2/max, gamma_val-1) : 0;
       for (c=0; c < 3; c++) {
-	val = rgb[c] * scale;
+	val = rgb[c] * scale[rgb[3]];
 	if (val > 255) val=255;
 	ppm[col-trim][c] = val;
       }
@@ -3171,7 +3172,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.52"
+    "\nRaw Photo Decoder v5.53"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
