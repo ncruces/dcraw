@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.190 $
-   $Date: 2004/05/05 17:20:10 $
+   $Revision: 1.191 $
+   $Date: 2004/05/11 04:38:40 $
  */
 
 #define _GNU_SOURCE
@@ -2172,7 +2172,9 @@ void nef_parse_makernote()
     val = fget2(ifp);		/* should be 42 decimal */
     offset = fget4(ifp);
     fseek (ifp, offset-8, SEEK_CUR);
-  } else
+  } else if (!strcmp (buf,"OLYMP"))
+    fseek (ifp, -2, SEEK_CUR);
+  else
     fseek (ifp, -10, SEEK_CUR);
 
   entries = fget2(ifp);
@@ -2180,7 +2182,10 @@ void nef_parse_makernote()
     tag  = fget2(ifp);
     type = fget2(ifp);
     len  = fget4(ifp);
-    val  = fget4(ifp);
+    if (type == 3) {            /* short int */
+      val = fget2(ifp);  fget2(ifp);
+    } else
+      val = fget4(ifp);
     save = ftell(ifp);
     if (tag == 0xc) {
       fseek (ifp, base+val, SEEK_SET);
@@ -2212,6 +2217,10 @@ void nef_parse_makernote()
 	camera_blue/= fget2(ifp);
       }
     }
+    if (tag == 0x1017)		/* Olympus */
+      camera_red  = val / 256.0;
+    if (tag == 0x1018)
+      camera_blue = val / 256.0;
     fseek (ifp, save, SEEK_SET);
   }
   order = sorder;
@@ -2228,7 +2237,8 @@ void nef_parse_exif()
     len  = fget4(ifp);
     val  = fget4(ifp);
     save = ftell(ifp);
-    if (tag == 0x927c && !strncmp(make,"NIKON",5)) {
+    if (tag == 0x927c &&
+	(!strncmp(make,"NIKON",5) || !strncmp(make,"OLYMPUS",7))) {
       fseek (ifp, val, SEEK_SET);
       nef_parse_makernote();
       fseek (ifp, save, SEEK_SET);
@@ -3154,6 +3164,8 @@ coolpix:
     pre_mul[2] = 1.880;
   } else if (!strcmp(model,"C5060WZ")) {
     load_raw = olympus_cseries_load_raw;
+    pre_mul[0] = 2.285;
+    pre_mul[2] = 1.023;
   } else if (!strcmp(model,"C8080WZ")) {
     filters = 0x16161616;
     load_raw = olympus_cseries_load_raw;
@@ -3645,7 +3657,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.80"
+    "\nRaw Photo Decoder \"dcraw\" v5.81"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
