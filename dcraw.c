@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.51 $
-   $Date: 2002/04/16 23:32:41 $
+   $Revision: 1.52 $
+   $Date: 2002/04/17 21:29:10 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -613,7 +613,8 @@ void d30_read_crw()
       for (col=0; col < raw_width; col++) {
 	irow = row+r-top;
 	icol = col-left;
-	if (irow < height && icol < width)
+	if (irow >= height) continue;
+	if (icol < width)
 	  image[irow*width+icol][FC(irow,icol)] =
 		(pixel[r*raw_width+col] & 0xfff) << 2;
 	else
@@ -621,14 +622,7 @@ void d30_read_crw()
       }
   }
   free (pixel);
-/*
-   "i" is the number of full rows to include in the average.
-   On the EOS D60, the top seven rows are zero, not black,
-   hence I do not include them in the denominator.
- */
-  i = raw_height - height;
-  if (raw_width == 3152) i -= 7;
-  black = ((long long) black << 2) / (i * raw_width + left * height);
+  black = ((long long) black << 2) / (left * height);
 }
 
 #ifdef LJPEG_DECODE
@@ -1329,7 +1323,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.85"
+    "\nCanon PowerShot Converter v2.86"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
