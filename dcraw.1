@@ -9,7 +9,7 @@
 .\" dcoffin@shore.net
 .\" http://www.shore.net/~dcoffin
 .\"
-.TH dcraw 1 "June 27, 2003"
+.TH dcraw 1 "July 17, 2003"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -53,6 +53,10 @@ solves this problem with minimal loss of detail.
 .B -d
 Show the raw data as a grayscale image with no interpolation.
 Good for photographing black-and-white documents.
+.TP
+.B -q
+Use simple bilinear interpolation for quick results.  The
+default is to use a slow, high-quality adaptive algorithm.
 .TP
 .B -g gamma
 Specify the gamma value for eight-bit output.  Default is 0.8.
@@ -103,7 +107,7 @@ First raise the brightness if the highlights are too dark,
 then lower the gamma if the lowlights are too dark.
 .P
 To balance the color, do
-.RB \^" dcraw\ -g\ 1\ -b\ 0.5 \^"
+.RB \^" dcraw\ -q\ -g\ 1\ -b\ 0.5 \^"
 and select a rectangle of something that you know is white.
 Compute the average R, G, and B values for this area, then
 set red_mul and blue_mul to G/R and G/B.

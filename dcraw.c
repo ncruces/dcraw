@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.127 $
-   $Date: 2003/07/03 02:53:00 $
+   $Revision: 1.128 $
+   $Date: 2003/07/17 19:06:11 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -63,7 +63,7 @@ unsigned filters;
 ushort (*image)[4];
 void (*load_raw)();
 float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
-int four_color_rgb=0, use_camera_wb=0, document_mode=0;
+int four_color_rgb=0, use_camera_wb=0, document_mode=0, quick_interpolate=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
 int histogram[0x1000];
@@ -1532,6 +1532,8 @@ void vng_interpolate()
       pix += 4;
     }
   }
+  if (quick_interpolate)
+    return;
   for (row=0; row < 8; row++) {		/* Precalculate for VNG */
     ip = code[row];
     for (col=0; col < 2; col++) {
@@ -2715,7 +2717,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.87"
+    "\nRaw Photo Decoder v4.88"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2727,6 +2729,7 @@ int main(int argc, char **argv)
     "\n-o file   Write output to this file"
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
+    "\n-q        Quick, low-quality color interpolation"
     "\n-g <num>  Set gamma      (0.8 by default, only for 24-bit output)"
     "\n-b <num>  Set brightness (1.0 by default)"
     "\n-w        Use camera white balance settings if possible"
@@ -2754,6 +2757,8 @@ int main(int argc, char **argv)
 	four_color_rgb = 1;  break;
       case 'd':
 	document_mode = 1;  break;
+      case 'q':
+	quick_interpolate = 1;  break;
       case 'g':
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
@@ -2818,7 +2823,8 @@ int main(int argc, char **argv)
     trim = 0;
     if (filters && !document_mode) {
       trim = 1;
-      fprintf (stderr, "VNG interpolation...\n");
+      fprintf (stderr, "%s interpolation...\n",
+	quick_interpolate ? "Bilinear":"VNG");
       vng_interpolate();
     }
     fprintf (stderr, "Converting to RGB colorspace...\n");
