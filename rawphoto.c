@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.18 $
-   $Date: 2005/01/19 07:09:12 $
+   $Revision: 1.19 $
+   $Date: 2005/01/21 07:00:26 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -32,7 +32,7 @@
 #include <libintl.h>
 #define _(String) gettext(String)
 
-#define PLUG_IN_VERSION  "1.1.7 - 19 January 2005"
+#define PLUG_IN_VERSION  "1.1.8 - 21 January 2005"
 
 static void query(void);
 static void run(const gchar *name,
@@ -84,7 +84,7 @@ static void query (void)
 			  "Loads raw digital camera files",
 			  "This plug-in loads raw digital camera files.",
 			  "Dave Coffin at cybercom dot net, user dcoffin",
-			  "Copyright 2004 by Dave Coffin",
+			  "Copyright 2004-2005 by Dave Coffin",
 			  PLUG_IN_VERSION,
 			  "<Load>/rawphoto",
 			  NULL,
@@ -249,7 +249,7 @@ gint load_dialog (gchar * name)
   GtkObject *adj;
   GtkWidget *widget;
   int i;
-  static const char *label[10] =
+  static const char *label[9] =
   { "Quick interpolation", "Half-size interpolation",
     "Four color interpolation", "Grayscale document",
     "Automatic white balance", "Camera white balance",
@@ -257,13 +257,11 @@ gint load_dialog (gchar * name)
 
   gimp_ui_init ("rawphoto", TRUE);
 
-  dialog = gimp_dialog_new (_("Raw Photo Loader 1.0"), "rawphoto",
+  dialog = gimp_dialog_new (_("Raw Photo Loader 1.1"), "rawphoto",
 			NULL, 0,
 			gimp_standard_help_func, "rawphoto",
-
 			GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
 			GTK_STOCK_OK,     GTK_RESPONSE_OK,
-
 			NULL);
 
   table = gtk_table_new (9, 2, FALSE);
