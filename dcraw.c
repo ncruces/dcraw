@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.165 $
-   $Date: 2004/02/13 14:20:06 $
+   $Revision: 1.166 $
+   $Date: 2004/02/13 16:29:33 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -3058,7 +3058,7 @@ void convert_to_rgb()
 }
 
 /*
-   Write the image to a 24-bit PPM file.
+   Write the image to a 24-bpp PPM file.
  */
 void write_ppm(FILE *ofp)
 {
@@ -3100,7 +3100,7 @@ void write_ppm(FILE *ofp)
 }
 
 /*
-   Write the image to a 48-bit Photoshop file.
+   Write the image to a 48-bpp Photoshop file.
  */
 void write_psd(FILE *ofp)
 {
@@ -3146,7 +3146,7 @@ void write_psd(FILE *ofp)
 }
 
 /*
-   Write the image to a 48-bit PPM file.
+   Write the image to a 48-bpp PPM file.
  */
 void write_ppm16(FILE *ofp)
 {
@@ -3196,15 +3196,15 @@ int main(int argc, char **argv)
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-q        Quick, low-quality color interpolation"
-    "\n-g <num>  Set gamma      (0.6 by default, only for 24-bit output)"
+    "\n-g <num>  Set gamma      (0.6 by default, only for 24-bpp output)"
     "\n-b <num>  Set brightness (1.0 by default)"
     "\n-a        Use automatic white balance"
     "\n-w        Use camera white balance, if possible"
     "\n-r <num>  Set red  multiplier (daylight = 1.0)"
     "\n-l <num>  Set blue multiplier (daylight = 1.0)"
-    "\n-2        Write 24-bit PPM (default)"
-    "\n-3        Write 48-bit PSD (Adobe Photoshop)"
-    "\n-4        Write 48-bit PPM"
+    "\n-2        Write 24-bpp PPM (default)"
+    "\n-3        Write 48-bpp PSD (Adobe Photoshop)"
+    "\n-4        Write 48-bpp PPM"
     "\n\n", argv[0]);
     exit(1);
   }
