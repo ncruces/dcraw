@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.225 $
-   $Date: 2005/01/08 05:26:49 $
+   $Revision: 1.226 $
+   $Date: 2005/01/10 07:04:46 $
  */
 
 #define _GNU_SOURCE
@@ -194,12 +194,12 @@ ushort CLASS fget2 (FILE *f)
 {
   uchar a, b;
 
-  a = fgetc(f);
-  b = fgetc(f);
+  a = fgetc(f);  b = fgetc(f);
+
   if (order == 0x4949)		/* "II" means little-endian */
-    return a + (b << 8);
+    return a | b << 8;
   else				/* "MM" means big-endian */
-    return (a << 8) + b;
+    return a << 8 | b;
 }
 
 /*
@@ -209,14 +209,22 @@ int CLASS fget4 (FILE *f)
 {
   uchar a, b, c, d;
 
-  a = fgetc(f);
-  b = fgetc(f);
-  c = fgetc(f);
-  d = fgetc(f);
+  a = fgetc(f);  b = fgetc(f);  c = fgetc(f);  d = fgetc(f);
+
   if (order == 0x4949)
-    return a + (b << 8) + (c << 16) + (d << 24);
+    return a | b << 8 | c << 16 | d << 24;
   else
-    return (a << 24) + (b << 16) + (c << 8) + d;
+    return a << 24 | b << 16 | c << 8 | d;
+}
+
+/*
+   Faster than calling fget2() multiple times.
+ */
+void CLASS read_shorts (ushort *pixel, int count)
+{
+  fread (pixel, 2, count, ifp);
+  if ((order == 0x4949) == (ntohs(0x1234) == 0x1234))
+    swab (pixel, pixel, count*2);
 }
 
 void CLASS canon_600_load_raw()
@@ -842,11 +850,11 @@ void CLASS fuji_s2_load_raw()
 
   fseek (ifp, (2944*24+32)*2, SEEK_CUR);
   for (row=0; row < 2144; row++) {
-    fread (pixel, 2, 2944, ifp);
+    read_shorts (pixel, 2944);
     for (col=0; col < 2880; col++) {
       r = row + ((col+1) >> 1);
       c = 2143 - row + (col >> 1);
-      BAYER(r,c) = ntohs(pixel[col]) << 2;
+      BAYER(r,c) = pixel[col] << 2;
     }
   }
 }
@@ -858,9 +866,7 @@ void CLASS fuji_s3_load_raw()
 
   fseek (ifp, (4352*2+32)*2, SEEK_CUR);
   for (row=0; row < 1440; row++) {
-    fread (pixel, 2, 4352, ifp);
-    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
-      swab (pixel, pixel, 4352*2);
+    read_shorts (pixel, 4352);
     for (col=0; col < 4288; col++) {
       r = 2143 + row - (col >> 1);
       c = row + ((col+1) >> 1);
@@ -875,9 +881,7 @@ void CLASS fuji_common_load_raw (int ncol, int icol, int nrow)
   int row, col, r, c;
 
   for (row=0; row < nrow; row++) {
-    fread (pixel, 2, ncol, ifp);
-    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
-      swab (pixel, pixel, ncol*2);
+    read_shorts (pixel, ncol);
     for (col=0; col <= icol; col++) {
       r = icol - col + (row >> 1);
       c = col + ((row+1) >> 1);
@@ -908,9 +912,7 @@ void CLASS fuji_f700_load_raw()
   int row, col, r, c, val;
 
   for (row=0; row < 2168; row++) {
-    fread (pixel, 2, 2944, ifp);
-    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
-      swab (pixel, pixel, 2944*2);
+    read_shorts (pixel, 2944);
     for (col=0; col < 1440; col++) {
       r = 1439 - col + (row >> 1);
       c = col + ((row+1) >> 1);
@@ -956,10 +958,10 @@ void CLASS phase_one_load_raw()
   bkey = fget2(ifp);
   fseek (ifp, data_offset + 12 + top_margin*raw_width*2, SEEK_SET);
   for (row=0; row < height; row++) {
-    fread (pixel, 2, raw_width, ifp);
+    read_shorts (pixel, raw_width);
     for (col=0; col < raw_width; col+=2) {
-      a = ntohs(pixel[col+0]) ^ akey;
-      b = ntohs(pixel[col+1]) ^ bkey;
+      a = pixel[col+0] ^ akey;
+      b = pixel[col+1] ^ bkey;
       pixel[col+0] = (b & 0xaaaa) | (a & 0x5555);
       pixel[col+1] = (a & 0xaaaa) | (b & 0x5555);
     }
@@ -973,11 +975,10 @@ void CLASS ixpress_load_raw()
   ushort pixel[4090];
   int row, col;
 
+  order = 0x4949;
   fseek (ifp, 304 + 6*2*4090, SEEK_SET);
   for (row=height; --row >= 0; ) {
-    fread (pixel, 2, 4090, ifp);
-    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
-      swab (pixel, pixel, 4090*2);
+    read_shorts (pixel, 4090);
     for (col=0; col < width; col++)
       BAYER(row,col) = pixel[width-1-col];
   }
@@ -997,7 +998,7 @@ void CLASS packed_12_load_raw()
   }
 }
 
-void CLASS unpacked_load_raw (int order, int rsh)
+void CLASS unpacked_load_raw (int rsh)
 {
   ushort *pixel;
   int row, col;
@@ -1005,48 +1006,31 @@ void CLASS unpacked_load_raw (int order, int rsh)
   pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "unpacked_load_raw()");
   for (row=0; row < height; row++) {
-    fread (pixel, 2, raw_width, ifp);
-    if (order != ntohs(0x55aa))
-      swab (pixel, pixel, width*2);
+    read_shorts (pixel, raw_width);
     for (col=0; col < width; col++)
       BAYER(row,col) = pixel[col] << 8 >> (8+rsh);
   }
   free (pixel);
 }
 
-void CLASS be_16_load_raw()		/* "be" = "big-endian" */
+void CLASS all_16_load_raw()
 {
-  unpacked_load_raw (0x55aa, 0);
+  unpacked_load_raw (0);
 }
 
-void CLASS be_high_12_load_raw()
+void CLASS high_12_load_raw()
 {
-  unpacked_load_raw (0x55aa, 2);
+  unpacked_load_raw (2);
 }
 
-void CLASS be_low_12_load_raw()
+void CLASS low_12_load_raw()
 {
-  unpacked_load_raw (0x55aa,-2);
+  unpacked_load_raw (-2);
 }
 
-void CLASS be_low_10_load_raw()
+void CLASS low_10_load_raw()
 {
-  unpacked_load_raw (0x55aa,-4);
-}
-
-void CLASS le_16_load_raw()		/* "le" = "little-endian" */
-{
-  unpacked_load_raw (0xaa55, 0);
-}
-
-void CLASS le_high_12_load_raw()
-{
-  unpacked_load_raw (0xaa55, 2);
-}
-
-void CLASS le_low_12_load_raw()
-{
-  unpacked_load_raw (0xaa55,-2);
+  unpacked_load_raw (-4);
 }
 
 void CLASS olympus_e300_load_raw()
@@ -1123,21 +1107,21 @@ void CLASS casio_qv5700_load_raw()
 
 void CLASS nucore_load_raw()
 {
-  uchar *data, *dp;
+  ushort *pixel;
   int irow, row, col;
 
-  data = calloc (width, 2);
-  merror (data, "nucore_load_raw()");
+  pixel = calloc (width, 2);
+  merror (pixel, "nucore_load_raw()");
   for (irow=0; irow < height; irow++) {
-    fread (data, 2, width, ifp);
+    read_shorts (pixel, width);
     if (model[0] == 'B' && width == 2598)
       row = height - 1 - irow/2 - height/2 * (irow & 1);
     else
       row = irow;
-    for (dp=data, col=0; col < width; col++, dp+=2)
-      BAYER(row,col) = (dp[0] << 2) + (dp[1] << 10);
+    for (col=0; col < width; col++)
+      BAYER(row,col) = pixel[col] << 2;
   }
-  free (data);
+  free (pixel);
 }
 
 const int * CLASS make_decoder_int (const int *source, int level)
@@ -1424,9 +1408,7 @@ void CLASS kodak_compressed_load_raw()
       if (israw) {			/* If the data is not compressed */
 	switch (col & 7) {
 	  case 0:
-	    fread (raw, 2, 6, ifp);
-	    for (i=0; i < 6; i++)
-	      raw[i] = ntohs(raw[i]);
+	    read_shorts (raw, 6);
 	    diff = raw[0] >> 12 << 8 | raw[2] >> 12 << 4 | raw[4] >> 12;
 	    break;
 	  case 1:
@@ -2875,7 +2857,7 @@ int CLASS identify()
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
   static const char *corp[] =
-    { "Canon", "NIKON", "Kodak", "OLYMPUS", "PENTAX",
+    { "Canon", "NIKON", "EPSON", "Kodak", "OLYMPUS", "PENTAX",
       "MINOLTA", "Minolta", "Konica" };
   float tmp;
 
@@ -2947,9 +2929,9 @@ nucore:
   } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     parse_tiff (fget4(ifp)+12);
-    order = 0x4d4d;
     fseek (ifp, 100, SEEK_SET);
-    data_offset = fget4(ifp);
+    fread (&data_offset, 4, 1, ifp);
+    data_offset = ntohl(data_offset);
   } else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
   else if (!memcmp (head,"FOVb",4))
@@ -3268,6 +3250,12 @@ coolpix:
     filters = 0x16161616;
     pre_mul[0] = 2.131;
     pre_mul[2] = 1.300;
+  } else if (!strcmp(model,"R-D1")) {
+    tiff_data_compression = 34713;
+    load_raw = nikon_load_raw;
+    black = 256;
+    pre_mul[0] = 2.322;
+    pre_mul[2] = 1.404;
   } else if (!strcmp(model,"FinePixS2Pro")) {
     height = 3584;
     width  = 3583;
@@ -3297,7 +3285,7 @@ coolpix:
     width  = 2304;
     data_offset += width*10;
     filters = 0x49494949;
-    load_raw = le_low_12_load_raw;
+    load_raw = low_12_load_raw;
     pre_mul[0] = 1.755;
     pre_mul[2] = 1.542;
     rgb_max = 0xffff;
@@ -3336,7 +3324,7 @@ fuji_s7000:
     fseek (ifp, 2032, SEEK_SET);
     goto konica_510z;
   } else if (!strcasecmp(make,"MINOLTA")) {
-    load_raw = be_low_12_load_raw;
+    load_raw = low_12_load_raw;
     rgb_max = 15860;
     if (!strncmp(model,"DiMAGE A",8)) {
       if (!strcmp(model,"DiMAGE A200")) {
@@ -3372,7 +3360,7 @@ konica_510z:
       }
       filters = 0x61616161;
 konica_400z:
-      load_raw = be_low_10_load_raw;
+      load_raw = low_10_load_raw;
       rgb_max = 15856;
       order = 0x4d4d;
       camera_red   = fget2(ifp);
@@ -3383,7 +3371,7 @@ konica_400z:
     pre_mul[0] = 1.42;
     pre_mul[2] = 1.25;
   } else if (!strcmp(model,"*ist D")) {
-    load_raw = be_low_12_load_raw;
+    load_raw = low_12_load_raw;
     pre_mul[0] = 1.76;
     pre_mul[1] = 1.07;
   } else if (!strcmp(model,"*ist DS")) {
@@ -3456,12 +3444,12 @@ konica_400z:
     width  = fget4(ifp);
     filters = 0x61616161;
     data_offset = 68;
-    load_raw = be_16_load_raw;
+    load_raw = all_16_load_raw;
     rgb_max = 0xffff;
   } else if (!strcmp(make,"Leaf")) {
     if (height > width)
       filters = 0x16161616;
-    load_raw = be_16_load_raw;
+    load_raw = all_16_load_raw;
     pre_mul[0] = 1.1629;
     pre_mul[2] = 1.3556;
     rgb_max = 0xffff;
@@ -3469,20 +3457,20 @@ konica_400z:
     height = 1928;
     width  = 2568;
     data_offset = 1024;
-    load_raw = le_high_12_load_raw;
+    load_raw = high_12_load_raw;
     pre_mul[0] = 1.883;
     pre_mul[2] = 1.367;
   } else if (!strcmp(model,"E-1")) {
     filters = 0x61616161;
-    load_raw = le_high_12_load_raw;
+    load_raw = high_12_load_raw;
     pre_mul[0] = 1.57;
     pre_mul[2] = 1.48;
   } else if (!strcmp(model,"E-10")) {
-    load_raw = be_high_12_load_raw;
+    load_raw = high_12_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
   } else if (!strncmp(model,"E-20",4)) {
-    load_raw = be_high_12_load_raw;
+    load_raw = high_12_load_raw;
     black = 640;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
@@ -3490,7 +3478,7 @@ konica_400z:
     width -= 21;
     load_raw = olympus_e300_load_raw;
     if (fsize > 15728640) {
-      load_raw = le_16_load_raw;
+      load_raw = all_16_load_raw;
       rgb_max = 64560;
     } else
       black = 248;
@@ -3776,7 +3764,7 @@ konica_400z:
   } else if (!strcmp(model,"QV-4000")) {
     height = 1700;
     width  = 2260;
-    load_raw = be_high_12_load_raw;
+    load_raw = high_12_load_raw;
   } else if (!strcmp(model,"QV-5700")) {
     height = 1924;
     width  = 2576;
@@ -4068,7 +4056,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.22"
+    "\nRaw Photo Decoder \"dcraw\" v6.23"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
