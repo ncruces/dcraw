@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.193 $
-   $Date: 2004/05/14 21:26:40 $
+   $Revision: 1.194 $
+   $Date: 2004/05/22 15:41:31 $
  */
 
 #define _GNU_SOURCE
@@ -2100,7 +2100,7 @@ void vng_interpolate()
 	if (c != color) {
 	  t += (sum[c] - sum[color])/num;
 	  if (t < 0) t = 0;
-	  if (t > 0xffff) t = 0xffff;
+	  if (t > rgb_max) t = rgb_max;
 	}
 	brow[2][col][c] = t;
       }
@@ -3682,7 +3682,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.83"
+    "\nRaw Photo Decoder \"dcraw\" v5.84"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
