@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "September 5, 2004"
+.TH dcraw 1 "October 22, 2004"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -61,6 +61,13 @@ default is to use a slow, high-quality adaptive algorithm.
 Half-size the output image.  Instead of interpolating, reduce
 each 2x2 block of sensors to one pixel.  Much faster than
 .BR -q .
+.TP
+.B -s
+For cameras based on the Fuji Super CCD SR, use the secondary
+sensors, in effect underexposing the image by four stops to
+reveal detail in the highlights.  For all other cameras,
+.B -s
+is silently ignored.
 .TP
 .B -g gamma
 Specify the gamma value for eight-bit output.  Default is 0.6.
