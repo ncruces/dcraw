@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.156 $
-   $Date: 2003/12/17 05:08:01 $
+   $Revision: 1.157 $
+   $Date: 2003/12/19 05:07:31 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -20,6 +20,7 @@
 	http://www.cybercom.net/~dcoffin/dcraw/ljpeg_decode.tar.gz
  */
 
+#define _GNU_SOURCE
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +36,6 @@
 #define strcasecmp stricmp
 typedef __int64 INT64;
 #else
-#define __USE_XOPEN
 #include <unistd.h>
 #include <netinet/in.h>
 typedef long long INT64;
@@ -824,13 +824,12 @@ void phase_one_load_raw()
 {
   int row, col, a, b;
   ushort pixel[4134], akey, bkey;
-  INT64 bblack=0;
 
-  fseek (ifp, 8, SEEK_SET);
-  fseek (ifp, fget4(ifp) + 308, SEEK_SET);
+  fseek (ifp, tiff_data_offset + 8, SEEK_SET);
+  fseek (ifp, fget4(ifp) + 296, SEEK_CUR);
   akey = fget2(ifp);
   bkey = fget2(ifp);
-  fseek (ifp, 12 + top_margin*raw_width*2, SEEK_SET);
+  fseek (ifp, tiff_data_offset + 12 + top_margin*raw_width*2, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, raw_width, ifp);
     for (col=0; col < raw_width; col+=2) {
@@ -841,11 +840,7 @@ void phase_one_load_raw()
     }
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = pixel[col+left_margin];
-    for (col=left_margin+width; col < raw_width-1; col++)
-      bblack += pixel[col];
   }
-  black = bblack / (height * (raw_width-1-width-left_margin));
-  if (raw_width == 3120) black = 0;
 }
 
 void ixpress_load_raw()
@@ -2200,10 +2195,11 @@ int identify(char *fname)
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  if (!memcmp (head,"MMMMRawT",8)) {
+  if ((c = memmem (head, 32, "MMMMRawT", 8))) {
     strcpy (make, "Phase One");
-    fseek (ifp, 8, SEEK_SET);
-    fseek (ifp, fget4(ifp) + 148, SEEK_SET);
+    tiff_data_offset = c - head;
+    fseek (ifp, tiff_data_offset + 8, SEEK_SET);
+    fseek (ifp, fget4(ifp) + 136, SEEK_CUR);
     raw_width = fget4(ifp);
     fseek (ifp, 12, SEEK_CUR);
     raw_height = fget4(ifp);
@@ -2544,8 +2540,8 @@ coolpix:
     pre_mul[0] = 1.76;
     pre_mul[1] = 1.07;
   } else if (!strcmp(make,"Phase One")) {
-    switch (raw_width) {
-      case 3120:
+    switch (raw_height) {
+      case 2060:
 	strcpy (model, "LightPhase");
 	height = 2048;
 	width  = 3080;
@@ -2554,14 +2550,14 @@ coolpix:
 	pre_mul[0] = 1.331;
 	pre_mul[2] = 1.154;
 	break;
-      case 4056:
+      case 2682:
 	strcpy (model, "H10");
 	height = 2672;
 	width  = 4012;
 	top_margin  = 5;
 	left_margin = 26;
 	break;
-      case 4134:
+      case 4128:
 	strcpy (model, "H20");
 	height = 4098;
 	width  = 4098;
@@ -2569,6 +2565,15 @@ coolpix:
 	left_margin = 26;
 	pre_mul[0] = 1.963;
 	pre_mul[2] = 1.430;
+	break;
+      case 5488:
+	strcpy (model, "H25");
+	height = 5458;
+	width  = 4098;
+	top_margin  = 20;
+	left_margin = 26;
+	pre_mul[0] = 2.80;
+	pre_mul[2] = 1.20;
     }
     filters = top_margin & 1 ? 0x94949494 : 0x49494949;
     load_raw = phase_one_load_raw;
@@ -3006,7 +3011,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.26"
+    "\nRaw Photo Decoder v5.27"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
