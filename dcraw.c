@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.108 $
-   $Date: 2003/04/12 15:31:58 $
+   $Revision: 1.109 $
+   $Date: 2003/04/25 00:46:29 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -52,9 +52,10 @@ short order;
 char make[64], model[64], model2[64];
 int raw_height, raw_width;	/* Including black borders */
 int tiff_data_offset, tiff_data_compression;
+int kodak_data_compression;
 int nef_curve_offset;
 int height, width, colors, black, rgb_max;
-int is_canon, is_cmy, use_coeff, trim, xmag, ymag;
+int is_canon, is_cmy, is_foveon, use_coeff, trim, xmag, ymag;
 unsigned filters;
 ushort (*image)[4];
 void (*load_raw)();
@@ -907,6 +908,59 @@ void kodak_compressed_load_raw()
     }
 }
 
+void kodak_yuv_load_raw()
+{
+  uchar c, blen[384];
+  unsigned row, col, len, bits=0;
+  INT64 bitbuf=0;
+  int i, li=0, si, diff, six[6], y[4], cb=0, cr=0, rgb[3];
+  ushort *ip;
+
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+
+  for (row=0; row < height; row+=2)
+    for (col=0; col < width; col+=2) {
+      if ((col & 127) == 0) {
+	len = (width - col) * 3;
+	if (len > 384) len = 384;
+	for (i=0; i < len; ) {
+	  c = fgetc(ifp);
+	  blen[i++] = c & 15;
+	  blen[i++] = c >> 4;
+	}
+	li = bitbuf = bits = y[1] = y[3] = cb = cr = 0;
+      }
+      for (si=0; si < 6; si++) {
+	len = blen[li++];
+	if (bits < len) {
+	  for (i=0; i < 32; i+=8)
+	    bitbuf += (INT64) fgetc(ifp) << (bits+(i^8));
+	  bits += 32;
+	}
+	diff = bitbuf & (0xffff >> (16-len));
+	bitbuf >>= len;
+	bits -= len;
+	if ((diff & (1 << (len-1))) == 0)
+	  diff -= (1 << len) - 1;
+	six[si] = diff << 2;
+      }
+      y[0] = six[0] + y[1];
+      y[1] = six[1] + y[0];
+      y[2] = six[2] + y[3];
+      y[3] = six[3] + y[2];
+      cb  += six[4];
+      cr  += six[5];
+      for (i=0; i < 4; i++) {
+	ip = image[(row+(i >> 1))*width + col+(i & 1)];
+	rgb[0] = y[i] + 1.40200/2 * cr;
+	rgb[1] = y[i] - 0.34414/2 * cb - 0.71414/2 * cr;
+	rgb[2] = y[i] + 1.77200/2 * cb;
+	for (c=0; c < 3; c++)
+	  if (rgb[c] > 0) ip[c] = rgb[c];
+      }
+    }
+}
+
 void foveon_decoder(struct decode *dest, unsigned huff[1024], unsigned code)
 {
   static struct decode *free;
@@ -1499,6 +1553,9 @@ void tiff_parse_subifd(int base)
       case 0x103:		/* Compression */
 	tiff_data_compression = val;
 	break;
+      case 0x106:		/* Kodak color format */
+	kodak_data_compression = val;
+	break;
       case 0x111:		/* StripOffset */
 	if (len == 1)
 	  tiff_data_offset = val;
@@ -1839,7 +1896,7 @@ int identify(char *fname)
   camera_red = camera_blue = black = 0;
   rgb_max = 0x4000;
   colors = 3;
-  is_cmy = use_coeff = 0;
+  is_cmy = is_foveon = use_coeff = 0;
   xmag = ymag = 1;
 
   strcpy (make, "NIKON");		/* wild guess */
@@ -2187,15 +2244,18 @@ coolpix:
     } else if (!strcmp(model,"ProBack")) {
       pre_mul[0] = 1.06;
       pre_mul[2] = 1.385;
-    } else if (!strncmp(model2,"PB645M",6)) {
-      pre_mul[0] = 1.06;
-      pre_mul[2] = 1.50;
+    } else if (!strncmp(model2,"PB645C",6)) {
+      pre_mul[0] = 1.0497;
+      pre_mul[2] = 1.3306;
     } else if (!strncmp(model2,"PB645H",6)) {
-      pre_mul[0] = 1.20;
-      pre_mul[2] = 1.52;
-    } else if (!strcmp(model,"DCS Pro 14n")) {
-      pre_mul[0] = 0.9932;
-      pre_mul[2] = 1.1288;
+      pre_mul[0] = 1.2010;
+      pre_mul[2] = 1.5061;
+    } else if (!strncmp(model2,"PB645M",6)) {
+      pre_mul[0] = 1.01755;
+      pre_mul[2] = 1.5424;
+    } else if (!strcasecmp(model,"DCS Pro 14n")) {
+      pre_mul[1] = 1.0191;
+      pre_mul[2] = 1.1567;
     }
     switch (tiff_data_compression) {
       case 0:				/* No compression */
@@ -2206,7 +2266,13 @@ coolpix:
 	load_raw = lossless_jpeg_load_raw;  break;
       case 65000:			/* Kodak DCR compression */
 	black = 0;
-	load_raw = kodak_compressed_load_raw;  break;
+	if (kodak_data_compression == 32803)
+	  load_raw = kodak_compressed_load_raw;
+	else {
+	  load_raw = kodak_yuv_load_raw;
+	  filters = 0;
+	}
+	break;
       default:
 	fprintf (stderr, "%s: %s %s uses unsupported compression method %d.\n",
 		fname, make, model, tiff_data_compression);
@@ -2217,6 +2283,7 @@ coolpix:
     width  = 2271;
     filters = 0;
     load_raw = foveon_load_raw;
+    is_foveon = 1;
     foveon_coeff();
     rgb_max = 5600;
   } else {
@@ -2439,7 +2506,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.61"
+    "\nRaw Photo Decoder v4.64"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2525,7 +2592,7 @@ int main(int argc, char **argv)
 	make, model, argv[arg]);
     (*load_raw)();
     fclose(ifp);
-    if (colors == 3 && !filters) {
+    if (is_foveon) {
       fprintf (stderr, "Foveon interpolation...\n");
       foveon_interpolate();
     } else {
