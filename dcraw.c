@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.164 $
-   $Date: 2004/02/12 03:44:30 $
+   $Revision: 1.165 $
+   $Date: 2004/02/13 14:20:06 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2699,8 +2699,8 @@ coolpix:
     height = 1737;
     width  = 2324;
     load_raw = pentax_optio_s4_load_raw;
-    pre_mul[0] = 2.09;
-    pre_mul[1] = 1.06;
+    pre_mul[0] = 1.308;
+    pre_mul[2] = 1.275;
   } else if (!strcmp(make,"Phase One")) {
     switch (raw_height) {
       case 2060:
