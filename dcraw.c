@@ -25,7 +25,7 @@
 
 /* Default values, which may be modified on the command line */
 
-float gamma=0.8, bright=1.0;
+float gamma_val=0.8, bright=1.0;
 
 /* DOS likes to trash binary files!! */
 
@@ -307,10 +307,10 @@ write_ppm(char *fname)
    Second pass:  Scale RGB and write to PPM file
 */
 
-  expo = (gamma-1)/2;			/* Pull these out of the loop */
+  expo = (gamma_val-1)/2;			/* Pull these out of the loop */
   mult = bright * 362 / max;
   for (y=0; y < 4; y++)
-    ymul[y] = pow(ymul[y],gamma);
+    ymul[y] = pow(ymul[y],gamma_val);
 
   for (y=1; y < 612; y++)
   {
@@ -351,7 +351,7 @@ main(int argc, char **argv)
     "\n-c        Write to standard output"
     "\n-g <num>  Set gamma value (%5.3f by default)"
     "\n-b <num>  Set brightness  (%5.3f by default)\n\n",
-      argv[0], gamma, bright);
+      argv[0], gamma_val, bright);
     exit(1);
   }
 
@@ -363,7 +363,7 @@ main(int argc, char **argv)
       case 'c':
 	write_to_files = 0;  break;
       case 'g':
-	gamma=atof(argv[++arg]);  break;
+	gamma_val = atof(argv[++arg]);  break;
       case 'b':
 	bright = atof(argv[++arg]);  break;
       default:
