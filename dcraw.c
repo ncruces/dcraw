@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.21 $
-   $Date: 2000/05/07 04:26:08 $
+   $Revision: 1.22 $
+   $Date: 2000/05/20 20:31:28 $
 */
 
 #include <fcntl.h>
@@ -57,8 +57,8 @@ const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
 #define W 1552
 
 #define RED_MUL 1.0
-#define GRN_MUL 0.76
-#define BLU_MUL 0.59
+#define GRN_MUL 0.628
+#define BLU_MUL 0.792
 
 const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
 
