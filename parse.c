@@ -1,19 +1,27 @@
 /*
    Raw Photo Parser
-   Copyright 2002 by Dave Coffin <dcoffin@shore.net>
+   Copyright 2003 by Dave Coffin <dcoffin@shore.net>
 
    This program extracts thumbnail images (preferably JPEGs)
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.5 $
-   $Date: 2002/12/20 22:33:58 $
+   $Revision: 1.6 $
+   $Date: 2003/09/11 20:52:29 $
  */
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+
+#ifdef WIN32
+#include <winsock2.h>
+typedef __int64 INT64;
+#else
+#include <netinet/in.h>
+typedef long long INT64;
+#endif
 
 /*
    TIFF and CIFF data blocks can be quite large.
@@ -28,8 +36,9 @@ typedef unsigned char uchar;
 
 FILE *ifp;
 short order;
-char make[128], model[128];
-int thumb_offset, thumb_len;
+char make[128], model[128], model2[128], thumb_head[128];
+int width, height, offset, bps;
+int thumb_offset, thumb_length, thumb_layers;
 
 /*
    Get a 2-byte integer, making no assumptions about CPU byte order.
@@ -73,7 +82,8 @@ void tiff_dump(int base, int tag, int type, int count, int level)
   if (count * size[type < 13 ? type:0] > 4)
     fseek (ifp, fget4(ifp)+base, SEEK_SET);
   save = ftell(ifp);
-  printf("%*stag=0x%x, type=%d, count=%d, data=", level*2, "", tag, type, count);
+  printf("%*stag=0x%x, type=%d, count=%d, data=",
+	level*2, "", tag, type, count);
   if (type==2) putchar('\"');
   for (j = 0; j < count && j < DLEN; j++)
     switch (type) {
@@ -99,21 +109,6 @@ void tiff_dump(int base, int tag, int type, int count, int level)
   if (type==2) putchar('\"');
   putchar('\n');
   fseek (ifp, save, SEEK_SET);
-}
-
-void tiff_parse_subifd(int base)
-{
-  int entries, tag, type, count, save;
-
-  entries = fget2(ifp);
-  while (entries--) {
-    save = ftell(ifp);
-    tag  = fget2(ifp);
-    type = fget2(ifp);
-    count= fget4(ifp);
-    tiff_dump (base, tag, type, count, 1);
-    fseek (ifp, save+12, SEEK_SET);
-  }
 }
 
 void nef_parse_makernote()
@@ -168,54 +163,109 @@ void nef_parse_exif(int base)
   }
 }
 
+void parse_tiff (int base, int level)
+{
+  int entries, tag, type, count, slen, save, save2, val, i;
+
+  entries = fget2(ifp);
+  while (entries--) {
+    save = ftell(ifp);
+    tag  = fget2(ifp);
+    type = fget2(ifp);
+    count= fget4(ifp);
+    slen = count;
+    if (slen > 128) slen = 128;
+
+    tiff_dump (base, tag, type, count, level);
+
+    save2 = ftell(ifp);
+    if (type == 3)			/* short int */
+      val = fget2(ifp);
+    else
+      val = fget4(ifp);
+    fseek (ifp, save2, SEEK_SET);
+
+    switch (tag) {
+      case 0x100:			/* ImageWidth */
+	if (!width)  width = val;
+	break;
+      case 0x101:			/* ImageHeight */
+	if (!height) height = val;
+	break;
+      case 0x102:			/* Bits per sample */
+	if (bps) break;
+	bps = val;
+	if (count == 1)
+	  thumb_layers = 1;
+	break;
+      case 0x103:			/* Compression */
+	break;
+      case 0x10f:			/* Make tag */
+	fgets (make, slen, ifp);
+	break;
+      case 0x110:			/* Model tag */
+	fgets (model, slen, ifp);
+	break;
+      case 0x827d:			/* Model2 tag */
+	fgets (model2, slen, ifp);
+	break;
+      case 0x111:			/* StripOffset */
+	if (!offset) offset = val;
+	break;
+      case 0x117:			/* StripByteCounts */
+	if (offset > val && !strncmp(make,"KODAK",5))
+	  offset -= val;
+	break;
+      case 0x14a:			/* SubIFD tag */
+	save2 = ftell(ifp);
+	for (i=0; i < count; i++) {
+	  printf ("SubIFD #%d:\n", i+1);
+	  fseek (ifp, save2 + i*4, SEEK_SET);
+	  fseek (ifp, fget4(ifp)+base, SEEK_SET);
+	  parse_tiff (base, level+1);
+	}
+	break;
+      case 0x201:
+	thumb_offset = val;
+	break;
+      case 0x202:
+	thumb_length = val;
+	break;
+      case 0x8769:
+	fseek (ifp, fget4(ifp)+base, SEEK_SET);
+	nef_parse_exif (base);
+	break;
+    }
+    fseek (ifp, save+12, SEEK_SET);
+  }
+}
+
 /*
    Parse a TIFF file looking for camera model and decompress offsets.
  */
-void parse_tiff(int base)
+void parse_tiff_file (int base)
 {
-  int doff, entries, tag, type, count, save, save2, i;
+  int doff, spp=3;
 
+  width = height = offset = bps = 0;
   fseek (ifp, base, SEEK_SET);
   order = fget2(ifp);
   fget2(ifp);			/* Should be 42 for standard TIFF */
   while ((doff = fget4(ifp))) {
     fseek (ifp, doff+base, SEEK_SET);
-    entries = fget2(ifp);
-    while (entries--) {
-      save = ftell(ifp);
-      tag  = fget2(ifp);
-      type = fget2(ifp);
-      count= fget4(ifp);
-
-      tiff_dump (base, tag, type, count, 0);
-
-      switch (tag) {
-	case 271:			/* Make tag */
-	  fread (make, 1, 128, ifp);
-	  if (count > 127) count=127;
-	  make[count]=0;
-	  break;
-	case 272:			/* Model tag */
-	  fread (model, 1, 128, ifp);
-	  if (count > 127) count=127;
-	  model[count]=0;
-	  break;
-	case 330:			/* SubIFD tag */
-          save2 = ftell(ifp);
-	  for (i=0; i < count; i++) {
-	    printf ("SubIFD #%d:\n", i+1);
-	    fseek (ifp, save2 + i*4, SEEK_SET);
-	    fseek (ifp, fget4(ifp)+base, SEEK_SET);
-	    tiff_parse_subifd(base);
-	  }
-	  break;
-	case 0x8769:
-	  fseek (ifp, fget4(ifp)+base, SEEK_SET);
-	  nef_parse_exif(base);
-	  break;
-      }
-      fseek (ifp, save+12, SEEK_SET);
-    }
+    parse_tiff (base, 0);
+  }
+  if (strncmp(make,"KODAK",5))
+    thumb_layers = 0;
+  if (!strncmp(model,"DCS460A",7)) {
+    spp = 1;
+    thumb_layers = 0;
+  }
+  if (!thumb_length) {
+    thumb_offset = offset;
+    sprintf (thumb_head, "P%d\n%d %d\n%d\n",
+	spp > 1 ? 6:5, width, height, (1 << bps) - 1);
+    thumb_length = width * height * spp * ((bps+7)/8);
   }
 }
 
@@ -289,56 +339,180 @@ void parse_ciff (int offset, int length, int level)
     }
     if (type == 0x2007) {		/* Found the JPEG thumbnail */
       thumb_offset = aoff;
-      thumb_len = len;
+      thumb_length = len;
     }
   }
 }
 
-/*
-   Open a CRW file, identify which camera created it, and set
-   global variables accordingly.  Returns nonzero if an error occurs.
- */
-int open_and_id(char *fname)
+void parse_foveon()
 {
-  unsigned magic, hlen;
-  char head[8], thumb_name[256], *thumb;
+  char *buf, *bp, *np;
+  int off1, off2, len, i, wide, high;
+
+  order = 0x4949;			/* Little-endian */
+  fseek (ifp, -4, SEEK_END);
+  off2 = fget4(ifp);
+
+  fseek (ifp, off2, SEEK_SET);
+  while (fget4(ifp) != 0x464d4143)	/* Search for "CAMF" */
+    if (feof(ifp)) return;
+  off1 = fget4(ifp);
+  fseek (ifp, off1+8, SEEK_SET);
+  off1 += (fget4(ifp)+3) * 8;
+  len = (off2 - off1)/2;
+  fseek (ifp, off1, SEEK_SET);
+  buf = malloc(len);
+  if (!buf) {
+    perror("parse_foveon() malloc failed");
+    exit(1);
+  }
+  for (i=0; i < len; i++)		/* Convert Unicode to ASCII */
+    buf[i] = fget2(ifp);
+  for (bp=buf; bp < buf+len && *bp; ) {
+    np = bp + strlen(bp) + 1;
+    printf ("%-16s%s\n", bp, np);
+    if (!strcmp(bp,"CAMMANUF"))
+      strcpy (make, np);
+    if (!strcmp(bp,"CAMMODEL"))
+      strcpy (model, np);
+    bp = np + strlen(np) + 1;
+  }
+  free(buf);
+
+  fseek (ifp, off2, SEEK_SET);
+  while (fget4(ifp) != 0x47414d49)	/* Search for "IMAG" */
+    if (feof(ifp)) return;
+  fseek (ifp, fget4(ifp)+16, SEEK_SET);
+  wide = fget4(ifp);			/* Should crop to this width */
+  high = fget4(ifp);
+  wide = fget4(ifp) / 3;		/* Includes one garbage column */
+  sprintf (thumb_head, "P6 %d %d 255\n", wide, high);
+  thumb_offset = ftell(ifp);
+  thumb_length = wide * high * 3;
+}
+
+void kodak_yuv_decode (FILE *tfp)
+{
+  uchar c, blen[384];
+  unsigned row, col, len, bits=0;
+  INT64 bitbuf=0;
+  int i, li=0, si, diff, six[6], y[4], cb=0, cr=0, rgb[3];
+  ushort *out, *op;
+
+  fseek (ifp, thumb_offset, SEEK_SET);
+  width = (width+1) & -2;
+  fprintf (tfp, "P6 %d %d 65535\n", width, height);
+  out = malloc (width * 12);
+  if (!out) {
+    fprintf (stderr, "kodak_yuv_decode() malloc failed!\n");
+    exit(1);
+  }
+
+  for (row=0; row < height; row+=2) {
+    for (col=0; col < width; col+=2) {
+      if ((col & 127) == 0) {
+	len = (width - col) * 3;
+	if (len > 384) len = 384;
+	for (i=0; i < len; ) {
+	  c = fgetc(ifp);
+	  blen[i++] = c & 15;
+	  blen[i++] = c >> 4;
+	}
+	li = bitbuf = bits = y[1] = y[3] = cb = cr = 0;
+      }
+      for (si=0; si < 6; si++) {
+	len = blen[li++];
+	if (bits < len) {
+	  for (i=0; i < 32; i+=8)
+	    bitbuf += (INT64) fgetc(ifp) << (bits+(i^8));
+	  bits += 32;
+	}
+	diff = bitbuf & (0xffff >> (16-len));
+	bitbuf >>= len;
+	bits -= len;
+	if ((diff & (1 << (len-1))) == 0)
+	  diff -= (1 << len) - 1;
+	six[si] = diff;
+      }
+      y[0] = six[0] + y[1];
+      y[1] = six[1] + y[0];
+      y[2] = six[2] + y[3];
+      y[3] = six[3] + y[2];
+      cb  += six[4];
+      cr  += six[5];
+      for (i=0; i < 4; i++) {
+	op = out + ((i >> 1)*width + col+(i & 1)) * 3;
+	rgb[0] = y[i] + 1.40200/2 * cr;
+	rgb[1] = y[i] - 0.34414/2 * cb - 0.71414/2 * cr;
+	rgb[2] = y[i] + 1.77200/2 * cb;
+	for (c=0; c < 3; c++)
+	  if (rgb[c] > 0) op[c] = htons(rgb[c]);
+      }
+    }
+    fwrite (out, sizeof *out, width*6, tfp);
+  }
+  free(out);
+}
+
+/*
+   Identify which camera created this file, and set global variables
+   accordingly.	 Return nonzero if the file cannot be decoded.
+ */
+int identify(char *fname)
+{
+  char head[8], thumb_name[256], *thumb, *rgb;
+  unsigned hlen, fsize, magic, toff, tlen, lsize, i;
   FILE *tfp;
 
-  ifp = fopen(fname,"rb");
-  if (!ifp) {
-    perror(fname);
-    return 1;
-  }
-  model[0] = thumb_offset = thumb_len = 0;
+  make[0] = model[0] = model2[0] = 0;
+  thumb_head[0] = thumb_offset = thumb_length = thumb_layers = 0;
   order = fget2(ifp);
+  hlen = fget4(ifp);
+  fread (head, 1, 8, ifp);
+  fseek (ifp, 0, SEEK_END);
+  fsize = ftell(ifp);
+  fseek (ifp, 0, SEEK_SET);
+  magic = fget4(ifp);
   if (order == 0x4949 || order == 0x4d4d) {
-    hlen = fget4(ifp);
-    fread (head, 1, 8, ifp);
     if (!memcmp(head,"HEAPCCDR",8)) {
-      fseek (ifp, 0, SEEK_END);
-      parse_ciff (hlen, ftell(ifp) - hlen, 0);
+      parse_ciff (hlen, fsize - hlen, 0);
       fseek (ifp, hlen, SEEK_SET);
     } else
-      parse_tiff(0);
-  } else {
-    fseek (ifp, 0, SEEK_SET);
-    magic = fget4(ifp);
-    if (magic == 0x46554a49)		/* "FUJI" */
-      parse_tiff(120);
-    else if (magic == 0x4d524d) {	/* "\0MRM" */
-      parse_tiff(48);
-    }
-  }
+      parse_tiff_file(0);
+  } else if (magic == 0x4d524d) {	/* "\0MRM" (Minolta) */
+    parse_tiff_file(48);
+    strcpy (thumb_head, "\xff");
+    fseek (ifp, 4, SEEK_SET);
+    thumb_length = fget4(ifp);
+    fseek (ifp, 584, SEEK_SET);
+    thumb_offset = fget4(ifp) + 49;
+    thumb_length -= thumb_offset;
+  } else if (magic == 0x46554a49) {	/* "FUJI" */
+    fseek (ifp, 84, SEEK_SET);
+    toff = fget4(ifp);
+    tlen = fget4(ifp);
+    parse_tiff_file (toff+12);
+    thumb_offset = toff;
+    thumb_length = tlen;
+  } else if (magic == 0x464f5662)	/* "FOVb" */
+    parse_foveon();
   if (model[0] == 0) {
-    printf ("%s: unsupported file format.\n", fname);
+    fprintf (stderr, "%s: unsupported file format.\n", fname);
     return 1;
   }
-  printf ("Findings for %s:\n", fname);
-  printf ("Make  is \"%s\"\n", make);
-  printf ("Model is \"%s\"\n", model);
+  if (!strcmp(model,"C5050Z")) {
+    thumb_head[0] = 0;
+    thumb_offset = 0x1000;
+    thumb_length = 0x2c00;
+  }
+  fprintf (stderr, "Findings for %s:\n", fname);
+  fprintf (stderr, "Make   is \"%s\"\n", make);
+  fprintf (stderr, "Model  is \"%s\"\n", model);
+  if (model2[0])
+    fprintf (stderr, "Model2 is \"%s\"\n", model2);
 
-  if (!thumb_len) {
-    printf ("Thumbnail image not found\n");
+  if (!thumb_length) {
+    fprintf (stderr, "Thumbnail image not found\n");
     return 0;
   }
   strcpy (thumb_name, fname);
@@ -348,17 +522,35 @@ int open_and_id(char *fname)
     perror(thumb_name);
     exit(1);
   }
-  thumb = (char *) malloc(thumb_len);
+  if (!strcasecmp(model,"DCS Pro 14N")) {
+    kodak_yuv_decode (tfp);
+    goto done;
+  }
+  thumb = (char *) malloc(thumb_length);
   if (!thumb) {
-    fprintf (stderr, "Cannot allocate %d bytes!!\n", thumb_len);
+    fprintf (stderr, "Cannot allocate %d bytes!!\n", thumb_length);
     exit(1);
   }
   fseek (ifp, thumb_offset, SEEK_SET);
-  fread (thumb, 1, thumb_len, ifp);
-  fwrite(thumb, 1, thumb_len, tfp);
+  fread (thumb, 1, thumb_length, ifp);
+  if (thumb_layers) {
+    rgb = (char *) malloc(thumb_length);
+    if (!rgb) {
+      fprintf (stderr, "Cannot allocate %d bytes!!\n", thumb_length);
+      exit(1);
+    }
+    lsize = thumb_length/3;
+    for (i=0; i < thumb_length; i++)
+      rgb[(i%lsize)*3 + i/lsize] = thumb[i];
+    free(thumb);
+    thumb = rgb;
+  }
+  fputs (thumb_head, tfp);
+  fwrite(thumb, 1, thumb_length, tfp);
   free (thumb);
+done:
   fclose (tfp);
-  printf ("Thumbnail image written to %s.\n", thumb_name);
+  fprintf (stderr, "Thumbnail image written to %s.\n", thumb_name);
   return 0;
 }
 
@@ -369,7 +561,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Thumbnail Extracter"
+    "\nRaw Photo Parser and Thumbnail Extracter"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n", argv[0]);
     exit(1);
@@ -377,9 +569,14 @@ int main(int argc, char **argv)
 
   for (arg=1; arg < argc; arg++)
   {
-    printf("\nParsing %s:\n",argv[arg]);
-    open_and_id(argv[arg]);
-    if (ifp) fclose(ifp);
+    ifp = fopen(argv[arg],"rb");
+    if (!ifp) {
+      perror(argv[arg]);
+      continue;
+    }
+    printf ("\nParsing %s:\n", argv[arg]);
+    identify (argv[arg]);
+    fclose (ifp);
   }
   return 0;
 }
