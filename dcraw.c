@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.41 $
-   $Date: 2002/01/29 20:53:56 $
+   $Revision: 1.42 $
+   $Date: 2002/02/05 22:40:25 $
 */
 
 #include <math.h>
@@ -955,13 +955,13 @@ void write_psd(FILE *ofp)
     0,0,0,0,			/* layer/mask info */
     0,0				/* no compression */
   };
-  int *hw = (int *)(head+14);
-  int psize, y, x, c, val, max=0xffff;
+  int hw[2], psize, y, x, c, val, max=0xffff;
   float rgb[4];
   ushort *buffer, *pred;
 
   hw[0] = htonl(height-2);	/* write the header */
   hw[1] = htonl(width-2);
+  memcpy (head+14, hw, sizeof hw);
   fwrite (head, 40, 1, ofp);
 
   psize = (height-2) * (width-2);
@@ -1083,7 +1083,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.52"
+    "\nCanon PowerShot Converter v2.53"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
