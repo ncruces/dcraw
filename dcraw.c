@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.173 $
-   $Date: 2004/02/22 19:28:03 $
+   $Revision: 1.174 $
+   $Date: 2004/02/23 00:18:33 $
  */
 
 #define _GNU_SOURCE
@@ -59,6 +59,7 @@ int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, colors, black, rgb_max;
 int is_canon, is_cmy, is_foveon, use_coeff, trim, ymag;
+int zero_after_ff;
 unsigned filters;
 ushort (*image)[4], white[8][8];
 void (*load_raw)();
@@ -74,7 +75,7 @@ void (*write_fun)(FILE *) = write_ppm;
 struct decode {
   struct decode *branch[2];
   int leaf;
-} first_decode[32], second_decode[512];
+} first_decode[2048], *second_decode, *free_decode;
 
 /*
    In order to inline this calculation, I make the risky
@@ -159,7 +160,7 @@ char *memmem (char *haystack, size_t haystacklen,
 void merror (void *ptr, char *where)
 {
   if (ptr) return;
-  fprintf (stderr, "Out of memory in %s\n", where);
+  fprintf (stderr, "%s: Out of memory in %s\n", ifname, where);
   exit(1);
 }
 
@@ -222,24 +223,37 @@ void canon_a5_load_raw()
 }
 
 /*
-   A rough description of Canon's compression algorithm:
-
-+  Each pixel outputs a 10-bit sample, from 0 to 1023.
-+  Split the data into blocks of 64 samples each.
-+  Subtract from each sample the value of the sample two positions
-   to the left, which has the same color filter.  From the two
-   leftmost samples in each row, subtract 512.
-+  For each nonzero sample, make a token consisting of two four-bit
-   numbers.  The low nibble is the number of bits required to
-   represent the sample, and the high nibble is the number of
-   zero samples preceding this sample.
-+  Output this token as a variable-length bitstring using
-   one of three tablesets.  Follow it with a fixed-length
-   bitstring containing the sample.
-
-   The "first_decode" table is used for the first sample in each
-   block, and the "second_decode" table is used for the others.
+   getbits(-1) initializes the buffer
+   getbits(n) where 0 <= n <= 25 returns an n-bit integer
  */
+unsigned getbits (int nbits)
+{
+  static unsigned long bitbuf=0;
+  static int vbits=0;
+  unsigned c, ret;
+
+  if (nbits == 0) return 0;
+  if (nbits == -1)
+    ret = bitbuf = vbits = 0;
+  else {
+    ret = bitbuf << (LONG_BIT - vbits) >> (LONG_BIT - nbits);
+    vbits -= nbits;
+  }
+  while (vbits < LONG_BIT - 7) {
+    c = fgetc(ifp);
+    bitbuf = (bitbuf << 8) + c;
+    if (c == 0xff && zero_after_ff)
+      fgetc(ifp);
+    vbits += 8;
+  }
+  return ret;
+}
+
+void init_decoder()
+{
+  memset (first_decode, 0, sizeof first_decode);
+  free_decode = first_decode;
+}
 
 /*
    Construct a decode tree according the specification in *source.
@@ -267,33 +281,30 @@ void canon_a5_load_raw()
 	1111110		0x0b
 	1111111		0xff
  */
-void make_decoder(struct decode *dest, const uchar *source, int level)
+void make_decoder (const uchar *source, int level)
 {
-  static struct decode *free;	/* Next unused node */
-  static int leaf;		/* number of leaves already added */
+  struct decode *cur;
+  static int leaf;
   int i, next;
 
-  if (level==0) {
-    free = dest;
-    leaf = 0;
+  if (level==0) leaf=0;
+  cur = free_decode++;
+  if (free_decode > first_decode+2048) {
+    fprintf (stderr, "%s: decoder table overflow\n", ifname);
+    exit(1);
   }
-  free++;
-/*
-   At what level should the next leaf appear?
- */
   for (i=next=0; i <= leaf && next < 16; )
     i += source[next++];
-
   if (level < next && i > leaf) {
-    dest->branch[0] = free;
-    make_decoder (free, source, level+1);
-    dest->branch[1] = free;
-    make_decoder (free, source, level+1);
+    cur->branch[0] = free_decode;
+    make_decoder (source, level+1);
+    cur->branch[1] = free_decode;
+    make_decoder (source, level+1);
   } else
-    dest->leaf = source[16 + leaf++];
+    cur->leaf = source[16 + leaf++];
 }
 
-void init_tables(unsigned table)
+void crw_init_tables (unsigned table)
 {
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
@@ -357,52 +368,22 @@ void init_tables(unsigned table)
   };
 
   if (table > 2) table = 2;
-  memset ( first_decode, 0, sizeof first_decode);
-  memset (second_decode, 0, sizeof second_decode);
-  make_decoder ( first_decode,  first_tree[table], 0);
-  make_decoder (second_decode, second_tree[table], 0);
-}
-
-/*
-   getbits(-1) initializes the buffer
-   getbits(n) where 0 <= n <= 25 returns an n-bit integer
- */
-unsigned getbits(int nbits)
-{
-  static unsigned long bitbuf=0;
-  static int vbits=0;
-  unsigned c, ret;
-
-  if (nbits == 0) return 0;
-  if (nbits == -1)
-    ret = bitbuf = vbits = 0;
-  else {
-    ret = bitbuf << (LONG_BIT - vbits) >> (LONG_BIT - nbits);
-    vbits -= nbits;
-  }
-  while (vbits < LONG_BIT - 7) {
-    c = fgetc(ifp);
-    bitbuf = (bitbuf << 8) + c;
-    if (c == 0xff && is_canon)	/* Canon puts an extra 0 after 0xff */
-      fgetc(ifp);
-    vbits += 8;
-  }
-  return ret;
+  init_decoder();
+  make_decoder ( first_tree[table], 0);
+  second_decode = free_decode;
+  make_decoder (second_tree[table], 0);
 }
 
 /*
    Decompress "count" blocks of 64 samples each.
-
-   Note that the width passed to this function is slightly
-   larger than the global width, because it includes some
-   blank pixels that (*load_raw) will strip off.
  */
-void decompress(ushort *outbuf, int count)
+void crw_decompress (ushort *outbuf, int count)
 {
   struct decode *decode, *dindex;
   int i, leaf, len, diff, diffbuf[64];
   static int carry, pixel, base[2];
 
+  zero_after_ff = 1;
   if (!outbuf) {			/* Initialize */
     carry = pixel = 0;
     fseek (ifp, count, SEEK_SET);
@@ -472,9 +453,9 @@ void canon_compressed_load_raw()
   merror (pixel, "canon_compressed_load_raw()");
   lowbits = canon_has_lowbits();
   shift = 4 - lowbits*2;
-  decompress(0, 540 + lowbits*raw_height*raw_width/4);
+  crw_decompress (0, 540 + lowbits*raw_height*raw_width/4);
   for (row=0; row < raw_height; row+=8) {
-    decompress(pixel, raw_width/8);		/* Get eight rows */
+    crw_decompress (pixel, raw_width/8);	/* Get eight rows */
     if (lowbits) {
       save = ftell(ifp);			/* Don't lose our place */
       fseek (ifp, 26 + row*raw_width/4, SEEK_SET);
@@ -514,11 +495,11 @@ void lossless_jpeg_load_raw()
   struct decode *dindex;
 
   fread (head, 1, 64, ifp);
-  memset (first_decode, 0, sizeof first_decode);
-  make_decoder (first_decode, head+7, 0);
+  init_decoder();
+  make_decoder (head+7, 0);
   jwide = (head[43] << 8) + head[44];
   trick = 2 * jwide / width;
-  is_canon = 1;
+  zero_after_ff = 1;
   getbits(-1);
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
@@ -553,8 +534,8 @@ void nikon_compressed_load_raw()
   ushort *curve;
   struct decode *dindex;
 
-  memset (first_decode, 0, sizeof first_decode);
-  make_decoder (first_decode,  nikon_tree, 0);
+  init_decoder();
+  make_decoder (nikon_tree, 0);
 
   fseek (ifp, nef_curve_offset, SEEK_SET);
   for (i=0; i < 4; i++)
@@ -1158,33 +1139,35 @@ void sony_rgbe_coeff()
   use_coeff = 1;
 }
 
-void foveon_decoder(struct decode *dest, unsigned huff[1024], unsigned code)
+void foveon_decoder (unsigned huff[1024], unsigned code)
 {
-  static struct decode *free;
+  struct decode *cur;
   int i, len;
 
-  free++;
+  cur = free_decode++;
+  if (free_decode > first_decode+2048) {
+    fprintf (stderr, "%s: decoder table overflow\n", ifname);
+    exit(1);
+  }
   if (code) {
     for (i=0; i < 1024; i++)
       if (huff[i] == code) {
-	dest->leaf = i;
+	cur->leaf = i;
 	return;
       }
-  } else
-    free = dest + 1;
-
+  }
   if ((len = code >> 27) > 26) return;
   code = (len+1) << 27 | (code & 0x3ffffff) << 1;
 
-  dest->branch[0] = free;
-  foveon_decoder (free, huff, code);
-  dest->branch[1] = free;
-  foveon_decoder (free, huff, code+1);
+  cur->branch[0] = free_decode;
+  foveon_decoder (huff, code);
+  cur->branch[1] = free_decode;
+  foveon_decoder (huff, code+1);
 }
 
 void foveon_load_raw()
 {
-  struct decode decode[2048], *dindex;
+  struct decode *dindex;
   short diff[1024], pred[3];
   unsigned huff[1024], bitbuf=0;
   int row, col, bit=-1, c, i;
@@ -1195,15 +1178,15 @@ void foveon_load_raw()
   for (i=0; i < 1024; i++)
     huff[i] = fget4(ifp);
 
-  memset (decode, 0, sizeof decode);
-  foveon_decoder (decode,  huff, 0);
+  init_decoder();
+  foveon_decoder (huff, 0);
 
   for (row=0; row < raw_height; row++) {
     memset (pred, 0, sizeof pred);
     if (!bit) fget4(ifp);
     for (col=bit=0; col < raw_width; col++) {
       for (c=0; c < 3; c++) {
-	for (dindex=decode; dindex->branch[0]; ) {
+	for (dindex=first_decode; dindex->branch[0]; ) {
 	  if ((bit = (bit-1) & 31) == 31)
 	    for (i=0; i < 4; i++)
 	      bitbuf = (bitbuf << 8) + fgetc(ifp);
@@ -2060,8 +2043,9 @@ void ciff_block_1030()
  */
 void parse_ciff(int offset, int length)
 {
-  int tboff, nrecs, i, type, len, roff, aoff, save;
-  int wbi=-1, remap[] = { 1,2,3,4,5,1 };
+  int tboff, nrecs, i, type, len, roff, aoff, save, wbi=-1;
+  static const int remap[] = { 1,2,3,4,5,1 };
+  static const int remap_10d[] = { 0,1,3,4,5,6,0,0,2,8 };
 
   fseek (ifp, offset+length-4, SEEK_SET);
   tboff = fget4(ifp) + offset;
@@ -2118,6 +2102,8 @@ common:
       }
     }
     if (type == 0x10a9) {		/* Get white balance (D60) */
+      if (!strcmp(model,"Canon EOS 10D"))
+	wbi = remap_10d[wbi];
       fseek (ifp, aoff+2 + wbi*8, SEEK_SET);
       camera_red  = fget2(ifp);
       camera_red /= fget2(ifp);
@@ -2139,7 +2125,7 @@ common:
     }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
-      init_tables (fget4(ifp));
+      crw_init_tables (fget4(ifp));
     }
     if (type >> 8 == 0x28 || type >> 8 == 0x30)	/* Get sub-tables */
       parse_ciff(aoff, len);
@@ -2342,6 +2328,7 @@ int identify()
   memset (white, 0, sizeof white);
   camera_red = camera_blue = timestamp = 0;
   data_offset = tiff_data_compression = 0;
+  zero_after_ff = 0;
 
   order = fget2(ifp);
   hlen = fget4(ifp);
@@ -3171,7 +3158,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.54"
+    "\nRaw Photo Decoder v5.56"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
