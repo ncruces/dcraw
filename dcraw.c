@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.185 $
-   $Date: 2004/04/25 04:54:14 $
+   $Revision: 1.186 $
+   $Date: 2004/04/25 20:19:33 $
  */
 
 #define _GNU_SOURCE
@@ -1942,6 +1942,7 @@ void vng_interpolate()
   }
   if (quick_interpolate)
     return;
+
   for (row=0; row < 8; row++) {		/* Precalculate for VNG */
     ip = code[row];
     for (col=0; col < 2; col++) {
@@ -1994,9 +1995,8 @@ void vng_interpolate()
 	  gval[g] += diff;
       }
       ip++;
-      gmin = INT_MAX;				/* Choose a threshold */
-      gmax = 0;
-      for (g=0; g < 8; g++) {
+      gmin = gmax = gval[0];			/* Choose a threshold */
+      for (g=1; g < 8; g++) {
 	if (gmin > gval[g]) gmin = gval[g];
 	if (gmax < gval[g]) gmax = gval[g];
       }
@@ -2014,8 +2014,13 @@ void vng_interpolate()
 	}
       }
       for (c=0; c < colors; c++) {		/* Save to buffer */
-	t = pix[color] + (sum[c] - sum[color])/num;
-	brow[2][col][c] = t > 0 ? (t < 0xffff ? t : 0xffff) : 0;
+	t = pix[color];
+	if (c != color) {
+	  t += (sum[c] - sum[color])/num;
+	  if (t < 0) t = 0;
+	  if (t > 0xffff) t = 0xffff;
+	}
+	brow[2][col][c] = t;
       }
       pix += 4;
     }
