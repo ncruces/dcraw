@@ -1,5 +1,5 @@
 /*
-   Canon PowerShot Converter v0.94
+   Canon PowerShot Converter v0.95
 
    by Dave Coffin (dcoffin@shore.net)
 
@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.14 $
-   $Date: 1999/05/07 00:10:38 $
+   $Revision: 1.15 $
+   $Date: 2000/05/01 07:06:04 $
 */
 
 #include <ctype.h>
@@ -29,6 +29,9 @@
 #define GRN_MUL 0.6
 #define BLU_MUL 1.0
 
+/* Use this to remove annoying horizontal patterns */
+const float ymul[4] = { 0.9866, 1.0, 1.0125, 1.0 };
+
 #elif defined(PS_A5)
 
 #define H 776
@@ -38,8 +41,21 @@
 #define GRN_MUL 0.90
 #define BLU_MUL 0.88
 
+const float ymul[4] = { 1.0005, 1.0056, 0.9980, 0.9959 };
+
+#elif defined(PS_A50)
+
+#define H 968
+#define W 1290
+
+#define RED_MUL 1.0
+#define GRN_MUL 0.90
+#define BLU_MUL 0.88
+
+const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
+
 #else
-#error You must compile with -DPS_600 or -DPS_A5
+#error You must compile with -DPS_600, -DPS_A5, or -DPS_A50
 #endif
 
 /* Default values, which may be modified on the command line */
@@ -226,7 +242,86 @@ read_crw(const char *fname)
   close(fd);
   return 1;			/* Success */
 }
+
+#elif defined(PS_A50)
+
+/*
+   Returns the filter color of a given pixel.
+   The pattern is:
+
+	  0 1 2 3 4 5
+	0 C Y C Y C Y		Return values
+	1 M G M G M G		 0  1  2  3
+	2 Y C Y C Y C		 G  M  C  Y
+	3 G M G M G M
+	4 C Y C Y C Y
+	5 G M G M G M
+	6 Y C Y C Y C
+	7 M G M G M G
+*/
+#define filter(row,col) \
+	(0x1b4e4b1e >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
+
+/*
+   Load CCD pixel values into the gmcy[] array.  Unknown colors
+   (such as cyan under a magenta filter) must be set to zero.
+*/
+read_crw(const char *fname)
+{
+  uchar  data[1650], *dp;
+  ushort pixel[1320], *pix;
+  int fd, row, col;
+
+  fd = open(fname,O_RDONLY | O_BINARY);
+  if (fd < 0)
+  { perror(fname);
+    return 0; }
+
+/* Check the header to confirm this is a CRW file */
+
+  read (fd, data, 26);
+  if (memcmp(data,"II",2) || memcmp(data+6,"HEAPCCDR",8))
+  {
+    fprintf(stderr,"%s is not a Canon PowerShot A50 file.\n",fname);
+    return 0;
+  }
+
+#ifdef DEBUG
+  fprintf(stderr,"Unpacking %s...\n",fname);
 #endif
+
+/*
+   Immediately after the 26-byte header come the data rows.
+   Each row is 1320 pixels, ten bits each, packed into 1650 bytes.
+*/
+  for (row=0; row < H; row++)
+  {
+    read(fd,data,1650);
+    for (dp=data, pix=pixel; dp < data+1650; dp+=10, pix+=8)
+    {
+      pix[0] = (dp[1] << 2) + (dp[0] >> 6);
+      pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+      pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+      pix[3] = (dp[2] << 8) + (dp[5]     );
+      pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+      pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+      pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+      pix[7] = (dp[9] << 8) + (dp[8]     );
+    }
+/*
+   Copy 1290 pixels into the gmcy[] array.  The other 30 pixels
+   are blank.  Left-shift by 4 for extra precision in upcoming
+   calculations.
+*/
+    memset(gmcy[row], 0, W*8);		/* Set row to zero */
+    for (col=0; col < W; col++)
+      gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
+  }
+  close(fd);
+  return 1;			/* Success */
+}
+
+#endif		/* End of model-specific code */
 
 /*
    When this function is called, we only have one GMCY
@@ -352,13 +447,6 @@ write_ppm(char *fname)
   int histo[1024], total;
   char p6head[32];
 
-/* Use this to remove annoying horizontal patterns */
-#ifdef PS_600
-  float ymul[4] = { 0.9866, 1.0, 1.0125, 1.0 };
-#elif defined(PS_A5)
-  float ymul[4] = { 1.0005, 1.0056, 0.9980, 0.9959 };
-#endif
-
 #ifdef DEBUG
   fprintf(stderr,"First pass RGB...\n");
 #endif
@@ -443,8 +531,10 @@ main(int argc, char **argv)
     "600"
 #elif defined(PS_A5)
     "A5"
+#elif defined(PS_A50)
+    "A50"
 #endif
-    " Converter v0.94"
+    " Converter v0.95"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
