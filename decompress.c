@@ -2,8 +2,8 @@
    Simple reference decompresser for Canon digital cameras.
    Outputs raw 16-bit CCD data, no header, native byte order.
 
-   $Revision: 1.4 $
-   $Date: 2001/10/28 00:56:51 $
+   $Revision: 1.5 $
+   $Date: 2001/10/28 01:20:20 $
 */
 
 #include <stdio.h>
@@ -47,8 +47,7 @@ int fget4 (FILE *f)
 }
 
 /*
-   Parse the CIFF structure looking for two pieces of information:
-   The camera name, and the decode table number.
+   Parse the CIFF structure
  */
 parse (int offset, int length)
 {
