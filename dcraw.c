@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.81 $
-   $Date: 2002/12/12 18:14:52 $
+   $Revision: 1.82 $
+   $Date: 2002/12/13 02:48:35 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -1303,7 +1304,7 @@ void make_coeff();
    Open a CRW file, identify which camera created it, and set
    global variables accordingly.  Returns nonzero if an error occurs.
  */
-int open_and_id(char *fname)
+int identify(char *fname)
 {
   char head[8], *c;
   unsigned magic, hlen;
@@ -1317,11 +1318,6 @@ int open_and_id(char *fname)
   is_cmy = 0;
   xmag = ymag = 1;
 
-  ifp = fopen(fname,"rb");
-  if (!ifp) {
-    perror(fname);
-    return 1;
-  }
   make[0] = model[0] = model2[0] = 0;
   order = fget2(ifp);
   if (order == 0x4949 || order == 0x4d4d) {
@@ -1926,7 +1922,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.01"
+    "\nRaw Photo Decoder v4.02"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -1990,8 +1986,13 @@ int main(int argc, char **argv)
   for ( ; arg < argc; arg++)
   {
     black = 0;
-    if (open_and_id(argv[arg])) {
-      if (ifp) fclose(ifp);
+    ifp = fopen(argv[arg],"rb");
+    if (!ifp) {
+      perror(argv[arg]);
+      continue;
+    }
+    if (identify(argv[arg])) {
+      fclose(ifp);
       continue;
     }
     image = calloc (height * width, sizeof *image);
