@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.174 $
-   $Date: 2004/02/23 00:18:33 $
+   $Revision: 1.175 $
+   $Date: 2004/02/24 04:56:12 $
  */
 
 #define _GNU_SOURCE
@@ -947,21 +947,24 @@ void nucore_load_raw()
 void kodak_easy_load_raw()
 {
   uchar *pixel;
-  int row, col, margin;
+  unsigned row, col, icol;
 
-  if ((margin = (raw_width - width)/2))
+  if (width < raw_width)
     black = 0;
   pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "kodak_easy_load_raw()");
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
-    for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = (ushort) pixel[col+margin] << 6;
-    if (margin == 2)
-      black += pixel[0] + pixel[1] + pixel[raw_width-2] + pixel[raw_width-1];
+    for (col=0; col < raw_width; col++) {
+      icol = col - left_margin;
+      if (icol < width)
+	image[row*width+icol][FC(row,icol)] = (ushort) pixel[col] << 6;
+      else
+	black += pixel[col];
+    }
   }
-  if (margin)
-    black = ((INT64) black << 6) / (4 * height);
+  if (width < raw_width)
+    black = ((INT64) black << 6) / ((raw_width - width) * height);
   free (pixel);
 }
 
@@ -2793,34 +2796,44 @@ coolpix:
   } else if (!strcasecmp(make,"KODAK")) {
     filters = 0x61616161;
     black = 400;
-    if (!strcmp(model,"DCS315C")) {
-      pre_mul[0] = 0.973;
-      pre_mul[2] = 0.987;
-      black = 0;
-    } else if (!strcmp(model,"DCS330C")) {
-      pre_mul[0] = 0.996;
-      pre_mul[2] = 1.279;
-      black = 0;
-    } else if (!strcmp(model,"DCS420")) {
-      pre_mul[0] = 1.21;
-      pre_mul[2] = 1.63;
+    if (!strcmp(model,"NC2000F")) {
       width -= 4;
-    } else if (!strcmp(model,"DCS460")) {
-      pre_mul[0] = 1.46;
-      pre_mul[2] = 1.84;
-      width -= 4;
-    } else if (!strcmp(model,"DCS460A")) {
-      colors = 1;
-      filters = 0;
-      width -= 4;
+      left_margin = 1;
+      pre_mul[0] = 1.327;
+      pre_mul[2] = 2.093;
     } else if (!strcmp(model,"EOSDCS3B")) {
+      width -= 4;
+      left_margin = 2;
       pre_mul[0] = 1.43;
       pre_mul[2] = 2.16;
-      width -= 4;
     } else if (!strcmp(model,"EOSDCS1")) {
+      width -= 4;
+      left_margin = 2;
       pre_mul[0] = 1.28;
       pre_mul[2] = 2.00;
+    } else if (!strcmp(model,"DCS315C")) {
+      black = 0;
+      pre_mul[0] = 0.973;
+      pre_mul[2] = 0.987;
+    } else if (!strcmp(model,"DCS330C")) {
+      black = 0;
+      pre_mul[0] = 0.996;
+      pre_mul[2] = 1.279;
+    } else if (!strcmp(model,"DCS420")) {
       width -= 4;
+      left_margin = 2;
+      pre_mul[0] = 1.21;
+      pre_mul[2] = 1.63;
+    } else if (!strcmp(model,"DCS460")) {
+      width -= 4;
+      left_margin = 2;
+      pre_mul[0] = 1.46;
+      pre_mul[2] = 1.84;
+    } else if (!strcmp(model,"DCS460A")) {
+      width -= 4;
+      left_margin = 2;
+      colors = 1;
+      filters = 0;
     } else if (!strcmp(model,"DCS520C")) {
       pre_mul[0] = 1.00;
       pre_mul[2] = 1.20;
@@ -2870,9 +2883,11 @@ coolpix:
       case 0:				/* No compression */
       case 1:
 	rgb_max = 0x3fc0;
-	load_raw = kodak_easy_load_raw;  break;
+	load_raw = kodak_easy_load_raw;
+	break;
       case 7:				/* Lossless JPEG */
-	load_raw = lossless_jpeg_load_raw;  break;
+	load_raw = lossless_jpeg_load_raw;
+	break;
       case 65000:			/* Kodak DCR compression */
 	black = 0;
 	if (kodak_data_compression == 32803)
@@ -3158,7 +3173,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.56"
+    "\nRaw Photo Decoder v5.57"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
