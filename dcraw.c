@@ -3,7 +3,7 @@
    Copyright (c)1997-2001 by Dave Coffin <dcoffin@shore.net>
 
    A portable ANSI C program to convert raw CRW files from Canon
-   PowerShot digital cameras into PPM format.
+   digital cameras into PPM format.
 
    This is an entirely original work; no other copyrights apply.
    Any similarity to Canon's code is only to the extent necessary
@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.26 $
-   $Date: 2001/09/30 00:04:43 $
+   $Revision: 1.27 $
+   $Date: 2001/09/30 15:30:42 $
 */
 
 #include <math.h>
@@ -27,13 +27,13 @@ typedef unsigned short ushort;
 /* Global Variables */
 
 FILE *ifp;
-int height, width;
-ushort (*gmcy)[4];
+int height, width, colors;
+ushort (*image)[4];
 int (*filter)(int,int);
-void (*read_crw)(int);
-int histogram[1024];
+void (*read_crw)();
 float gamma_val=0.8, bright=1.0;
 float ymul[4];
+float rgb_mul[3];
 float coeff[3][4];
 
 struct decode {
@@ -55,11 +55,7 @@ ps600_filter(int row, int col)
   return (0xe1e4 >> ((((row) << 1 & 6) + ((col) & 1)) << 1) & 3);
 }
 
-/*
-   Load CCD pixel values into the gmcy[] array.  Unknown colors
-   (such as cyan under a magenta filter) must be set to zero.
- */
-void ps600_read_crw(int row)
+void ps600_read_crw()
 {
   uchar  data[1120], *dp;
   ushort pixel[896], *pix;
@@ -69,12 +65,7 @@ void ps600_read_crw(int row)
    Immediately after the 26-byte header come the data rows.  First
    the even rows 0..612, then the odd rows 1..611.  Each row is 896
    pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
-
-   Since the rows are not stored in top-to-bottom order like the
-   other cameras, we must load all rows before processing can begin.
  */
-  if (row) return;
-
   for (irow=orow=0; irow < height; irow++)
   {
     fread (data, 1120, 1, ifp);
@@ -89,15 +80,13 @@ void ps600_read_crw(int row)
       pix[6] = (dp[7] << 2) + (dp[9] >> 4 & 3);
       pix[7] = (dp[8] << 2) + (dp[9] >> 6    );
     }
-
-    memset(gmcy + row*width, 0, width*sizeof *gmcy);
 /*
-   Copy 854 pixels into the gmcy[] array.  The other 42 pixels
+   Copy 854 pixels into the image[] array.  The other 42 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
  */
     for (col=0; col < width; col++)
-      gmcy[orow*width+col][(*filter)(orow,col)] = pixel[col] << 4;
+      image[orow*width+col][(*filter)(orow,col)] = pixel[col] << 4;
 
     if ((orow+=2) > height)	/* Once we've read all the even rows, */
       orow = 1;			/* read the odd rows. */
@@ -118,40 +107,36 @@ a5_filter(int row, int col)
   return (0x1e4e >> ((((row) << 1 & 6) + ((col) & 1)) << 1) & 3);
 }
 
-/*
-   Load CCD pixel values into the gmcy[] array.  Unknown colors
-   (such as cyan under a magenta filter) must be set to zero.
- */
-void a5_read_crw(int row)
+void a5_read_crw()
 {
   uchar  data[1240], *dp;
   ushort pixel[992], *pix;
-  int col;
+  int row, col;
 
 /*
    Each data row is 992 ten-bit pixels, packed into 1240 bytes.
  */
-  fread(data, 1240, 1, ifp);
-  for (dp=data, pix=pixel; dp < data+1200; dp+=10, pix+=8)
-  {
-    pix[0] = (dp[1] << 2) + (dp[0] >> 6);
-    pix[1] = (dp[0] << 4) + (dp[3] >> 4);
-    pix[2] = (dp[3] << 6) + (dp[2] >> 2);
-    pix[3] = (dp[2] << 8) + (dp[5]     );
-    pix[4] = (dp[4] << 2) + (dp[7] >> 6);
-    pix[5] = (dp[7] << 4) + (dp[6] >> 4);
-    pix[6] = (dp[6] << 6) + (dp[9] >> 2);
-    pix[7] = (dp[9] << 8) + (dp[8]     );
-  }
-
-  memset(gmcy + row*width, 0, width*sizeof *gmcy);
+  for (row=0; row < height; row++) {
+    fread(data, 1240, 1, ifp);
+    for (dp=data, pix=pixel; dp < data+1200; dp+=10, pix+=8)
+    {
+      pix[0] = (dp[1] << 2) + (dp[0] >> 6);
+      pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+      pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+      pix[3] = (dp[2] << 8) + (dp[5]     );
+      pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+      pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+      pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+      pix[7] = (dp[9] << 8) + (dp[8]     );
+    }
 /*
-   Copy 960 pixels into the gmcy[] array.  The other 32 pixels
+   Copy 960 pixels into the image[] array.  The other 32 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
  */
-  for (col=0; col < width; col++)
-    gmcy[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+    for (col=0; col < width; col++)
+      image[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+  }
 }
 
 /*
@@ -172,40 +157,36 @@ a50_filter(int row, int col)
   return (0x1b4e4b1e >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3);
 }
 
-/*
-   Load CCD pixel values into the gmcy[] array.  Unknown colors
-   (such as cyan under a magenta filter) must be set to zero.
- */
-void a50_read_crw(int row)
+void a50_read_crw()
 {
   uchar  data[1650], *dp;
   ushort pixel[1320], *pix;
-  int col;
+  int row, col;
 
 /*
   Each row is 1320 ten-bit pixels, packed into 1650 bytes.
  */
-  fread(data, 1650, 1, ifp);
-  for (dp=data, pix=pixel; dp < data+1650; dp+=10, pix+=8)
-  {
-    pix[0] = (dp[1] << 2) + (dp[0] >> 6);
-    pix[1] = (dp[0] << 4) + (dp[3] >> 4);
-    pix[2] = (dp[3] << 6) + (dp[2] >> 2);
-    pix[3] = (dp[2] << 8) + (dp[5]     );
-    pix[4] = (dp[4] << 2) + (dp[7] >> 6);
-    pix[5] = (dp[7] << 4) + (dp[6] >> 4);
-    pix[6] = (dp[6] << 6) + (dp[9] >> 2);
-    pix[7] = (dp[9] << 8) + (dp[8]     );
-  }
-
-  memset(gmcy + row*width, 0, width*sizeof *gmcy);
+  for (row=0; row < height; row++) {
+    fread(data, 1650, 1, ifp);
+    for (dp=data, pix=pixel; dp < data+1650; dp+=10, pix+=8)
+    {
+      pix[0] = (dp[1] << 2) + (dp[0] >> 6);
+      pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+      pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+      pix[3] = (dp[2] << 8) + (dp[5]     );
+      pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+      pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+      pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+      pix[7] = (dp[9] << 8) + (dp[8]     );
+    }
 /*
-   Copy 1290 pixels into the gmcy[] array.  The other 30 pixels
+   Copy 1290 pixels into the image[] array.  The other 30 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
  */
-  for (col=0; col < width; col++)
-    gmcy[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+    for (col=0; col < width; col++)
+      image[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+  }
 }
 
 /*
@@ -226,35 +207,35 @@ pro70_filter(int row, int col)
   return (0x1e4b4e1b >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3);
 }
 
-void pro70_read_crw(int row)
+void pro70_read_crw()
 {
   uchar  data[1940], *dp;
   ushort pixel[1552], *pix;
-  int col;
+  int row, col;
 
 /*
   Each row is 1552 ten-bit pixels, packed into 1940 bytes.
  */
-  fread(data, 1940, 1, ifp);
-  for (dp=data, pix=pixel; dp < data+1940; dp+=10, pix+=8)
-  {
-    pix[0] = (dp[1] << 2) + (dp[0] >> 6);	/* Same as PS A5 */
-    pix[1] = (dp[0] << 4) + (dp[3] >> 4);
-    pix[2] = (dp[3] << 6) + (dp[2] >> 2);
-    pix[3] = (dp[2] << 8) + (dp[5]     );
-    pix[4] = (dp[4] << 2) + (dp[7] >> 6);
-    pix[5] = (dp[7] << 4) + (dp[6] >> 4);
-    pix[6] = (dp[6] << 6) + (dp[9] >> 2);
-    pix[7] = (dp[9] << 8) + (dp[8]     );
-  }
-
-  memset(gmcy + row*width, 0, width*sizeof *gmcy);
+  for (row=0; row < height; row++) {
+    fread(data, 1940, 1, ifp);
+    for (dp=data, pix=pixel; dp < data+1940; dp+=10, pix+=8)
+    {
+      pix[0] = (dp[1] << 2) + (dp[0] >> 6);
+      pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+      pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+      pix[3] = (dp[2] << 8) + (dp[5]     );
+      pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+      pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+      pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+      pix[7] = (dp[9] << 8) + (dp[8]     );
+    }
 /*
-   Copy all pixels into the gmcy[] array.  Left-shift by 4 for
+   Copy all pixels into the image[] array.  Left-shift by 4 for
    extra precision in upcoming calculations.
  */
-  for (col=0; col < width; col++)
-    gmcy[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+    for (col=0; col < width; col++)
+      image[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+  }
 }
 
 /*
@@ -392,6 +373,7 @@ init_tables(int table)
       0xe2,0x82,0xf1,0xa3,0xc2,0xa1,0xc1,0xe3,0xa2,0xe1,0xff,0xff  }
   };
 
+  if (table > 2) table = 2;
   memset ( first_decode, 0, sizeof first_decode);
   memset (second_decode, 0, sizeof second_decode);
   make_decoder ( first_decode,  first_tree[table], 0);
@@ -437,9 +419,9 @@ decompress(ushort *outbuf, int width, int count)
   int i, leaf, len, sign, diff, diffbuf[64];
   static int carry, pixel, base[2];
 
-  if (!count) {			/* Initialize */
+  if (!width) {			/* Initialize */
     carry = pixel = 0;
-    fseek (ifp, 540, SEEK_SET);
+    fseek (ifp, count, SEEK_SET);
     getbits(-1);
     return;
   }
@@ -489,80 +471,196 @@ pro90_filter(int row, int col)
   return (0xb4 >> ((((row) << 1 & 2) + ((col) & 1)) << 1) & 3);
 }
 
-void pro90_read_crw(int row)
+void pro90_read_crw()
 {
   ushort pixel[1944*8];
-  int r, col;
+  int row, r, col;
 
-/* Read rows eight at a time */
-  if (row & 7) return;
-  decompress(pixel,1944,243);
+  decompress(0,0,540);
 
-  memset(gmcy + row*width, 0, 8*width*sizeof *gmcy);
-  for (r=0; r < 8; r++)
-    for (col=0; col < width; col++)
-      gmcy[(row+r)*width+col][(*filter)(row+r,col)] =
+  for (row=0; row < height; row += 8) {
+    decompress(pixel,1944,243);
+    for (r=0; r < 8; r++)
+      for (col=0; col < width; col++)
+	image[(row+r)*width+col][(*filter)(row+r,col)] =
 		(pixel[(r*1944)+col] & 0x3ff) << 4;
+  }
 }
 
-void g1_read_crw(int row)
+void g1_read_crw()
 {
   ushort pixel[2144*2];
-  int r, col;
+  int row, r, col;
 
-/* Read rows two at a time */
-  if (row & 1) return;
+  decompress(0,0,540);
 
-/* The first eight rows are blank.  Discard them. */
-  if (row == 0)
-    for (r=4; r--; )
-      decompress(pixel,2144,67);
+/* Read two rows at a time, discarding the first eight */
 
-  decompress(pixel,2144,67);
-
-  memset(gmcy + row*width, 0, 2*width*sizeof *gmcy);
-  for (r=0; r < 2; r++)
-    for (col=0; col < width; col++)
-      gmcy[(row+r)*width+col][(*filter)(row+r,col)] =
+  for (row = -8; row < height; row += 2) {
+    decompress(pixel,2144,67);
+    if (row < 0) continue;
+    for (r=0; r < 2; r++)
+      for (col=0; col < width; col++)
+	image[(row+r)*width+col][(*filter)(row+r,col)] =
 		(pixel[(r*2144)+col+4] & 0x3ff) << 4;
+  }
 }
 
 /*
-   Filter pattern of the PowerShot G2:
+   Filter pattern of the PowerShot G2 and EOS D30:
 
 	  0 1 2 3 4 5		Return values
-	0 G M G M G M		 0  1  2  3
-	1 Y C Y C Y C		 G  M  C  Y
+	0 R G R G R G		 0  1  2
+	1 G B G B G B		 R  G  B
+	2 R G R G R G
+	3 G B G B G B
  */
-g2_filter(int row, int col)
+rgb_filter(row,col)
 {
-  return (0x4e >> ((((row) << 1 & 2) + ((col) & 1)) << 1) & 3);
+  return (((row) & 1) + ((col) & 1));
 }
 
-void g2_read_crw(int row)
+void g2_read_crw()
 {
-  ushort pixel[2376*8], *prow, (*grow)[4];
-  int start=0, end, r, orow, col;
+  ushort pixel[2376*8], *prow, (*imrow)[4];
+  int row, r, orow, col;
 
-/*  Read rows eight at a time, discarding the first six rows */
+  decompress(0,0,540);
 
-  if (row == 0)
-    start = 6;
-  else if ((row & 7) != 2)
-    return;
+/* Read eight rows at a time, discarding the first six */
 
-  decompress(pixel,2376,297);
-
-  end = height - row;
-  if (end > 8) end = 8;
-  memset(gmcy + row*width, 0, end*width*sizeof *gmcy);
-  for (r=start; r < end; r++) {
-    orow = row-start + r;
-    grow = gmcy + orow*width;
-    prow = pixel + r*2376 + 12;
-    for (col=0; col < width; col++)
-      grow[col][(*filter)(orow,col)] = (prow[col] & 0x3ff) << 4;
+  for (row = -6; row < height; row += 8) {
+    decompress(pixel,2376,297);
+    for (r=0; r < 8; r++) {
+      orow = row + r;
+      if (orow < 0) continue;
+      if (orow >= height) break;
+      imrow = image + orow*width;
+      prow = pixel + r*2376 + 12;
+      for (col=0; col < width; col++)
+	imrow[col][(*filter)(orow,col)] = (prow[col] & 0x3ff) << 4;
+    }
   }
+}
+
+/*
+   All other cameras give 10 bits per sample; the EOS D30 gives 12.
+   The other two bits are in a different part of the file, so I save
+   my place, and seek over there to pick them up.
+ */
+void d30_read_crw()
+{
+  ushort pixel[2224*4], *prow, (*imrow)[4];
+  int i, row, r, orow, col, save;
+  uchar c;
+
+  decompress(0,0,810076);
+
+/* Read four rows at a time, discarding the first six rows */
+
+  for (row = -6; row < height; row += 4) {
+    decompress(pixel,2224,139);
+    save = ftell(ifp);
+    fseek (ifp, (row+6)*(2224/4) + 26, SEEK_SET);	/* Get low bits */
+    for (prow=pixel, i=0; i < 2224; i++) {
+      c = fgetc(ifp);
+      for (r=0; r < 8; r+=2)
+	*prow++ = (*prow << 2) + ((c >> r) & 3);
+    }
+    fseek (ifp, save, SEEK_SET);
+    for (r=0; r < 4; r++) {
+      orow = row + r;
+      if (orow < 0) continue;
+      if (orow >= height) break;
+      imrow = image + orow*width;
+      prow = pixel + r*2224 + 48;
+      for (col=0; col < width; col++)
+	imrow[col][(*filter)(orow,col)] = (prow[col] & 0xfff) << 2;
+    }
+  }
+}
+
+/*
+   When this function is called, we only have one color for
+   each pixel.  Search the 3x3 neighborhood for pixels of
+   other colors, and average them.  Diagonal neighbors get
+   counted once, orthogonal neighbors twice.
+ */
+first_interpolate()
+{
+  int row, col, cc, x, y, c, val;
+  int avg[8];
+
+  for (row=1; row < height-1; row++)
+    for (col=1; col < width-1; col++) {
+      cc = (*filter)(row,col);
+      memset (avg, 0, sizeof avg);
+      for (y = row-1; y < row+2; y++)
+	for (x = col-1; x < col+2; x++)
+	  if ((c = (*filter)(y,x)) != cc) {
+	    val = image[y*width+x][c];
+	    avg[c] += val;
+	    avg[c+4]++;
+	    if (y==row || x==col) {	/* Orthogonal neighbor */
+	      avg[c] += val;
+	      avg[c+4]++;
+	    }
+	  }
+      for (c=0; c < colors; c++)
+	if (c != cc)
+	  image[row*width+col][c] = avg[c] / avg[c+4];
+    }
+}
+
+/*
+   We now have all color values for each pixel.  Smooth the
+   color balance to avoid artifacts.  This function may be
+   called more than once.
+*/
+second_interpolate()
+{
+  ushort (*last)[4];
+  ushort (*this)[4];
+  void *tmp;
+  int row, col, cc, x, y, c, val;
+  int avg[8];
+
+  last = calloc (width, sizeof *this);
+  this = calloc (width, sizeof *this);
+  if (!last || !this) {
+    perror("second_interpolate() calloc failed");
+    exit(1);
+  }
+  for (row=2; row < height-2; row++) {
+    for (col=2; col < width-2; col++) {
+      cc = (*filter)(row,col);
+      memset (avg, 0, sizeof avg);
+      for (y = row-1; y < row+2; y++)
+	for (x = col-1; x < col+2; x++)
+	  if ((c = (*filter)(y,x)) != cc) {
+	    val = ((unsigned long) image[y*width+x][c] << 16) /
+		image[y*width+x][cc] * image[row*width+col][cc] >> 16;
+	    avg[c] += val;
+	    avg[c+4]++;
+	    if (y==row || x==col) {	/* Orthogonal neighbor */
+	      avg[c] += val;
+	      avg[c+4]++;
+	    }
+	  }
+      this[col][cc] = image[row*width+col][cc];
+      for (c=0; c < colors; c++)
+	if (c != cc)
+	  this[col][c] = avg[c] / avg[c+4];
+    }
+    if (row > 2)
+      memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
+    tmp = last;
+    last = this;
+    this = tmp;
+  }
+  memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
+  free (last);
+  free (this);
 }
 
 /*
@@ -595,10 +693,11 @@ open_and_id(char *fname)
     {  4.013642, -1.710916,  0.690795,  0.417247 },	/* green from GMCY */
     { -2.345669,  3.385090,  3.521597, -2.249256 }	/* blue from GMCY */
   };
-  float rgb_mul[3] = { 1.0, 1.0, 1.0 };
   int i, r, g;
 
   for (i=0; i < 4; i++) ymul[i]=1.0;
+  for (i=0; i < 3; i++) rgb_mul[i]=1.0;
+  colors = 4;
 
   ifp = fopen(fname,"rb");
   if (!ifp) {
@@ -618,6 +717,7 @@ open_and_id(char *fname)
   fseek (ifp, 26, SEEK_SET);
 
   name = search(tail, tlen, "Canon PowerShot ");
+  if (!name) name = search(tail, tlen, "Canon EOS ");
   if (!name) {
     fprintf(stderr,"%s: camera is not a Canon PowerShot.\n",fname);
     return 1;
@@ -626,8 +726,8 @@ open_and_id(char *fname)
     width  = 854;
     rgb_mul[1] = 0.6;
     rgb_mul[2] = 1.0;
-    ymul[1] = 1.0125;
-    ymul[3] = 0.9866;
+    ymul[0] = 0.9866;
+    ymul[2] = 1.0125;
     filter   = ps600_filter;
     read_crw = ps600_read_crw;
   } else if (!strcmp(name,"Canon PowerShot A5")) {
@@ -635,10 +735,10 @@ open_and_id(char *fname)
     width  = 960;
     rgb_mul[1] = 0.90;
     rgb_mul[2] = 0.88;
-    ymul[0] = 1.0056;
-    ymul[1] = 0.9980;
-    ymul[2] = 0.9959;
-    ymul[3] = 1.0005;
+    ymul[0] = 1.0005;
+    ymul[1] = 1.0056;
+    ymul[2] = 0.9980;
+    ymul[3] = 0.9959;
     filter   = a5_filter;
     read_crw = a5_read_crw;
   } else if (!strcmp(name,"Canon PowerShot A50")) {
@@ -662,8 +762,7 @@ open_and_id(char *fname)
     rgb_mul[2] = 0.792;
     filter   = pro90_filter;
     read_crw = pro90_read_crw;
-    init_tables(name[4762]);
-    decompress(0,0,0);
+    init_tables (name[4762]);
   } else if (!strcmp(name,"Canon PowerShot G1")) {
     height = 1550;
     width  = 2088;
@@ -671,18 +770,25 @@ open_and_id(char *fname)
     rgb_mul[2] = 0.792;
     filter   = pro90_filter;
     read_crw = g1_read_crw;
-    init_tables(name[4762]);
-    decompress(0,0,0);
+    init_tables (name[4762]);
   } else if (!strcmp(name,"Canon PowerShot G2")) {
     height = 1720;
-    height = 100;
     width  = 2312;
+    colors = 3;
     rgb_mul[1] = 0.628;
     rgb_mul[2] = 0.792;
-    filter   = g2_filter;
+    filter   = rgb_filter;
     read_crw = g2_read_crw;
-    init_tables(name[4774]);
-    decompress(0,0,0);
+    init_tables (name[4774]);
+  } else if (!strcmp(name,"Canon EOS D30")) {
+    height = 1448;
+    width  = 2176;
+    colors = 3;
+    rgb_mul[1] = 0.628;
+    rgb_mul[2] = 0.792;
+    filter   = rgb_filter;
+    read_crw = d30_read_crw;
+    init_tables (name[3594]);
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
@@ -694,33 +800,6 @@ open_and_id(char *fname)
   return 0;
 }
 #undef tlen
-
-/*
-   When this function is called, we only have one GMCY value for
-   each pixel.  Do linear interpolation to get the other three.
-
-   read_crw(row+1) must happen before first_interpolate(row).
-   first_interpolate() is non-destructive, so this row can be
-   referenced while interpolating the next row.
- */
-first_interpolate(int y)
-{
-  int x, sy, sx, c;
-  static const uchar shift[]={ 2,1,2, 1,16,1, 2,1,2 }, *sp;
-
-  for (x=1; x < width-1; x++)
-  {
-    sp=shift;
-    for (sy=y-1; sy < y+2; sy++)
-    {
-      for (sx=x-1; sx < x+2; sx++)
-      {
-	c=(*filter)(sy,sx);
-	gmcy[y*width+x][c] += gmcy[sy*width+sx][c] >> *sp++;
-      }
-    }
-  }
-}
 
 /*
    Convert a GMCY quadruplet to an RGB triplet.
@@ -737,70 +816,19 @@ first_interpolate(int y)
 
    get_rgb() is based on an inversion of this table.
  */
-get_rgb(float rgb[4], ushort gmcy[4])
+get_rgb(float rgb[4], ushort image[4])
 {
   int r, g;
 
-  memset(rgb,0,4 * sizeof (float));
-  for (r=0; r < 3; r++)	{		/* RGB colors */
-    for (g=0; g < 4; g++)		/* GMCY colors */
-      rgb[r] += coeff[r][g] * gmcy[g];
+  memset (rgb, 0, 4 * sizeof (float));
+  for (r=0; r < 3; r++)	{
+    if (colors == 3)
+      rgb[r] = image[r] * rgb_mul[r];
+    else
+      for (g=0; g < 4; g++)
+	rgb[r] += image[g] * coeff[r][g];
     rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
   }
-}
-
-/*
-   Now that we have four GMCY values for each pixel (one known, three
-   interpolated), adjust each interpolated value so that its ratio to
-   the known value approximates that of neighboring pixels.
-
-   second_interpolate(row) must be called after first_interpolate(row+1)
-   A copy of the original row is needed to interpolating the next row.
-   Therefore, second_interpolate() writes the modified row one pixel
-   above and to the left of the original.
-
-   Edge pixels are discarded.  Pixels one in from the edge are memcpy'd
-   to their new locations.
-
-   Convert each GMCY value to RGB, and compile a histogram of their
-   magnitudes.  Discard the RGB values.
- */
-second_interpolate(int y)
-{
-  int x, c, sy, sx, sc;
-  ushort this[4];
-  static const uchar shift[]={ 2,1,2, 1,  1, 2,1,2 }, *sp;
-  float rgb[4];
-  unsigned val;
-
-  if (y==1 || y==height-2)	/* y is never outside this range */
-  {
-    memcpy(gmcy+(y-1)*width,gmcy+y*width+1,(width-2)*sizeof this);
-    return;
-  }
-  if (y==2) memset(histogram,0,sizeof histogram);
-  memcpy(gmcy+(y-1)*width,gmcy+y*width+1,sizeof this);
-  for (x=2; x < width-2; x++)
-  {
-    c=(*filter)(y,x);
-    sp=shift;
-    memset(this,0,sizeof this);
-    this[c]=gmcy[y*width+x][c];
-    for (sy=y-1; sy < y+2; sy++)	/* 28% of run-time is this loop */
-      for (sx=x-1; sx < x+2; sx = sx+1+(sy==y))
-      {
-	sc=(*filter)(sy,sx);
-	this[sc] +=
-	 ( (unsigned long) gmcy[sy*width+sx][sc] << 16) /
-	    gmcy[sy*width+sx][c] * gmcy[y*width+x][c] >> (16 + *sp++);
-      }
-    memcpy(gmcy+(y-1)*width+x-1,this,sizeof this);
-    get_rgb(rgb,this);
-    val = rgb[3]/0x1000000;	/* Collect statistics */
-    if (val > 1023) val=1023;
-    histogram[val]++;
-  }
-  memcpy(gmcy+(y-1)*width+x-1,gmcy+y*width+x,sizeof this);
 }
 
 /*
@@ -813,15 +841,26 @@ write_ppm(FILE *ofp)
   uchar (*ppm)[3];
   float rgb[4], max, max2, expo, scale;
   float gymul[4];
-  int total;
+  int total, histogram[0x4000];
   char p6head[32];
 
 /*
+   Build a histogram of magnitudes
+ */
+  memset (histogram, 0, sizeof histogram);
+  for (y=1; y < height-1; y++)
+    for (x=1; x < width-1; x++) {
+      get_rgb (rgb, image[y*width+x]);
+      val = rgb[3]/0x100000;
+      if (val > 0x3fff) val=0x3fff;
+      histogram[val]++;
+    }
+/*
    Set the maximum magnitude to the 98th percentile
  */
-  for (val=1024, total=0; --val; )
+  for (val=0x4000, total=0; --val; )
     if ((total+=histogram[val]) > (int)(width*height*0.06)) break;
-  max2 = val << 24;
+  max2 = val << 20;
   max = sqrt(max2);
 
   fprintf(ofp,"P6\n%d %d\n255\n",width-2,height-2);
@@ -835,11 +874,11 @@ write_ppm(FILE *ofp)
   for (y=0; y < 4; y++)
     gymul[y] = bright * 362 / max * pow(ymul[y],gamma_val);
 
-  for (y=0; y < height-2; y++)
+  for (y=1; y < height-1; y++)
   {
-    for (x=0; x < width-2; x++)
+    for (x=1; x < width-1; x++)
     {
-      get_rgb(rgb,gmcy[y*width+x]);
+      get_rgb(rgb,image[y*width+x]);
       scale = gymul[y&3] * pow(rgb[3]/max2,expo);
 
       for (c=0; c < 3; c++)
@@ -847,7 +886,7 @@ write_ppm(FILE *ofp)
 	val=rgb[c]*scale;
 	if (val < 0) val=0;
 	if (val > 255) val=255;
-	ppm[x][c]=val;
+	ppm[x-1][c]=val;
       }
     }
     fwrite (ppm, width-2, 3, ofp);
@@ -877,7 +916,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v1.92"
+    "\nCanon PowerShot Converter v2.00"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
@@ -912,25 +951,20 @@ main(int argc, char **argv)
       if (ifp) fclose(ifp);
       continue;
     }
-    gmcy = calloc(height*width,sizeof *gmcy);
-    if (!gmcy) {
-      perror("gmcy calloc failed");
+    image = calloc (height * width, sizeof *image);
+    if (!image) {
+      perror("image calloc failed");
       exit(1);
     }
-    for (row=0; row < 3; row++)
-      (*read_crw)(row);
-    first_interpolate(1);
-
-/* This loop is a good place to put a progress bar */
-
-    for (row=3; row < height; row++) {
-      (*read_crw)(row);
-      first_interpolate(row-1);
-      second_interpolate(row-2);
-    }
-    second_interpolate(height-2);
+    fprintf (stderr, "Loading data from %s...\n",argv[arg]);
+    (*read_crw)();
+    fprintf (stderr, "First interpolation...\n");
+    first_interpolate();
+    fprintf (stderr, "Second interpolation...\n");
+    second_interpolate();
     fclose(ifp);
 
+    fprintf (stderr, "Writing RGB output...\n");
     if (write_to_files) {
       exten(data, argv[arg],".ppm");
       ofp = fopen(data,"wb");
@@ -942,6 +976,6 @@ main(int argc, char **argv)
       fclose(ofp);
     } else
       write_ppm(stdout);
-    free (gmcy);
+    free (image);
   }
 }
