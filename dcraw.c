@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.117 $
-   $Date: 2003/06/03 19:06:14 $
+   $Revision: 1.118 $
+   $Date: 2003/06/06 15:45:57 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -137,6 +137,13 @@ struct decode {
 	3 G B G B G B	3 B G B G B G	3 G R G R G R
 
  */
+
+void merror (void *ptr, char *where)
+{
+  if (ptr) return;
+  fprintf (stderr, "Out of memory in %s\n", where);
+  exit(1);
+}
 
 void ps600_load_raw()
 {
@@ -539,10 +546,7 @@ void canon_compressed_load_raw()
     case 3152:  top =12;  left = 64;  break;	/* EOS D60 */
   }
   pixel = calloc (raw_width*8, sizeof *pixel);
-  if (!pixel) {
-    perror("canon_compressed_load_raw() calloc failed");
-    exit(1);
-  }
+  merror (pixel, "canon_compressed_load_raw()");
   lowbits = canon_has_lowbits();
   shift = 4 - lowbits*2;
   decompress(0, 540 + lowbits*raw_height*raw_width/4);
@@ -651,10 +655,7 @@ void nikon_compressed_load_raw()
     vpred[i] = fget2(ifp);
   csize = fget2(ifp);
   curve = calloc (csize, sizeof *curve);
-  if (!curve) {
-    perror("curve calloc failed");
-    exit(1);
-  }
+  merror (curve, "nikon_compressed_load_raw()");
   for (i=0; i < csize; i++)
     curve[i] = fget2(ifp);
 
@@ -786,10 +787,7 @@ void minolta_load_raw()
   int row, col;
 
   pixel = calloc (width, sizeof *pixel);
-  if (!pixel) {
-    perror("minolta_load_raw() calloc failed");
-    exit(1);
-  }
+  merror (pixel, "minolta_load_raw()");
   fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, width, ifp);
@@ -805,10 +803,7 @@ void olympus_load_raw()
   int row, col;
 
   pixel = calloc (width, sizeof *pixel);
-  if (!pixel) {
-    perror("olympus_load_raw() calloc failed");
-    exit(1);
-  }
+  merror (pixel, "olympus_load_raw()");
   fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, width, ifp);
@@ -872,10 +867,7 @@ void nucore_load_raw()
   int irow, row, col;
 
   data = calloc (width, 2);
-  if (!data) {
-    perror("nucore_load_raw() calloc failed");
-    exit(1);
-  }
+  merror (data, "nucore_load_raw()");
   fseek (ifp, tiff_data_offset, SEEK_SET);
   for (irow=0; irow < height; irow++) {
     fread (data, 2, width, ifp);
@@ -897,10 +889,7 @@ void kodak_easy_load_raw()
   if ((margin = (raw_width - width)/2))
     black = 0;
   pixel = calloc (raw_width, sizeof *pixel);
-  if (!pixel) {
-    perror("kodak_easy_load_raw() calloc failed");
-    exit(1);
-  }
+  merror (pixel, "kodak_easy_load_raw()");
   fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
@@ -1168,10 +1157,7 @@ void foveon_interpolate()
   }
   /* Array for 5x5 Gaussian averaging of red values */
   smrow[6] = calloc (width*5, sizeof **smrow);
-  if (!smrow[6]) {
-    perror("foveon_interpolate() calloc failed");
-    exit(1);
-  }
+  merror (smrow[6], "foveon_interpolate()");
   for (i=0; i < 5; i++)
     smrow[i] = smrow[6] + i*width;
 
@@ -1279,10 +1265,7 @@ void foveon_interpolate()
   }
   /* Smooth the image bottom-to-top and save at 1/4 scale */
   shrink = calloc ((width/4) * (height/4), sizeof *shrink);
-  if (!shrink) {
-    perror("foveon_interpolate() calloc failed");
-    exit(1);
-  }
+  merror (shrink, "foveon_interpolate()");
   for (row = height/4; row--; )
     for (col=0; col < width/4; col++) {
       ipix[0] = ipix[1] = ipix[2] = 0;
@@ -1512,10 +1495,7 @@ void vng_interpolate()
     }
   }
   brow[4] = calloc (width*3, sizeof **brow);
-  if (!brow[4]) {
-    perror("vng_interpolate() calloc failed");
-    exit(1);
-  }
+  merror (brow[4], "vng_interpolate()");
   for (row=0; row < 3; row++)
     brow[row] = brow[4] + row*width;
   for (row=2; row < height-2; row++) {		/* Do VNG interpolation */
@@ -1857,10 +1837,7 @@ void parse_foveon()
   len = (off2 - off1)/2;
   fseek (ifp, off1, SEEK_SET);
   buf = malloc (len);
-  if (!buf) {
-    perror("parse_foveon() malloc failed");
-    exit(1);
-  }
+  merror (buf, "parse_foveon()");
   for (i=0; i < len; i++)		/* Convert Unicode to ASCII */
     buf[i] = fget2(ifp);
   for (bp=buf; bp < buf+len; bp=np) {
@@ -2534,10 +2511,7 @@ void write_ppm(FILE *ofp)
 	xmag*(width-trim*2), ymag*(height-trim*2));
 
   ppm = calloc (width-trim*2, 3*xmag);
-  if (!ppm) {
-    perror("write_ppm() calloc failed");
-    exit(1);
-  }
+  merror (ppm, "write_ppm()");
   mul = bright * 442 / max;
 
   for (row=trim; row < height-trim; row++) {
@@ -2586,10 +2560,7 @@ void write_psd(FILE *ofp)
 
   psize = (height-trim*2) * (width-trim*2);
   buffer = calloc (6, psize);
-  if (!buffer) {
-    perror("write_psd() calloc failed");
-    exit(1);
-  }
+  merror (buffer, "write_psd()");
   pred = buffer;
 
   for (row = trim; row < height-trim; row++) {
@@ -2619,10 +2590,7 @@ void write_ppm16(FILE *ofp)
 	width-trim*2, height-trim*2);
 
   ppm = calloc (width-trim*2, 6);
-  if (!ppm) {
-    perror("write_ppm16() calloc failed");
-    exit(1);
-  }
+  merror (ppm, "write_ppm16()");
 
   for (row = trim; row < height-trim; row++) {
     for (col = trim; col < width-trim; col++) {
@@ -2649,7 +2617,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.76"
+    "\nRaw Photo Decoder v4.77"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2729,10 +2697,7 @@ int main(int argc, char **argv)
       continue;
     }
     image = calloc (height * width, sizeof *image);
-    if (!image) {
-      perror("image calloc failed");
-      exit(1);
-    }
+    merror (image, "main()");
     fprintf (stderr, "Loading %s %s image from %s...\n",
 	make, model, argv[arg]);
     (*load_raw)();
