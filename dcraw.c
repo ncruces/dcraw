@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.64 $
-   $Date: 2002/08/07 22:50:13 $
+   $Revision: 1.65 $
+   $Date: 2002/08/07 23:28:31 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -1551,7 +1551,7 @@ void exten(char *new, const char *old, const char *ext)
 int main(int argc, char **argv)
 {
   char data[256];
-  int i, arg, write_to_files=1, dillon=0, smooth=1;
+  int i, arg, write_to_files=1, dillon=0, dillon_ok, smooth=1;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
@@ -1559,7 +1559,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v3.03"
+    "\nCanon PowerShot Converter v3.04"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
@@ -1567,7 +1567,7 @@ int main(int argc, char **argv)
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
     "\n-c        Write to standard output"
-    "\n-d        Use Dillon interpolation for RGB cameras"
+    "\n-d        Use Dillon interpolation if possible"
     "\n-s <num>  Number of times to smooth colors (1 by default)"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
@@ -1642,11 +1642,17 @@ int main(int argc, char **argv)
       fprintf (stderr, "Subtracting thermal noise (%d)...\n",black);
       subtract_black();
     }
-    if (dillon && colors == 3) {
+    dillon_ok = dillon;
+    for (i=8; i < 32; i+=8)
+      if ((filters >> i & 0xff) != (filters & 0xff))
+	dillon_ok = 0;
+    if (dillon_ok) {
       fprintf (stderr, "Dillon interpolation...\n");
       dillon_interpolate();
       trim = 2;
     } else {
+      if (dillon)
+	fprintf (stderr, "Filter pattern is not Dillon-compatible.\n");
       fprintf (stderr, "First interpolation...\n");
       first_interpolate();
       for (i=0; i < smooth; i++) {
