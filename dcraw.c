@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.110 $
-   $Date: 2003/04/25 17:48:05 $
+   $Revision: 1.111 $
+   $Date: 2003/05/27 18:17:16 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -60,7 +60,7 @@ unsigned filters;
 ushort (*image)[4];
 void (*load_raw)();
 float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
-int four_color_rgb=0, use_camera_wb=0;
+int four_color_rgb=0, use_camera_wb=0, document_mode=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
 int histogram[0x1000];
@@ -815,7 +815,7 @@ void olympus_load_raw()
     perror("olympus_load_raw() calloc failed");
     exit(1);
   }
-  fseek (ifp, 0x4000, SEEK_SET);
+  fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, width, ifp);
     for (col=0; col < width; col++)
@@ -836,6 +836,39 @@ void olympus2_load_raw()
     }
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = getbits(12) << 2;
+  }
+}
+
+void casio_qv3000ex_load_raw()
+{
+  uchar pixel[2080];
+  int row, col;
+
+  fseek (ifp, 0, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (pixel, 1, 2080, ifp);
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = pixel[col] << 6;
+  }
+}
+
+void casio_qv5700_load_raw()
+{
+  uchar  data[3232],  *dp;
+  ushort pixel[2576], *pix;
+  int row, col;
+
+  fseek (ifp, 0, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (data, 1, 3232, ifp);
+    for (dp=data, pix=pixel; dp < data+3220; dp+=5, pix+=4) {
+      pix[0] = (dp[0] << 2) + (dp[1] >> 6);
+      pix[1] = (dp[1] << 4) + (dp[2] >> 4);
+      pix[2] = (dp[2] << 6) + (dp[3] >> 2);
+      pix[3] = (dp[3] << 8) + (dp[4]     );
+    }
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
   }
 }
 
@@ -993,8 +1026,13 @@ void foveon_load_raw()
   int row, col, bit=-1, c, i;
 
 /* Set the width of the black borders */
+  switch (raw_height) {
+    case  763:  top = 2;  break;
+    case 1531:  top = 7;  break;
+  }
   switch (raw_width) {
-    case 2304:  top = 7;  left = 17;  break;    /* Sigma SD9 */
+    case 1152: left =  8;  break;
+    case 2304: left = 17;  break;
   }
   fseek (ifp, 260, SEEK_SET);
   for (i=0; i < 1024; i++)
@@ -1292,41 +1330,56 @@ void foveon_interpolate()
   free (smrow[6]);
 }
 
-void scale_colors()
+/*
+   Automatic color balance, currently used only in Document Mode.
+ */
+void auto_scale()
 {
   int row, col, c, val;
-#ifdef STATS
   int min[4], max[4], count[4];
-  double sum[4];
+  double sum[4], maxd=0;
 
   for (c=0; c < 4; c++) {
     min[c] = INT_MAX;
     sum[c] = max[c] = count[c] = 0;
   }
-#endif
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++)
+      for (c=0; c < colors; c++) {
+	val = image[row*width+col][c];
+	if (!val) continue;
+	val -= black;
+	if (val < 0) val = 0;
+	if (min[c] > val) min[c] = val;
+	if (max[c] < val) max[c] = val;
+	sum[c] += val;
+	count[c]++;
+      }
+  for (c=0; c < colors; c++) {		/* Smallest pre_mul[] value */
+    pre_mul[c] = sum[c]/count[c];	/* should be 1.0 */
+    if (maxd < pre_mul[c])
+	maxd = pre_mul[c];
+  }
+  for (c=0; c < colors; c++)
+    pre_mul[c] = maxd / pre_mul[c];
+}
+
+void scale_colors()
+{
+  int row, col, c, val;
+
   rgb_max -= black;
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
-      for (c=0; c < colors; c++)
-	if ((val = image[row*width+col][c])) {
-	  val -= black;
-#ifdef STATS
-	  if ((unsigned) row-225 < 192 && (unsigned) col-288 < 256) {
-	    if (min[c] > val) min[c] = val;
-	    if (max[c] < val) max[c] = val;
-	    sum[c] += val;
-	    count[c]++;
-	  }
-#endif
-	  val *= pre_mul[c];
-	  if (val < 0) val = 0;
-	  if (val > rgb_max) val = rgb_max;
-	  image[row*width+col][c] = val;
-	}
-#ifdef STATS
-  for (c=0; c < colors; c++)
-    fprintf (stderr, "%6d%6d %f\n", min[c], max[c], sum[c]/count[c]);
-#endif
+      for (c=0; c < colors; c++) {
+	val = image[row*width+col][c];
+	if (!val) continue;
+	val -= black;
+	val *= pre_mul[c];
+	if (val < 0) val = 0;
+	if (val > rgb_max) val = rgb_max;
+	image[row*width+col][c] = val;
+      }
 }
 
 /*
@@ -1936,6 +1989,15 @@ int identify(char *fname)
     strcpy (model,"E4500");
   else if (fsize == 5869568)
     strcpy (model,"E4300");
+  else {
+    strcpy (make, "Casio");		/* Casio has similar formats */
+    if (fsize == 3217760)
+      strcpy (model, "QV-3*00EX");
+    else if (fsize == 7684000)
+      strcpy (model, "QV-4000");
+    else if (fsize == 6218368)
+      strcpy (model, "QV-5700");
+  }
 
   /* Remove excess wordage */
   if (!strncmp(make,"NIKON",5) || !strncmp(make,"Canon",5))
@@ -2162,6 +2224,7 @@ coolpix:
     height = 1684;
     width  = 2256;
     filters = 0x94949494;
+    tiff_data_offset = 0x4000;
     load_raw = olympus_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
@@ -2169,6 +2232,7 @@ coolpix:
     height = 1924;
     width  = 2576;
     filters = 0x94949494;
+    tiff_data_offset = 0x4000;
     load_raw = olympus_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
@@ -2279,13 +2343,36 @@ coolpix:
 	return 1;
     }
   } else if (!strcmp(model,"SD9")) {
-    height = 1514;
-    width  = 2271;
+    switch (height = raw_height) {
+      case  763: height =  756;  break;
+      case 1531: height = 1514;  break;
+    }
+    switch (width = raw_width) {
+      case 1152:  width = 1136;  break;
+      case 2304:  width = 2271;  break;
+    }
+    if (height*2 < width) ymag = 2;
     filters = 0;
     load_raw = foveon_load_raw;
     is_foveon = 1;
     foveon_coeff();
     rgb_max = 5600;
+  } else if (!strcmp(model,"QV-3*00EX")) {
+    height = 1546;
+    width  = 2070;
+    filters = 0x94949494;
+    load_raw = casio_qv3000ex_load_raw;
+  } else if (!strcmp(model,"QV-4000")) {
+    height = 1700;
+    width  = 2260;
+    filters = 0x94949494;
+    tiff_data_offset = 0;
+    load_raw = olympus_load_raw;
+  } else if (!strcmp(model,"QV-5700")) {
+    height = 1924;
+    width  = 2576;
+    filters = 0x94949494;
+    load_raw = casio_qv5700_load_raw;
   } else {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",fname, make, model);
     return 1;
@@ -2333,19 +2420,23 @@ coolpix:
  */
 void convert_to_rgb()
 {
-  int row, col, r, g;
+  int row, col, r, g, c=0;
   ushort *img;
   float rgb[4];
 
+  if (document_mode)
+    colors = 1;
   memset (histogram, 0, sizeof histogram);
   for (row = trim; row < height-trim; row++)
     for (col = trim; col < width-trim; col++) {
       img = image[row*width+col];
+      if (document_mode)
+	c = FC(row,col);
       if (colors == 4 && !use_coeff)	/* Recombine the greens */
 	img[1] = (img[1] + img[3]) >> 1;
       if (colors == 1)			/* RGB from grayscale */
 	for (r=0; r < 3; r++)
-	  rgb[r] = img[0];
+	  rgb[r] = img[c];
       else if (use_coeff) {		/* RGB from GMCY or Foveon */
 	for (r=0; r < 3; r++)
 	  for (rgb[r]=g=0; g < colors; g++)
@@ -2506,7 +2597,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.64"
+    "\nRaw Photo Decoder v4.70"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2516,6 +2607,7 @@ int main(int argc, char **argv)
     "\n-i        Identify the first file and exit"
     "\n-c        Write to standard output"
     "\n-f        Interpolate RGBG as four colors"
+    "\n-d        Document Mode (no color, no interpolation)"
     "\n-g <num>  Set gamma      (0.8 by default, only for 24-bit output)"
     "\n-b <num>  Set brightness (1.0 by default)"
     "\n-w        Use camera white balance settings if possible"
@@ -2539,6 +2631,8 @@ int main(int argc, char **argv)
 	write_to_files = 0;  break;
       case 'f':
 	four_color_rgb = 1;  break;
+      case 'd':
+	document_mode = 1;  break;
       case 'g':
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
@@ -2596,10 +2690,12 @@ int main(int argc, char **argv)
       foveon_interpolate();
     } else {
       fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
+      if (document_mode)
+	auto_scale();
       scale_colors();
     }
     trim = 0;
-    if (filters) {
+    if (filters && !document_mode) {
       trim = 1;
       fprintf (stderr, "VNG interpolation...\n");
       vng_interpolate();
