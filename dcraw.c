@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.138 $
-   $Date: 2003/10/04 19:17:37 $
+   $Revision: 1.139 $
+   $Date: 2003/10/07 07:27:24 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1020,7 +1020,8 @@ void kodak_easy_load_raw()
 void kodak_compressed_load_raw()
 {
   uchar c, blen[256];
-  unsigned row, col, len, i, bits=0, pred[2];
+  ushort raw[6];
+  unsigned row, col, len, save, i, israw=0, bits=0, pred[2];
   INT64 bitbuf=0;
   int diff;
 
@@ -1032,10 +1033,12 @@ void kodak_compressed_load_raw()
       if ((col & 255) == 0) {		/* Get the bit-lengths of the */
 	len = width - col;		/* next 256 pixel values      */
 	if (len > 256) len = 256;
-	for (i=0; i < len; ) {
+	save = ftell(ifp);
+	for (israw=i=0; i < len; i+=2) {
 	  c = fgetc(ifp);
-	  blen[i++] = c & 15;
-	  blen[i++] = c >> 4;
+	  if ((blen[i+0] = c & 15) > 12 ||
+	      (blen[i+1] = c >> 4) > 12 )
+	    israw = 1;
 	}
 	bitbuf = bits = pred[0] = pred[1] = 0;
 	if (len % 8 == 4) {
@@ -1043,20 +1046,38 @@ void kodak_compressed_load_raw()
 	  bitbuf += fgetc(ifp);
 	  bits = 16;
 	}
+	if (israw)
+	  fseek (ifp, save, SEEK_SET);
       }
-      len = blen[col & 255];		/* Number of bits for this pixel */
-      if (bits < len) {			/* Got enough bits in the buffer? */
-	for (i=0; i < 32; i+=8)
-	  bitbuf += (INT64) fgetc(ifp) << (bits+(i^8));
-	bits += 32;
+      if (israw) {			/* If the data is not compressed */
+	switch (col & 7) {
+	  case 0:
+	    fread (raw, 2, 6, ifp);
+	    for (i=0; i < 6; i++)
+	      raw[i] = ntohs(raw[i]);
+	    diff = raw[0] >> 12 << 8 | raw[2] >> 12 << 4 | raw[4] >> 12;
+	    break;
+	  case 1:
+	    diff = raw[1] >> 12 << 8 | raw[3] >> 12 << 4 | raw[5] >> 12;
+	    break;
+	  default:
+	    diff = raw[(col & 7) - 2] & 0xfff;
+	}
+      } else {				/* If the data is compressed */
+	len = blen[col & 255];		/* Number of bits for this pixel */
+	if (bits < len) {		/* Got enough bits in the buffer? */
+	  for (i=0; i < 32; i+=8)
+	    bitbuf += (INT64) fgetc(ifp) << (bits+(i^8));
+	  bits += 32;
+	}
+	diff = bitbuf & (0xffff >> (16-len));  /* Pull bits from buffer */
+	bitbuf >>= len;
+	bits -= len;
+	if ((diff & (1 << (len-1))) == 0)
+	  diff -= (1 << len) - 1;
+	pred[col & 1] += diff;
+	diff = pred[col & 1];
       }
-      diff = bitbuf & (0xffff >> (16-len));  /* Pull bits from buffer */
-      bitbuf >>= len;
-      bits -= len;
-      if ((diff & (1 << (len-1))) == 0)
-	diff -= (1 << len) - 1;
-      pred[col & 1] += diff;
-      diff = pred[col & 1];
       image[row*width+col][FC(row,col)] = diff << 2;
     }
 }
@@ -2910,7 +2931,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.04"
+    "\nRaw Photo Decoder v5.05"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
