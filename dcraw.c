@@ -1,7 +1,7 @@
 /*
-   CRW to PPM converter Version 0.1
+   CRW to PPM converter Version 0.2
 
-   by Dave Coffin (dcoffin@shore.net)  2/22/97
+   by Dave Coffin (dcoffin at shore dot net)  2/24/97
 
    No rights reserved.  Do what you want with this code,
    but I accept no responsibility for any consequences
@@ -31,29 +31,6 @@ uchar pgm[613][854];
 #endif
 
 #define WFLAGS O_WRONLY | O_CREAT | O_TRUNC | O_BINARY
-
-/* Subtract this number from all input pixels */
-#define BLACK 6
-
-/*
-     This table describes the color response of the four
-  pixel types, according to experiment.  It is used by
-  get_rgb() to convert GMCY colorspace to RGB.
-
-     Notice that blue light generates a negative response
-  in green and yellow pixels.  Strange.
-*/
-const float coeff[4][3] =
-{
-/*  red *   + green *  + blue *     =   pixel color */
-  { 0.052296, 0.255409,-0.047466 },    /* green */
-  { 0.156993, 0.046792, 0.046537 },    /* magenta */
-  {-0.004344, 0.280239, 0.045865 },    /* cyan */
-  { 0.145482, 0.309211,-0.089371 },    /* yellow */
-};
-
-/* Matrix used for solving equations */
-double mat[3][4];
 
 /* Read a CRW file into the pgm[] array */
 read_crw(int in)
@@ -127,70 +104,23 @@ read_pgm(int in)
 }
 
 /*
-     These three functions solve a 4x3 matrix (three equations,
-  three unknowns), leaving the answers in the last column.  To
-  improve performance, they should be combined, inlined, and
-  written in assembly.
-*/
-norm(row)
-{
-  float div;
-  int i;
-
-  div=mat[row][row];
-  for (i=row+1; i < 4; i++)
-    mat[row][i] /= div;
-}
-
-sub(arow,brow)
-{
-  float mul;
-  int i;
-
-  mul=mat[arow][brow];
-  for (i=brow+1; i < 4; i++)
-    mat[arow][i] -= mat[brow][i] * mul;
-}
-
-solve()
-{
-  norm(0);
-  sub(1,0);
-  sub(2,0);
-  norm(1);
-  sub(0,1);
-  sub(2,1);
-  norm(2);
-  sub(0,2);
-  sub(1,2);
-}
-
-/*
    Converts a GMCY quadruplet into an RGB triplet.
-   We have four equations with three unknowns.  My
-   answer is to solve the system four times, omitting
-   one equation each time, then average the results.
-
-   Canon must know a better way--this method is SLOW!!!
+   Ask Canon how this works; I have no clue.
 */
 get_rgb(float rgb[3], int gmcy[4])
 {
-  int omit, color, equ, i;
+  int r, g;
+  static const float coeff[3][4] =
+  {
+    { -5.175675,  3.853136, -1.681311,  5.270232 },
+    {  1.281218, -1.147541,  1.935073,  0.487001 },
+    { -3.167515,  2.900609,  4.132598, -1.720971 }
+  };
 
   memset(rgb,0,12);
-  for (omit=0; omit < 4; omit++)
-  {
-    for (color=equ=0; color < 4; color++)
-      if (color != omit)
-      {
-	for (i=0; i < 3; i++)
-	  mat[equ][i] = coeff[color][i];
-	mat[equ++][3] = gmcy[color];
-      }
-    solve();
-    for (i=0; i < 3; i++)	/* Save this solution */
-      rgb[i] += mat[i][3];
-  }
+  for (r=0; r < 3; r++)		/* RGB colors */
+    for (g=0; g < 4; g++)	/* GMCY colors */
+      rgb[r] += coeff[r][g] * gmcy[g];
 }
 
 /*
@@ -236,12 +166,12 @@ write_ppm(char *fname)
       sp=shift;
       for (sy=y; sy < y+3; sy++) /* Average a 3x3 block */
 	for (sx=x; sx < x+3; sx++)
-	  gmcy[color(sx,sy)] += pgm[sy][sx] - BLACK << *sp++;
+	  gmcy[color(sx,sy)] += pgm[sy][sx] << *sp++;
 
       get_rgb(rgb,gmcy);	/* Convert GMCY averages to RGB */
       for (c=0; c < 3; c++)
       {
-	val = floor(rgb[c]/24);	/* Scale and save the RGB values */
+	val = floor(rgb[c]/4);	/* Save the RGB values */
 	if (val < 0) val=0;
 	if (val > 255) val=255;
 	ppm[x][c] = val;
@@ -272,7 +202,7 @@ main(int argc, char **argv)
   if (argc < 2)
   {
     puts("\nCRW to PPM converter by Dave Coffin (dcoffin@shore.net)");
-    puts("Version 0.1, last modified 2/22/97\n");
+    puts("Version 0.2, last modified 2/24/97\n");
     printf("Usage:  %s file1.crw file2.crw ...\n\n",argv[0]);
     exit(1);
   }
