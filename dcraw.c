@@ -1,5 +1,5 @@
 /*
-   Canon PowerShot Converter v0.90
+   Canon PowerShot Converter v0.94
 
    by Dave Coffin (dcoffin@shore.net)
 
@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.13 $
-   $Date: 1999/04/15 21:20:26 $
+   $Revision: 1.14 $
+   $Date: 1999/05/07 00:10:38 $
 */
 
 #include <ctype.h>
@@ -35,8 +35,8 @@
 #define W 960
 
 #define RED_MUL 1.0
-#define GRN_MUL 1.0
-#define BLU_MUL 1.0
+#define GRN_MUL 0.90
+#define BLU_MUL 0.88
 
 #else
 #error You must compile with -DPS_600 or -DPS_A5
@@ -346,17 +346,17 @@ get_rgb(float rgb[4], ushort gmcy[4])		/* 3.70 seconds */
 write_ppm(char *fname)
 {
   int fd=1, y, x, i;
-  register c, val;
+  register unsigned c, val;
   uchar ppm[W][3];
-  float rgb[4], max, max2, expo, mult, scale;
-  int histo[512], total;
+  float rgb[4], max, max2, expo, scale;
+  int histo[1024], total;
   char p6head[32];
 
 /* Use this to remove annoying horizontal patterns */
 #ifdef PS_600
   float ymul[4] = { 0.9866, 1.0, 1.0125, 1.0 };
 #elif defined(PS_A5)
-  float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
+  float ymul[4] = { 1.0005, 1.0056, 0.9980, 0.9959 };
 #endif
 
 #ifdef DEBUG
@@ -372,19 +372,18 @@ write_ppm(char *fname)
     for (x=2; x < W-2; x++)
     {
       get_rgb(rgb,gmcy[y][x]);
-      for (c=0; c < 3; c++)
-      {
-	histo [(int)rgb[c] >> 10]++;
-      }
+      val = rgb[3]/0x1000000;
+      if (val > 1023) val=1023;
+      histo[val]++;
     }
   }
 /*
-   Set the maximum to the 96th percentile
+   Set the maximum magnitude to the 98th percentile
 */
-  for (val=512, total=0; --val; )
-    if ((total+=histo[val]) > (int)(W*H*0.11)) break;
-  max = val << 10;
-  max2 = max*max;
+  for (val=1024, total=0; --val; )
+    if ((total+=histo[val]) > (int)(W*H*0.06)) break;
+  max2 = val << 24;
+  max = sqrt(max2);
 
 #ifdef DEBUG
   fprintf(stderr,"Second pass RGB...\n");
@@ -404,16 +403,15 @@ write_ppm(char *fname)
 */
 
   expo = (gamma_val-1)/2;		/* Pull these out of the loop */
-  mult = bright * 362 / max;
   for (y=0; y < 4; y++)
-    ymul[y] = pow(ymul[y],gamma_val);
+    ymul[y] = bright * 362 / max * pow(ymul[y],gamma_val);
 
   for (y=1; y < H-1; y++)
   {
     for (x=1; x < W-1; x++)
     {
       get_rgb(rgb,gmcy[y][x]);
-      scale = mult * ymul[y&3] * pow(rgb[3]/max2,expo);
+      scale = ymul[y&3] * pow(rgb[3]/max2,expo);
 
       for (c=0; c < 3; c++)
       {
@@ -446,7 +444,7 @@ main(int argc, char **argv)
 #elif defined(PS_A5)
     "A5"
 #endif
-    " Converter v0.90"
+    " Converter v0.94"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
