@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.217 $
-   $Date: 2004/11/28 02:27:04 $
+   $Revision: 1.218 $
+   $Date: 2004/12/01 21:54:52 $
  */
 
 #define _GNU_SOURCE
@@ -2284,7 +2284,7 @@ void CLASS parse_makernote()
       camera_red  = fget2(ifp);
       camera_red /= fget2(ifp);
       camera_blue = fget2(ifp);
-      camera_blue/= fget2(ifp);
+      camera_blue = fget2(ifp) / camera_blue;
     }
     if (tag == 0x1017)			/* Olympus */
       camera_red  = val / 256.0;
@@ -2345,8 +2345,9 @@ void CLASS parse_tiff (int base)
 {
   int doff, entries, tag, type, len, val, save;
   char software[64];
-  int wide=0, high=0, cr2_offset=0, offset=0;
+  int wide=0, high=0, offset=0, i;
   static const int flip_map[] = { 0,1,3,2,4,6,7,5 };
+  static const char *corp[] = { "OLYMPUS", "PENTAX", "SONY" };
 
   fseek (ifp, base, SEEK_SET);
   order = fget2(ifp);
@@ -2384,8 +2385,10 @@ void CLASS parse_tiff (int base)
 	  fgets (model, 64, ifp);
 	  break;
 	case 0x111:			/* StripOffset */
-	  cr2_offset = val;
-	  offset = fget4(ifp);
+	  if (len == 1)
+	    offset = val;
+	  else
+	    offset = fget4(ifp);
 	  break;
 	case 0x112:			/* Rotation */
 	  flip = flip_map[(val-1) & 7];
@@ -2434,18 +2437,16 @@ void CLASS parse_tiff (int base)
       fseek (ifp, save, SEEK_SET);
     }
   }
-  if (!strncmp(make,"OLYMPUS",7)) {
-    make[7] = 0;
-    raw_width = wide;
-    raw_height = - (-high & -2);
-    data_offset = offset;
-  }
-  if (!strncmp(make,"SONY",4)) {
-    raw_width = wide;
-    raw_height = high;
-  }
+  for (i=0; i < sizeof corp / sizeof *corp; i++)
+    if (!strncmp (make, corp[i], strlen(corp[i]))) {
+      if ((high & 1) && make[0] == 'O') high++;
+      raw_width = wide;
+      raw_height = high;
+      if (offset) data_offset = offset;
+    }
+
   if (!strcmp(make,"Canon") && strcmp(model,"EOS D2000C"))
-    data_offset = cr2_offset;
+    data_offset = offset;
 
   if (make[0] == 0 && wide == 680 && high == 680) {
     strcpy (make, "Imacon");
@@ -2819,7 +2820,8 @@ int CLASS identify()
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
   static const char *corp[] =
-    { "Canon", "NIKON", "Kodak", "PENTAX", "MINOLTA", "Minolta", "Konica" };
+    { "Canon", "NIKON", "Kodak", "OLYMPUS", "PENTAX",
+      "MINOLTA", "Minolta", "Konica" };
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
@@ -3304,12 +3306,12 @@ konica_400z:
     pre_mul[0] = 1.42;
     pre_mul[2] = 1.25;
   } else if (!strcmp(model,"*ist D")) {
-    height = 2024;
-    width  = 3040;
-    data_offset = 0x10000;
     load_raw = be_low_12_load_raw;
     pre_mul[0] = 1.76;
     pre_mul[1] = 1.07;
+  } else if (!strcmp(model,"*ist DS")) {
+    height--;
+    load_raw = packed_12_load_raw;
   } else if (!strcmp(model,"Optio S")) {
     height = 1544;
     width  = 2068;
@@ -3976,7 +3978,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.15"
+    "\nRaw Photo Decoder \"dcraw\" v6.16"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
