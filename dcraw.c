@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.101 $
-   $Date: 2003/03/07 00:58:29 $
+   $Revision: 1.102 $
+   $Date: 2003/03/08 02:28:12 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2454,7 +2454,7 @@ void exten(char *new_name, const char *old, const char *ext)
 int main(int argc, char **argv)
 {
   char data[256];
-  int arg, write_to_files=1;
+  int arg, id_one_file=0, write_to_files=1;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
@@ -2462,13 +2462,14 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.50"
+    "\nRaw Photo Decoder v4.51"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
     "\nby Dave Coffin (dcoffin@shore.net)"
-    "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
+    "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
+    "\n-i        Identify the first file and exit"
     "\n-c        Write to standard output"
     "\n-f        Interpolate RGB as four colors"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
@@ -2489,6 +2490,8 @@ int main(int argc, char **argv)
   for (arg=1; argv[arg][0] == '-'; arg++)
     switch (argv[arg][1])
     {
+      case 'i':
+	id_one_file = 1;  break;
       case 'c':
 	write_to_files = 0;  break;
       case 'f':
@@ -2526,10 +2529,13 @@ int main(int argc, char **argv)
   {
     black = 0;
     ifp = fopen(argv[arg],"rb");
-    if (!ifp) {
-      perror(argv[arg]);
-      continue;
+    if (!ifp) perror(argv[arg]);
+    if (id_one_file) {
+      if (!ifp || identify(argv[arg])) exit(1);
+      fprintf (stderr, "%s is a %s %s image.\n", argv[arg], make, model);
+      exit(0);
     }
+    if (!ifp) continue;
     if (identify(argv[arg])) {
       fclose(ifp);
       continue;
