@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.233 $
-   $Date: 2005/01/25 20:31:18 $
+   $Revision: 1.234 $
+   $Date: 2005/02/02 22:29:22 $
  */
 
 #define _GNU_SOURCE
@@ -73,7 +73,8 @@ int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, black, rgb_max;
 int iheight, iwidth, shrink;
-int is_canon, is_cmy, is_foveon, use_coeff, trim, flip, xmag, ymag;
+int is_canon, is_cmy, is_foveon, use_coeff, use_gamma;
+int trim, flip, xmag, ymag;
 int zero_after_ff;
 unsigned filters;
 ushort (*image)[4], white[8][8];
@@ -3022,7 +3023,7 @@ nucore:
   colors = 3;
   filters = 0x94949494;
   black = is_cmy = is_foveon = use_coeff = 0;
-  xmag = ymag = 1;
+  use_gamma = xmag = ymag = 1;
   rgb_max = 0x3fff;
 
 /*  We'll try to decode anything from Canon or Nikon. */
@@ -3916,7 +3917,7 @@ void CLASS apply_profile (char *pfname)
     for (i=0; i < size; i++)
       image[0][i] <<= 2;
   rgb_max = 0xffff;
-  use_coeff = is_cmy = 0;
+  use_gamma = use_coeff = is_cmy = 0;
 
   hOutProfile = cmsCreate_sRGBProfile();
   hTransform = cmsCreateTransform (hInProfile, TYPE_RGBA_16,
@@ -4095,7 +4096,8 @@ void CLASS write_ppm (FILE *ofp)
   merror (ppm, "write_ppm()");
   for (i=0; i < 0x10000; i++) {
     r = i / white;
-    scale[i] = (r <= 0.018 ? r*4.5 : pow(r,0.45)*1.099-0.099) * 221.7025 / i;
+    scale[i] = 221.7025 / i * ( !use_gamma ? r :
+	r <= 0.018 ? r*4.5 : pow(r,0.45)*1.099-0.099 );
   }
   for (row=trim; row < height-trim; row++) {
     for (col=trim; col < width-trim; col++) {
@@ -4208,7 +4210,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.33"
+    "\nRaw Photo Decoder \"dcraw\" v6.34"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -4342,10 +4344,10 @@ int CLASS main (int argc, char **argv)
 	  quick_interpolate ? "Bilinear":"VNG");
       vng_interpolate();
     }
+    fuji_rotate();
 #ifdef USE_LCMS
     apply_profile (profile);
 #endif
-    fuji_rotate();
     if (verbose)
       fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
