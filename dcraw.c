@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.147 $
-   $Date: 2003/11/06 00:58:27 $
+   $Revision: 1.148 $
+   $Date: 2003/11/09 00:44:50 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -985,7 +985,7 @@ void packed_12_load_raw()
       image[row*width+col][FC(row,col)] = getbits(12) << 2;
 }
 
-void unpacked_load_raw(int rsh)
+void unpacked_load_raw (int order, int rsh)
 {
   ushort *pixel;
   int row, col;
@@ -995,20 +995,27 @@ void unpacked_load_raw(int rsh)
   fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, width, ifp);
+    if (order != ntohs(0x55aa))
+      swab (pixel, pixel, width*2);
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = ntohs(pixel[col]) << 8 >> (8+rsh);
+      image[row*width+col][FC(row,col)] = pixel[col] << 8 >> (8+rsh);
   }
   free (pixel);
 }
 
 void high_12_load_raw()
 {
-  unpacked_load_raw(2);
+  unpacked_load_raw (0x55aa, 2);
 }
 
 void low_12_load_raw()
 {
-  unpacked_load_raw(-2);
+  unpacked_load_raw (0x55aa,-2);
+}
+
+void le_high_12_load_raw()
+{
+  unpacked_load_raw (0xaa55, 2);
 }
 
 void olympus_c5050z_load_raw()
@@ -2682,6 +2689,14 @@ coolpix:
     pre_mul[0] = 1.963;
     pre_mul[2] = 1.430;
     rgb_max = 0xffff;
+  } else if (!strcmp(model,"E-1")) {
+    height = 1966;
+    width  = 2624;
+    filters = 0x61616161;
+    tiff_data_offset = 0x54000;
+    load_raw = le_high_12_load_raw;
+    pre_mul[0] = 1.57;
+    pre_mul[2] = 1.48;
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
@@ -3076,7 +3091,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.15"
+    "\nRaw Photo Decoder v5.16"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
