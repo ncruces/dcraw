@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.100 $
-   $Date: 2003/02/25 00:41:11 $
+   $Revision: 1.101 $
+   $Date: 2003/03/07 00:58:29 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -540,6 +540,7 @@ void canon_compressed_read_crw()
     case 2144:  top = 8;  left =  4;  break;	/* G1 */
     case 2224:  top = 6;  left = 48;  break;	/* EOS D30 */
     case 2376:  top = 6;  left = 12;  break;	/* G2 or G3 */
+    case 2672:  top = 6;  left = 12;  break;	/* S50 */
     case 3152:  top =12;  left = 64;  break;	/* EOS D60 */
   }
   pixel = calloc (raw_width*8, sizeof *pixel);
@@ -1967,6 +1968,13 @@ int identify(char *fname)
     read_crw = canon_compressed_read_crw;
     pre_mul[0] = 1.965;
     pre_mul[2] = 1.208;
+  } else if (!strcmp(model,"PowerShot S50")) {
+    height = 1960;
+    width  = 2616;
+    filters = 0x94949494;
+    read_crw = canon_compressed_read_crw;
+    pre_mul[0] = 1.895;
+    pre_mul[2] = 1.403;
   } else if (!strcmp(model,"EOS D30")) {
     height = 1448;
     width  = 2176;
@@ -2454,7 +2462,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.49"
+    "\nRaw Photo Decoder v4.50"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
