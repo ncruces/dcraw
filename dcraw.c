@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.126 $
-   $Date: 2003/07/02 04:36:23 $
+   $Revision: 1.127 $
+   $Date: 2003/07/03 02:53:00 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -647,8 +647,6 @@ void nikon_compressed_load_raw()
 
   if (!strcmp(model,"D1X"))
     waste = 4;
-  if (!strcmp(model,"D100"))
-    width = 3034;
 
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
@@ -690,17 +688,19 @@ void nikon_compressed_load_raw()
 }
 
 /*
-   Try to figure out if the image is compressed, based on my limited
-   collection of NEF files.  For the D100, every 16th byte of an
-   uncompressed image is zero.
+   Figure out if a NEF file is compressed.  These fancy heuristics
+   are only needed for the D100, thanks to a bug in some cameras
+   that tags all images as "compressed".
  */
 int nikon_is_compressed()
 {
   uchar test[256];
   int i;
 
+  if (tiff_data_compression != 34713)
+    return 0;
   if (strcmp(model,"D100"))
-    return tiff_data_compression == 34713;
+    return 1;
   fseek (ifp, tiff_data_offset, SEEK_SET);
   fread (test, 1, 256, ifp);
   for (i=15; i < 256; i+=16)
@@ -713,15 +713,18 @@ void nikon_load_raw()
   int waste=0, skip16=0;
   int irow, row, col, i;
 
+  if (!strcmp(model,"D100"))
+    width = 3034;
   if (nikon_is_compressed()) {
     nikon_compressed_load_raw();
     return;
   }
   if (!strcmp(model,"D1X"))
     waste = 4;
-  if (!strcmp(model,"D100")) {
+  if (!strcmp(model,"D100") && tiff_data_compression == 34713) {
     waste = 3;
     skip16 = 1;
+    width = 3037;
   }
 
   fseek (ifp, tiff_data_offset, SEEK_SET);
@@ -2712,7 +2715,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.86"
+    "\nRaw Photo Decoder v4.87"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
