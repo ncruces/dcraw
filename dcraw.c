@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.142 $
-   $Date: 2003/10/14 20:36:32 $
+   $Revision: 1.143 $
+   $Date: 2003/10/16 19:38:02 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -757,6 +757,53 @@ void nikon_load_raw()
       if (skip16 && (col % 10) == 9)
 	getbits(8);
     }
+  }
+}
+
+/*
+   Returns 1 for a Coolpix 2100, 0 for anything else.
+ */
+int nikon_e2100()
+{
+  uchar t[12];
+  int i;
+
+  fseek (ifp, 0, SEEK_SET);
+  for (i=0; i < 1024; i++) {
+    fread (t, 1, 12, ifp);
+    if (((t[2] & t[4] & t[7] & t[9]) >> 4
+	& t[1] & t[6] & t[8] & t[11] & 3) != 3)
+      return 0;
+  }
+  return 1;
+}
+
+void nikon_e2100_load_raw()
+{
+  uchar   data[2424], *dp;
+  ushort pixel[1616], *pix;
+  int row, col;
+
+  fseek (ifp, 0, SEEK_SET);
+  for (row=0; row <= height; row+=2) {
+    if (row == height) {
+      fseek (ifp, 8792, SEEK_CUR);
+      row = 1;
+    }
+    fread (data, 2424, 1, ifp);
+    for (dp=data, pix=pixel; dp < data+2424; dp+=12, pix+=8)
+    {
+      pix[0] = (dp[ 3] << 2) + (dp[2] >> 6);
+      pix[1] = (dp[ 1] >> 2) + (dp[2] << 6);
+      pix[2] = (dp[ 0] << 2) + (dp[7] >> 6);
+      pix[3] = (dp[ 6] >> 2) + (dp[7] << 6);
+      pix[4] = (dp[ 5] << 2) + (dp[4] >> 6);
+      pix[5] = (dp[11] >> 2) + (dp[4] << 6);
+      pix[6] = (dp[10] << 2) + (dp[9] >> 6);
+      pix[7] = (dp[ 8] >> 2) + (dp[9] << 6);
+    }
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
   }
 }
 
@@ -2252,7 +2299,7 @@ nucore:
   else if (fsize == 2465792)		/* Nikon "DIAG RAW" formats */
     strcpy (model,"E950");
   else if (fsize == 2940928)
-    strcpy (model,"E2500");
+    strcpy (model, nikon_e2100() ? "E2100":"E2500");
   else if (fsize == 4771840)
     strcpy (model,"E990/995");
   else if (fsize == 5865472)
@@ -2466,6 +2513,13 @@ nucore:
     pre_mul[0] = 1.196;
     pre_mul[1] = 1.246;
     pre_mul[2] = 1.018;
+  } else if (!strcmp(model,"E2100")) {
+    height = 1206;
+    width  = 1616;
+    filters = 0x94949494;
+    load_raw = nikon_e2100_load_raw;
+    pre_mul[0] = 1.945;
+    pre_mul[2] = 1.040;
   } else if (!strcmp(model,"E2500")) {
     height = 1204;
     width  = 1616;
@@ -2924,7 +2978,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.08"
+    "\nRaw Photo Decoder v5.09"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
