@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.69 $
-   $Date: 2002/10/16 01:09:16 $
+   $Revision: 1.70 $
+   $Date: 2002/10/20 19:47:30 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -25,7 +25,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef WIN32
+#include <winsock2.h>
+typedef __int64 INT64;
+#else
 #include <netinet/in.h>
+typedef long long INT64;
+#endif
 
 #ifndef NO_PNG
 #include <png.h>
@@ -46,7 +53,7 @@ FILE *ifp;
 short order;
 int height, width, trim, colors, black, canon, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
-int nikon_curve_offset, nikon_data_compression, nikon_data_offset;
+int nef_curve_offset, nef_data_compression, nef_data_offset, nef_rows_per_strip;
 unsigned filters;
 char name[64];
 ushort (*image)[4];
@@ -179,7 +186,7 @@ void ps600_read_crw()
     if ((orow+=2) > height)	/* Once we've read all the even rows, */
       orow = 1;			/* read the odd rows. */
   }
-  black = ((long long) black << 4) / ((896 - width) * height);
+  black = ((INT64) black << 4) / ((896 - width) * height);
 }
 
 void a5_read_crw()
@@ -214,7 +221,7 @@ void a5_read_crw()
     for (col=width; col < 992; col++)
       black += pixel[col] & 0x3ff;
   }
-  black = ((long long) black << 4) / ((992 - width) * height);
+  black = ((INT64) black << 4) / ((992 - width) * height);
 }
 
 void a50_read_crw()
@@ -249,7 +256,7 @@ void a50_read_crw()
     for (col=width; col < 1320; col++)
       black += pixel[col] & 0x3ff;
   }
-  black = ((long long) black << 4) / ((1320 - width) * height);
+  black = ((INT64) black << 4) / ((1320 - width) * height);
 }
 
 void pro70_read_crw()
@@ -524,7 +531,7 @@ void pro90_read_crw()
 	black += pixel[(r*1944)+col] & 0x3ff;
     }
   }
-  black = ((long long) black << 4) / ((1944 - width) * height);
+  black = ((INT64) black << 4) / ((1944 - width) * height);
 }
 
 void g1_read_crw()
@@ -548,7 +555,7 @@ void g1_read_crw()
 	  else
 	    black += pixel[(r*2144)+col+4] & 0x3ff;
   }
-  black = ((long long) black << 4) / (10 * 2144 + 56 * height);
+  black = ((INT64) black << 4) / (10 * 2144 + 56 * height);
 }
 
 void g2_read_crw()
@@ -572,7 +579,7 @@ void g2_read_crw()
 	  else
 	    black += pixel[(r*2376)+col+12] & 0x3ff;
   }
-  black = ((long long) black << 4) / (8 * 2376 + 64 * height);
+  black = ((INT64) black << 4) / (8 * 2376 + 64 * height);
 }
 
 /*
@@ -622,7 +629,7 @@ void d30_read_crw()
       }
   }
   free (pixel);
-  black = ((long long) black << 2) / (left * height);
+  black = ((INT64) black << 2) / (left * height);
 }
 
 #ifdef LJPEG_DECODE
@@ -673,7 +680,7 @@ void eos1d_read_crw()
 ushort fget2 (FILE *f);
 int    fget4 (FILE *f);
 
-void nikon_d1x_read_crw()
+void nikon_compressed_read_crw()
 {
   int waste=0;
   static const uchar nikon_tree[] = {
@@ -681,69 +688,39 @@ void nikon_d1x_read_crw()
     5,4,3,6,2,7,1,0,8,9,11,10,12
   };
   int vpred[4], hpred[2], csize, row, col, i, len;
-  uchar test[256], skip16=0;
   ushort *curve;
   struct decode *dindex;
   register int diff;
 
   if (!strcmp(name,"NIKON D1X"))
     waste = 4;
-/*
-   Try to figure out if the image is compressed, based on
-   my limited collection of NEF files.  For the D100, every
-   16th byte of an uncompressed image is zero.
- */
-  fseek (ifp, nikon_data_offset, SEEK_SET);
-  if (!strcmp(name,"NIKON D100")) {
+  if (!strcmp(name,"NIKON D100"))
     width = 3034;
-    fread (test, 1, 256, ifp);
-    for (i=0; i < 16; i++)
-      if (test[i*16+15]) goto compressed;
-    fseek (ifp, -256, SEEK_CUR);
-    width = 3037;
-    waste = 3;
-    skip16 = 1;
-  } else if (nikon_data_compression == 0x8799)
-    goto compressed;
 
-/* Read an uncompressed image */
-  getbits(-1);
-  for (row=0; row < height; row++) {
-    for (col=0; col < width+waste; col++) {
-      i = getbits(12);
-      if (col < width)
-	image[row*width+col][FC(row,col)] = i << 2;
-      if (skip16 && (col % 10) == 9)
-	getbits(8);
-    }
-  }
-  return;
-
-/* Read an compressed image */
-compressed:
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
 
-  if (nikon_curve_offset == 0)
-    nikon_curve_offset = strcmp(name,"NIKON D100") ? 3488:5974;
-  fseek (ifp, nikon_curve_offset, SEEK_SET);
+  if (nef_curve_offset == 0)
+    nef_curve_offset = strcmp(name,"NIKON D100") ? 3488:5974;
+  fseek (ifp, nef_curve_offset, SEEK_SET);
   for (i=0; i < 4; i++)
     vpred[i] = fget2(ifp);
   csize = fget2(ifp);
   curve = calloc (csize, sizeof *curve);
   if (!curve) {
-    perror("nikon_d1x_read_crw() calloc failed");
+    perror("curve calloc failed");
     exit(1);
   }
   for (i=0; i < csize; i++)
     curve[i] = fget2(ifp);
 
-  fseek (ifp, nikon_data_offset, SEEK_SET);
+  fseek (ifp, nef_data_offset, SEEK_SET);
+  fseek (ifp, fget4(ifp), SEEK_SET);
   getbits(-1);
 
   for (row=0; row < height; row++)
-    for (col=0; col < width+waste; col++) {
-
+    for (col=0; col < width+waste; col++)
+    {
       for (dindex=first_decode; dindex->branch[0]; )
 	dindex = dindex->branch[getbits(1)];
       len = dindex->leaf;
@@ -765,26 +742,59 @@ compressed:
   free (curve);
 }
 
-void nikon_e5000_read_crw()
+/*
+   Try to figure out if the image is compressed, based on my limited
+   collection of NEF files.  For the D100, every 16th byte of an
+   uncompressed image is zero.
+ */
+int nikon_is_compressed()
 {
-  uchar  data[3864], *dp;
-  ushort pixel[2576], *pix;
-  int irow, row, col;
+  uchar test[256];
+  int i;
 
-  fseek (ifp, 589225, SEEK_SET);
-  for (irow=row=0; irow < height; irow++)
-  {
-    fread (data, 3864, 1, ifp);
-    for (dp=data, pix=pixel; dp < data+3864; dp+=3, pix+=2)
-    {
-      pix[0] = (dp[0] << 4) + (dp[1] >> 4);
-      pix[1] = (dp[1] << 8) +  dp[2];
+  if (strcmp(name,"NIKON D100"))
+    return nef_data_compression == 0x8799;
+  fseek (ifp, nef_data_offset, SEEK_SET);
+  fseek (ifp, fget4(ifp), SEEK_SET);
+  fread (test, 1, 256, ifp);
+  for (i=15; i < 256; i+=16)
+    if (test[i]) return 1;
+  return 0;
+}
+
+void nikon_read_crw()
+{
+  int waste=0, skip16=0;
+  int irow, row, col, i;
+
+  if (nikon_is_compressed()) {
+    nikon_compressed_read_crw();
+    return;
+  }
+  if (!strcmp(name,"NIKON D1X"))
+    waste = 4;
+  if (!strcmp(name,"NIKON D100")) {
+    waste = 3;
+    skip16 = 1;
+  }
+
+  if (nef_rows_per_strip == 0) return;
+  for (irow=0; irow < height; irow++) {
+    row = irow;
+    if (name[0] == 'E')
+      row = irow * 2 % height + irow / (height/2);
+    if (irow % nef_rows_per_strip == 0) {
+      fseek (ifp, nef_data_offset + irow/nef_rows_per_strip*4, SEEK_SET);
+      fseek (ifp, fget4(ifp), SEEK_SET);
+      getbits(-1);
     }
-    for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = (pixel[col] & 0xfff) << 2;
-
-    if ((row+=2) >= height)	/* Once we've read all the even rows, */
-      row = 1;			/* read the odd rows. */
+    for (col=0; col < width+waste; col++) {
+      i = getbits(12);
+      if (col < width)
+	image[row*width+col][FC(row,col)] = i << 2;
+      if (skip16 && (col % 10) == 9)
+	getbits(8);
+    }
   }
 }
 
@@ -960,14 +970,14 @@ void first_interpolate()
 void second_interpolate()
 {
   ushort (*last)[4];
-  ushort (*this)[4];
+  ushort (*curr)[4];
   void *tmp;
   int row, col, cc, x, y, c, val;
   int avg[8];
 
-  last = calloc (width, sizeof *this);
-  this = calloc (width, sizeof *this);
-  if (!last || !this) {
+  last = calloc (width, sizeof *curr);
+  curr = calloc (width, sizeof *curr);
+  if (!last || !curr) {
     perror("second_interpolate() calloc failed");
     exit(1);
   }
@@ -987,20 +997,20 @@ void second_interpolate()
 	      avg[c+4]++;
 	    }
 	  }
-      this[col][cc] = image[row*width+col][cc];
+      curr[col][cc] = image[row*width+col][cc];
       for (c=0; c < colors; c++)
 	if (c != cc)
-	  this[col][c] = avg[c+4] ? avg[c] / avg[c+4] : 0;
+	  curr[col][c] = avg[c+4] ? avg[c] / avg[c+4] : 0;
     }
     if (row > 2)
       memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
     tmp = last;
-    last = this;
-    this = tmp;
+    last = curr;
+    curr = tmp;
   }
   memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
   free (last);
-  free (this);
+  free (curr);
 }
 
 /*
@@ -1036,9 +1046,9 @@ int fget4 (FILE *f)
     return a + (b << 8) + (c << 16) + (d << 24);
 }
 
-void nikon_parse_subifd()
+void nef_parse_subifd()
 {
-  int entries, tag, type, len, val, save;
+  int entries, tag, type, len, val;
 
   entries = fget2(ifp);
   while (entries--) {
@@ -1049,7 +1059,6 @@ void nikon_parse_subifd()
       val = fget2(ifp);  fget2(ifp);
     } else
       val = fget4(ifp);
-    save = ftell(ifp);
     switch (tag) {
       case 0x100:		/* ImageWidth */
 	raw_width = val;
@@ -1060,29 +1069,30 @@ void nikon_parse_subifd()
       case 0x102:		/* Bits per sample */
 	break;
       case 0x103:		/* Compression */
-	nikon_data_compression = val;
+	nef_data_compression = val;
 	break;
       case 0x111:		/* StripOffset */
 	if (len == 1)
-	  nikon_data_offset = val;
-	else {
-	  fseek (ifp, val, SEEK_SET);
-	  nikon_data_offset = fget4(ifp);
-	}
+	  nef_data_offset = ftell(ifp)-4;
+	else
+	  nef_data_offset = val;
 	break;
       case 0x115:		/* SamplesPerRow */
+	break;
       case 0x116:		/* RowsPerStrip */
+	nef_rows_per_strip = val;
+	break;
       case 0x117:		/* StripByteCounts */
+	break;
       case 0x828d:		/* Unknown */
       case 0x828e:		/* Unknown */
       case 0x9217:		/* Unknown */
 	break;
     }
-    fseek (ifp, save, SEEK_SET);
   }
 }
 
-void nikon_parse_makernote()
+void nef_parse_makernote()
 {
   int base=0, offset=0, entries, tag, type, len, val, save;
   short sorder;
@@ -1111,12 +1121,12 @@ void nikon_parse_makernote()
     val  = fget4(ifp);
     save = ftell(ifp);
     if (tag == 0x96)
-      nikon_curve_offset = base+val + 2;
+      nef_curve_offset = base+val + 2;
   }
   order = sorder;
 }
 
-void nikon_parse_exif()
+void nef_parse_exif()
 {
   int entries, tag, type, len, val, save;
 
@@ -1129,7 +1139,7 @@ void nikon_parse_exif()
     save = ftell(ifp);
     if (tag == 0x927c) {		/* MakerNote */
       fseek (ifp, val, SEEK_SET);
-      nikon_parse_makernote();
+      nef_parse_makernote();
       fseek (ifp, save, SEEK_SET);
     }
   }
@@ -1142,9 +1152,10 @@ void parse_tiff()
 {
   int doff, entries, tag, type, len, val, save;
 
-  nikon_curve_offset = 0;
-  nikon_data_compression = 0;
-  nikon_data_offset = 0;
+  nef_curve_offset = 0;
+  nef_data_compression = 0;
+  nef_data_offset = 0;
+  nef_rows_per_strip = 0;
   fseek (ifp, 2, SEEK_SET);	/* open_and_id() already got byte order */
   val = fget2(ifp);		/* Should be 42 for standard TIFF */
   while ((doff = fget4(ifp))) {
@@ -1162,10 +1173,14 @@ void parse_tiff()
 	  fread (name, 64, 1, ifp);
 	  break;
 	case 330:			/* SubIFD tag */
-	  nikon_parse_subifd();
+	  if (len == 2) {		/* Get the _second_ sub-image */
+	    fget4(ifp);
+	    fseek (ifp, fget4(ifp), SEEK_SET);
+	  }
+	  nef_parse_subifd();
 	  break;
 	case 0x8769:			/* Nikon EXIF tag */
-	  nikon_parse_exif();
+	  nef_parse_exif();
 	  break;
       }
       fseek (ifp, save, SEEK_SET);
@@ -1341,7 +1356,7 @@ int open_and_id(char *fname)
     colors = 3;
     canon = 0;
     filters = 0x16161616;
-    read_crw = nikon_d1x_read_crw;
+    read_crw = nikon_read_crw;
     rgb_mul[0] = 0.838;
     rgb_mul[2] = 1.095;
   } else if (!strcmp(name,"NIKON D1H")) {
@@ -1350,7 +1365,7 @@ int open_and_id(char *fname)
     colors = 3;
     canon = 0;
     filters = 0x16161616;
-    read_crw = nikon_d1x_read_crw;
+    read_crw = nikon_read_crw;
     rgb_mul[0] = 1.347;
     rgb_mul[2] = 3.279;
   } else if (!strcmp(name,"NIKON D1X")) {
@@ -1359,7 +1374,7 @@ int open_and_id(char *fname)
     colors = 3;
     canon = 0;
     filters = 0x16161616;
-    read_crw = nikon_d1x_read_crw;
+    read_crw = nikon_read_crw;
     rgb_mul[0] = 1.910;
     rgb_mul[2] = 1.220;
   } else if (!strcmp(name,"NIKON D100")) {
@@ -1368,14 +1383,15 @@ int open_and_id(char *fname)
     colors = 3;
     canon = 0;
     filters = 0x61616161;
-    read_crw = nikon_d1x_read_crw;
+    read_crw = nikon_read_crw;
     rgb_mul[0] = 2.374;
     rgb_mul[2] = 1.677;
   } else if (!strcmp(name,"E5000") || !strcmp(name,"E5700")) {
     height = 1924;
     width  = 2576;
+    canon = 0;
     filters = 0xb4b4b4b4;
-    read_crw = nikon_e5000_read_crw;
+    read_crw = nikon_read_crw;
     rgb_mul[0] = 2.126;
     rgb_mul[2] = 1.197;
   } else if (!strcmp(name,"E-10")) {
@@ -1650,13 +1666,13 @@ void write_png(FILE *ofp)
 /*
    Creates a new filename with a different extension
  */
-void exten(char *new, const char *old, const char *ext)
+void exten(char *new_name, const char *old, const char *ext)
 {
   char *cp;
 
-  strcpy(new,old);
-  cp=strrchr(new,'.');
-  if (!cp) cp=new+strlen(new);
+  strcpy(new_name,old);
+  cp=strrchr(new_name,'.');
+  if (!cp) cp=new_name+strlen(new_name);
   strcpy(cp,ext);
 }
 
@@ -1671,7 +1687,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v3.11"
+    "\nCanon PowerShot Converter v3.14"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
