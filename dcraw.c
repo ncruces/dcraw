@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.31 $
-   $Date: 2001/10/19 23:01:31 $
+   $Revision: 1.32 $
+   $Date: 2001/10/23 13:45:51 $
 */
 
 #include <math.h>
@@ -865,9 +865,11 @@ get_rgb(float rgb[4], ushort image[4])
   for (r=0; r < 3; r++)	{
     if (colors == 3)
       rgb[r] = image[r] * rgb_mul[r];
-    else
+    else {
       for (g=0; g < 4; g++)
 	rgb[r] += image[g] * coeff[r][g];
+      if (rgb[r] < 0) rgb[r]=0;
+    }
     rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
   }
 }
@@ -925,7 +927,6 @@ write_ppm(FILE *ofp)
       for (c=0; c < 3; c++)
       {
 	val=rgb[c]*scale;
-	if (val < 0) val=0;
 	if (val > 255) val=255;
 	ppm[x-1][c]=val;
       }
@@ -1023,7 +1024,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.20"
+    "\nCanon PowerShot Converter v2.21"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
