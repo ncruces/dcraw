@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.10.1.1 $
-   $Date: 2004/03/05 17:11:05 $
+   $Revision: 1.10.1.2 $
+   $Date: 2005/01/20 07:18:22 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -34,7 +34,7 @@
 #define GimpRunModeType GimpRunMode
 #endif
 
-#define PLUG_IN_VERSION  "1.0.9 - 5 March 2004"
+#define PLUG_IN_VERSION  "1.0.10 - 20 January 2005"
 
 static void query(void);
 static void run(gchar *name,
@@ -56,10 +56,10 @@ GimpPlugInInfo PLUG_IN_INFO =
 
 static struct {
   gboolean check_val[5];
-  gfloat    spin_val[4];
+  gfloat    spin_val[3];
 } cfg = {
   { FALSE, FALSE, FALSE, FALSE, FALSE },
-  { 0.6, 1, 1, 1 }
+  { 1, 1, 1 }
 };
 
 MAIN ()
@@ -97,7 +97,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-    "bay,bmq,cr2,crw,cs1,dcr,fff,jpg,kdc,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
+    "bay,bmq,cr2,crw,cs1,dc2,dcr,erf,fff,hdr,jpg,k25,kdc,mos,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
 }
 
 static void run (gchar *name,
@@ -177,13 +177,13 @@ static gint32 load_image (gchar *filename)
   command = g_malloc (strlen(filename)+100);
   if (!command) return -1;
   sprintf (command,
-	"dcraw -c%s%s%s%s%s -g %0.2f -b %0.2f -r %0.2f -l %0.2f '%s'\n",
+	"dcraw -c%s%s%s%s%s -b %0.2f -r %0.2f -l %0.2f '%s'\n",
 	cfg.check_val[0] ? " -q":"",
 	cfg.check_val[1] ? " -f":"",
 	cfg.check_val[2] ? " -d":"",
 	cfg.check_val[3] ? " -a":"",
 	cfg.check_val[4] ? " -w":"",
-	cfg.spin_val[0], cfg.spin_val[1], cfg.spin_val[2], cfg.spin_val[3],
+	cfg.spin_val[0], cfg.spin_val[1], cfg.spin_val[2],
 	filename );
   fputs (command, stderr);
   pfp = popen (command, "r");
@@ -256,11 +256,11 @@ gint load_dialog (gchar * name)
   GtkObject *adj;
   GtkWidget *widget;
   int i;
-  static const char *label[9] =
+  static const char *label[8] =
   { "Quick interpolation", "Four color interpolation",
     "Grayscale document",
     "Automatic white balance", "Camera white balance",
-    "Gamma", "Brightness", "Red Multiplier", "Blue Multiplier" };
+    "Brightness", "Red Multiplier", "Blue Multiplier" };
 
   gimp_ui_init ("rawphoto", TRUE);
 
@@ -293,7 +293,7 @@ gint load_dialog (gchar * name)
     gtk_widget_show (widget);
   }
 
-  for (i=5; i < 9; i++) {
+  for (i=5; i < 8; i++) {
     widget = gtk_label_new (_(label[i]));
     gtk_misc_set_alignment (GTK_MISC (widget), 1.0, 0.5);
     gtk_misc_set_padding   (GTK_MISC (widget), 10, 0);
