@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.118 $
-   $Date: 2003/06/06 15:45:57 $
+   $Revision: 1.119 $
+   $Date: 2003/06/06 16:25:41 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2609,7 +2609,7 @@ void write_ppm16(FILE *ofp)
 int main(int argc, char **argv)
 {
   char data[256], *cp;
-  int arg, id_one_file=0, write_to_files=1;
+  int arg, id, identify_only=0, write_to_files=1;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
@@ -2617,14 +2617,14 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.77"
+    "\nRaw Photo Decoder v4.78"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
-    "\n-i        Identify the first file and exit"
+    "\n-i        Identify files but don't decode them"
     "\n-c        Write to standard output"
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
@@ -2646,7 +2646,7 @@ int main(int argc, char **argv)
     switch (argv[arg][1])
     {
       case 'i':
-	id_one_file = 1;  break;
+	identify_only = 1;  break;
       case 'c':
 	write_to_files = 0;  break;
       case 'f':
@@ -2686,10 +2686,12 @@ int main(int argc, char **argv)
   {
     ifp = fopen(argv[arg],"rb");
     if (!ifp) perror(argv[arg]);
-    if (id_one_file) {
-      if (!ifp || identify(argv[arg])) exit(1);
-      fprintf (stderr, "%s is a %s %s image.\n", argv[arg], make, model);
-      exit(0);
+    if (identify_only) {
+      if (!(id = !ifp || identify(argv[arg])))
+	fprintf (stderr, "%s is a %s %s image.\n", argv[arg], make, model);
+      if (ifp) fclose(ifp);
+      if (arg+1 < argc) continue;
+      exit(id);
     }
     if (!ifp) continue;
     if (identify(argv[arg])) {
