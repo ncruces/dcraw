@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.22 $
-   $Date: 2000/05/20 20:31:28 $
+   $Revision: 1.23 $
+   $Date: 2000/06/19 06:56:27 $
 */
 
 #include <fcntl.h>
@@ -64,7 +64,7 @@ const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
 
 #else
 #error You must compile with exactly one of the following:
-#error -DPS_600 -DPS_A5 -DPS_A50 -DPS_PRO70 (untested)
+#error -DPS_600 -DPS_A5 -DPS_A50 -DPS_PRO70
 #endif
 
 /* Default values, which may be modified on the command line */
