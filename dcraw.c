@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.77 $
-   $Date: 2002/11/25 04:36:23 $
+   $Revision: 1.78 $
+   $Date: 2002/12/01 04:34:57 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -54,6 +54,7 @@ int height, width, trim, colors, is_cmy, is_canon, black, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
 int tiff_data_offset, tiff_data_compression;
 int nef_curve_offset;
+int kodak_645m;
 unsigned filters;
 char make[64], model[64];
 ushort (*image)[4];
@@ -855,6 +856,45 @@ void kodak_easy_read_crw()
   free (pixel);
 }
 
+void kodak_compressed_read_crw()
+{
+  uchar c, blen[256];
+  unsigned row, col, len, i, bits=0, pred[2];
+  INT64 bitbuf=0;
+  register int diff;
+
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++)
+    {
+      if ((col & 255) == 0) {		/* Get the bit-lengths of the */
+	len = width - col;		/* next 256 pixel values      */
+	if (len > 256) len = 256;
+	for (i=0; i < len; ) {
+	  c = fgetc(ifp);
+	  blen[i++] = c & 15;
+	  blen[i++] = c >> 4;
+	}
+	bitbuf = bits = pred[0] = pred[1] = 0;
+      }
+      len = blen[col & 255];		/* Number of bits for this pixel */
+      if (bits < len) {			/* Got enough bits in the buffer? */
+	for (i=0; i < 32; i+=8)
+	  bitbuf += (INT64) fgetc(ifp) << (bits+(i^8));
+	bits += 32;
+      }
+      diff = bitbuf & (0xffff >> (16-len));  /* Pull bits from buffer */
+      bitbuf >>= len;
+      bits -= len;
+      if ((diff & (1 << (len-1))) == 0)
+	diff -= (1 << len) - 1;
+      pred[col & 1] += diff;
+      diff = pred[col & 1];
+      image[row*width+col][FC(row,col)] = diff << 2;
+    }
+}
+
 void subtract_black()
 {
   ushort *img;
@@ -974,7 +1014,7 @@ void dillon_interpolate()
    other colors, and average them.  Diagonal neighbors get
    counted once, orthogonal neighbors twice.
  */
-void first_interpolate()
+void bilinear_interpolate()
 {
   unsigned row, col, cc, y, x, w, c, avg[8];
   const char *h;
@@ -1007,7 +1047,7 @@ void first_interpolate()
    below a certain threshold, that pixel and all neighboring
    pixels will be left unchanged.
 */
-void second_interpolate()
+void smooth_hues()
 {
   ushort (*last)[4];
   ushort (*curr)[4];
@@ -1018,7 +1058,7 @@ void second_interpolate()
   last = calloc (width, sizeof *curr);
   curr = calloc (width, sizeof *curr);
   if (!last || !curr) {
-    perror("second_interpolate() calloc failed");
+    perror("smooth_hues() calloc failed");
     exit(1);
   }
   for (row=2; row < height-2; row++) {
@@ -1135,6 +1175,12 @@ void tiff_parse_subifd(int base)
       case 0x828e:		/* Unknown */
       case 0x9217:		/* Unknown */
 	break;
+      case 0x920e:
+	kodak_645m = 0;
+	break;
+      case 0xa20e:
+	kodak_645m = 1;
+	break;
     }
   }
 }
@@ -1228,6 +1274,7 @@ void parse_tiff(int base)
 	  model[len]=0;
 	  break;
 	case 330:			/* SubIFD tag */
+	  if (len > 2) len=2;
 	  if (len > 1)
 	    while (len--) {
 	      fseek (ifp, val+base, SEEK_SET);
@@ -1574,6 +1621,27 @@ int open_and_id(char *fname)
     } else if (!strcmp(model,"DCS660M")) {
       colors = 1;
       filters = 0;
+    } else if (!strcmp(model,"DCS720X")) {
+      rgb_mul[0] = 1.35;
+      rgb_mul[2] = 1.18;
+      is_cmy = 1;
+    } else if (!strcmp(model,"DCS760C")) {
+      rgb_mul[0] = 1.06;
+      rgb_mul[2] = 1.72;
+    } else if (!strcmp(model,"DCS760M")) {
+      colors = 1;
+      filters = 0;
+    } else if (!strcmp(model,"ProBack")) {
+      rgb_mul[0] = 1.06;
+      rgb_mul[2] = 1.385;
+    } else if (!strcmp(model,"ProBack645")) {
+      if (kodak_645m) {
+	rgb_mul[0] = 1.06;		/* 645M sample image */
+	rgb_mul[2] = 1.50;
+      } else {
+	rgb_mul[0] = 1.20;		/* 645H sample image */
+	rgb_mul[2] = 1.52;
+      }
     }
     switch (tiff_data_compression) {
       case 0:				/* No compression */
@@ -1581,6 +1649,9 @@ int open_and_id(char *fname)
 	read_crw = kodak_easy_read_crw;  break;
       case 7:				/* Lossless JPEG */
 	read_crw = lossless_jpeg_read_crw;  break;
+      case 65000:			/* Kodak DCR compression */
+	black = 0;
+	read_crw = kodak_compressed_read_crw;  break;
       default:
 	fprintf (stderr, "%s: %s %s uses unsupported compression method %d.\n",
 		fname, make, model, tiff_data_compression);
@@ -1887,7 +1958,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v3.54"
+    "\nRaw Photo Decoder v3.60"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -1896,7 +1967,7 @@ int main(int argc, char **argv)
     "\nValid options:"
     "\n-c        Write to standard output"
     "\n-d        Use Dillon interpolation if possible"
-    "\n-s <num>  Number of times to smooth colors (1 by default)"
+    "\n-s <num>  Number of times to smooth hues (1 by default)"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
     "\n-r <num>  Set red  scaling (daylight = 1.0)"
@@ -1984,11 +2055,11 @@ int main(int argc, char **argv)
     } else {
       if (dillon)
 	fprintf (stderr, "Filter pattern is not Dillon-compatible.\n");
-      fprintf (stderr, "First interpolation...\n");
-      first_interpolate();
+      fprintf (stderr, "Bilinear interpolation...\n");
+      bilinear_interpolate();
       for (i=0; i < smooth; i++) {
-	fprintf (stderr, "Second interpolation...\n");
-	second_interpolate();
+	fprintf (stderr, "Smoothing hues...\n");
+	smooth_hues();
       }
       trim = 1;
     }
