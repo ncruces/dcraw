@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.95 $
-   $Date: 2003/01/30 19:45:42 $
+   $Revision: 1.96 $
+   $Date: 2003/02/16 05:01:06 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -954,8 +954,22 @@ void foveon_read_crw()
   }
 }
 
+int apply_curve(int i, const int *curve)
+{
+  if (i <= -curve[0])
+    return -curve[curve[0]]-1;
+  else if (i < 0)
+    return -curve[1-i];
+  else if (i < curve[0])
+    return  curve[1+i];
+  else
+    return  curve[curve[0]]+1;
+}
+
 void foveon_interpolate()
 {
+  float mul[3] =
+  { 1.0321, 1.0, 1.1124 };
   static const int weight[3][3][3] =
   { { {   4141,  37726,  11265  },
       { -30437,  16066, -41102  },
@@ -965,18 +979,37 @@ void foveon_interpolate()
       {  -2381,   3496,  -2008  } },
     { {  -3838, -24025, -12968  },
       {  20144, -12195,  30272  },
-      {   -631,  -2025,    822  } } };
-  float mul[3] =
-  { 1.0321, 1.0, 1.1124 };
-  static const int curve[72] =
-  {  0,1,2,2,3,4,5,6,6,7,8,9,9,10,11,11,12,13,13,14,14,
+      {   -631,  -2025,    822  } } },
+  curve1[73] = { 72,
+     0,1,2,2,3,4,5,6,6,7,8,9,9,10,11,11,12,13,13,14,14,
     15,16,16,17,17,18,18,18,19,19,20,20,20,21,21,21,22,
     22,22,23,23,23,23,23,24,24,24,24,24,25,25,25,25,25,
     25,25,25,26,26,26,26,26,26,26,26,26,26,26,26,26,26 },
-  curve2[20] = { 0,1,1,2,3,3,4,4,5,5,6,6,6,7,7,7,7,7,7,7 };
-  ushort *pix, prev[3];
+  curve2[21] = { 20,
+    0,1,1,2,3,3,4,4,5,5,6,6,6,7,7,7,7,7,7,7 },
+  curve3[73] = { 72,
+     0,1,1,2,2,3,4,4,5,5,6,6,7,7,8,8,8,9,9,10,10,10,10,
+    11,11,11,12,12,12,12,12,12,13,13,13,13,13,13,13,13,
+    14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
+    14,14,14,14,14,14,14,14,14,14,14,14,14,14,14 },
+  curve4[37] = { 36,
+    0,1,1,2,3,3,4,4,5,6,6,7,7,7,8,8,9,9,9,10,10,10,
+    11,11,11,11,11,12,12,12,12,12,12,12,12,12 },
+  curve5[111] = { 110,
+    0,1,1,2,3,3,4,5,6,6,7,7,8,9,9,10,11,11,12,12,13,13,
+    14,14,15,15,16,16,17,17,18,18,18,19,19,19,20,20,20,
+    21,21,21,21,22,22,22,22,22,23,23,23,23,23,24,24,24,24,
+    24,24,24,24,25,25,25,25,25,25,25,25,25,25,25,25,26,26,
+    26,26,26,26,26,26,26,26,26,26,26,26,26,26,26,26,26,26,
+    26,26,26,26,26,26,26,26,26,26,26,26,26,26,26,26,26 },
+  *curves[3] = { curve3, curve4, curve5 },
+  trans[3][3] =
+  { {   7576,  -2933,   1279  },
+    { -11594,  29911, -12394  },
+    {   4000, -18850,  20772  } };
+  ushort *pix, prev[3], (*shrink)[3];
   int row, col, c, i, j, diff, sum, ipix[3], work[3][3], total[4];
-  int (*smrow[7])[4], smlast, smred, smred_p=0, hood[7], min, max;
+  int (*smrow[7])[3], smlast, smred, smred_p=0, hood[7], min, max;
 
   /* Sharpen all colors */
   for (row=0; row < height; row++) {
@@ -1090,32 +1123,99 @@ void foveon_interpolate()
       }
       j = (sum << 16) / total[3];
       for (c=0; c < 3; c++) {
-	i = (total[c] * j >> 16) - pix[c];
-	if      (i < -71) i = -27;
-	else if (i <   0) i = -curve[-i];
-	else if (i <  72) i =  curve[ i];
-	else              i =  27;
+	i = apply_curve ((total[c] * j >> 16) - pix[c], curve1);
 	i += pix[c] - 13 - (c==1);
-	if      (i >  19) i -= 8;
-	else if (i >=  0) i -= curve2[ i];
-	else if (i > -20) i += curve2[-i];
-	else              i += 8;
-	ipix[c] = i;
+	ipix[c] = i - apply_curve (i, curve2);
       }
       sum = (ipix[0]+ipix[1]+ipix[1]+ipix[2]) >> 2;
       for (c=0; c < 3; c++) {
-	i = ipix[c] - sum;
-	if      (i < -19) i = -8;
-	else if (i <   0) i = -curve2[-i];
-	else if (i <  20) i =  curve2[ i];
-	else              i =  8;
-	i = ipix[c] - i;
+	i = ipix[c] - apply_curve (ipix[c] - sum, curve2);
 	if (i < 0) i = 0;
 	pix[c] = i;
       }
       pix += 4;
     }
   }
+  /* Translate the image to a different colorspace */
+  for (pix=image[0]; pix < image[height*width]; pix+=4) {
+    for (c=0; c < 3; c++) {
+      for (i=j=0; j < 3; j++)
+	i += trans[c][j] * pix[j];
+      i = (i+0x1000) >> 13;
+      if (i < 0)     i = 0;
+      if (i > 24000) i = 24000;
+      ipix[c] = i;
+    }
+    for (c=0; c < 3; c++)
+      pix[c] = ipix[c];
+  }
+  /* Smooth the image bottom-to-top and save at 1/4 scale */
+  shrink = calloc ((width/4) * (height/4), sizeof *shrink);
+  if (!shrink) {
+    perror("foveon_interpolate() calloc failed");
+    exit(1);
+  }
+  for (row = height/4; row--; )
+    for (col=0; col < width/4; col++) {
+      ipix[0] = ipix[1] = ipix[2] = 0;
+      for (i=0; i < 4; i++)
+	for (j=0; j < 4; j++)
+	  for (c=0; c < 3; c++)
+	    ipix[c] += image[(row*4+i)*width+col*4+j][c];
+      for (c=0; c < 3; c++)
+	if (row+2 > height/4)
+	  shrink[row*(width/4)+col][c] = ipix[c] >> 4;
+	else
+	  shrink[row*(width/4)+col][c] =
+	    (shrink[(row+1)*(width/4)+col][c]*1840 + ipix[c]*141) >> 12;
+    }
+
+  /* From the 1/4-scale image, smooth right-to-left */
+  for (row=0; row < (height & ~3); row++) {
+    ipix[0] = ipix[1] = ipix[2] = 0;
+    if ((row & 3) == 0)
+      for (col = width & ~3 ; col--; )
+	for (c=0; c < 3; c++)
+	  smrow[0][col][c] = ipix[c] =
+	    (shrink[(row/4)*(width/4)+col/4][c]*1485 + ipix[c]*6707) >> 13;
+
+  /* Then smooth left-to-right */
+    ipix[0] = ipix[1] = ipix[2] = 0;
+    for (col=0; col < (width & ~3); col++)
+      for (c=0; c < 3; c++)
+	smrow[1][col][c] = ipix[c] =
+	  (smrow[0][col][c]*1485 + ipix[c]*6707) >> 13;
+
+  /* Smooth top-to-bottom */
+    if (row == 0)
+      memcpy (smrow[2], smrow[1], sizeof **smrow * width);
+    else
+      for (col=0; col < (width & ~3); col++)
+	for (c=0; c < 3; c++)
+	  smrow[2][col][c] =
+	    (smrow[2][col][c]*6707 + smrow[1][col][c]*1485) >> 13;
+
+  /* Adjust the chroma toward the smooth values */
+    for (col=0; col < (width & ~3); col++) {
+      for (i=j=60, c=0; c < 3; c++) {
+	i += smrow[2][col][c];
+	j += image[row*width+col][c];
+      }
+      j = (j << 16) / i;
+      for (sum=c=0; c < 3; c++) {
+	i = (smrow[2][col][c] * j >> 16) - image[row*width+col][c];
+	ipix[c] = apply_curve (i, curves[c]);
+	sum += ipix[c];
+      }
+      sum >>= 3;
+      for (c=0; c < 3; c++) {
+	i = image[row*width+col][c] + ipix[c] - sum;
+	if (i < 0) i = 0;
+	image[row*width+col][c] = i;
+      }
+    }
+  }
+  free (shrink);
   free (smrow[6]);
 }
 
@@ -1627,10 +1727,10 @@ void parse_foveon()
 void foveon_coeff()
 {
   static const float foveon[3][3] = {
-    {  1.5,  -0.5,   0   },
-    { -2.3,   5.3,  -2   },
-    {  0.68, -3.18,  3.5 }
-  }, mul[3] = { 1.0, 1.0, 0.7448 };
+    {  2.0343955, -0.727533, -0.3067457 },
+    { -0.2287194,  1.231793, -0.0028293 },
+    { -0.0086152, -0.153336,  1.1617814 }
+  }, mul[3] = { 1.179, 1.0, 0.713 };
   int i, j;
 
   for (i=0; i < 3; i++)
@@ -2059,6 +2159,7 @@ coolpix:
     filters = 0;
     read_crw = foveon_read_crw;
     foveon_coeff();
+    rgb_max = 5600;
   } else {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",fname, make, model);
     return 1;
@@ -2306,7 +2407,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.42"
+    "\nRaw Photo Decoder v4.45"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
