@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.10 $
-   $Date: 2003/12/24 03:29:49 $
+   $Revision: 1.10.1.1 $
+   $Date: 2004/03/05 17:11:05 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -34,7 +34,7 @@
 #define GimpRunModeType GimpRunMode
 #endif
 
-#define PLUG_IN_VERSION  "1.0.8 - 23 December 2003"
+#define PLUG_IN_VERSION  "1.0.9 - 5 March 2004"
 
 static void query(void);
 static void run(gchar *name,
@@ -97,7 +97,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-    "bay,bmq,crw,cs1,dcr,fff,jpg,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
+    "bay,bmq,cr2,crw,cs1,dcr,fff,jpg,kdc,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
 }
 
 static void run (gchar *name,
