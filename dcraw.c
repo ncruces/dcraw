@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.247 $
-   $Date: 2005/03/29 06:33:18 $
+   $Revision: 1.248 $
+   $Date: 2005/03/31 19:42:59 $
  */
 
 #define _GNU_SOURCE
@@ -1055,20 +1055,6 @@ void CLASS phase_one_load_raw()
       BAYER(row,col) = pixel[col+left_margin];
   }
   free (pixel);
-}
-
-void CLASS ixpress_load_raw()
-{
-  ushort pixel[4090];
-  int row, col;
-
-  order = 0x4949;
-  fseek (ifp, 304 + 6*2*4090, SEEK_SET);
-  for (row=height; --row >= 0; ) {
-    read_shorts (pixel, 4090);
-    for (col=0; col < width; col++)
-      BAYER(row,col) = pixel[width-1-col];
-  }
 }
 
 void CLASS leaf_load_raw()
@@ -2909,10 +2895,9 @@ guess_cfa_pc:
   if ((raw_height & 1) && !strncmp (make,"OLYMPUS",7))
        raw_height++;
 
-  if (make[0] == 0 && raw_width == 680 && raw_height == 680) {
+  if (make[0] == 0 && raw_width == 680)
     strcpy (make, "Imacon");
-    strcpy (model,"Ixpress");
-  }
+
   return done;
 }
 
@@ -4143,11 +4128,21 @@ konica_400z:
     filters = top_margin & 1 ? 0x94949494 : 0x49494949;
     load_raw = phase_one_load_raw;
     maximum = 0xffff;
-  } else if (!strcmp(model,"Ixpress")) {
-    height = 4084;
+  } else if (!strcmp(make,"Imacon")) {
+    height = 5444;
     width  = 4080;
-    filters = 0x49494949;
-    load_raw = ixpress_load_raw;
+    raw_width = 4090;
+    data_offset = 314 + raw_width*12;
+    flip = 5;
+    if (raw_height == 680) {
+      order = 0x4949;
+      height = 4084;
+      data_offset -= 10;
+      flip = 3;
+    }
+    sprintf (model, "Ixpress %d-Mp", height*width/1000000);
+    filters = 0x61616161;
+    load_raw = unpacked_load_raw;
     maximum = 0xffff;
     pre_mul[0] = 1.963;
     pre_mul[2] = 1.430;
@@ -4391,12 +4386,12 @@ konica_400z:
     pre_mul[0] = 1.340;
     pre_mul[2] = 1.672;
   } else if (!strcmp(model,"EX-Z50")) {
-    height = 1932;
-    width  = 2602;
+    height = 1931;
+    width  = 2570;
     raw_width = 3904;
     load_raw = packed_12_load_raw;
-    pre_mul[0] = 1.969;
-    pre_mul[2] = 1.570;
+    pre_mul[0] = 2.529;
+    pre_mul[2] = 1.185;
   } else if (!strcmp(model,"EX-Z55")) {
     height = 1960;
     width  = 2570;
@@ -4583,11 +4578,6 @@ void CLASS flip_image()
   int size, base, dest, next, row, col, temp;
   INT64 *img, hold;
 
-  switch ((flip+3600) % 360) {
-    case 270:  flip = 5;  break;
-    case 180:  flip = 3;  break;
-    case  90:  flip = 6;
-  }
   img = (INT64 *) image;
   size = height * width;
   flag = calloc ((size+31) >> 5, sizeof *flag);
@@ -4745,7 +4735,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.09"
+    "\nRaw Photo Decoder \"dcraw\" v7.10"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -4848,6 +4838,13 @@ int CLASS main (int argc, char **argv)
       fclose(ifp);
       continue;
     }
+    if (user_flip >= 0)
+      flip = user_flip;
+    switch ((flip+3600) % 360) {
+      case 270:  flip = 5;  break;
+      case 180:  flip = 3;  break;
+      case  90:  flip = 6;
+    }
     if (identify_only) {
       fprintf (stderr, "%s is a %s %s image.\n", ifname, make, model);
       fclose(ifp);
@@ -4889,8 +4886,6 @@ int CLASS main (int argc, char **argv)
     if (verbose)
       fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
-    if (user_flip >= 0)
-      flip = user_flip;
     if (flip) {
       if (verbose)
 	fprintf (stderr, "Flipping image %c:%c:%c...\n",
