@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.133 $
-   $Date: 2003/09/19 04:02:26 $
+   $Revision: 1.134 $
+   $Date: 2003/09/20 01:51:39 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2349,7 +2349,8 @@ nucore:
     pre_mul[2] = 1.261;
   } else if (!strcmp(model,"EOS D60") ||
 	     !strcmp(model,"EOS 10D") ||
-	     !strcmp(model,"EOS 300D DIGITAL")) {
+	     !strcmp(model,"EOS 300D DIGITAL") ||
+	     !strcmp(model,"EOS DIGITAL REBEL")) {
     height = 2056;
     width  = 3088;
     filters = 0x94949494;
