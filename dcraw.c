@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.186 $
-   $Date: 2004/04/25 20:19:33 $
+   $Revision: 1.187 $
+   $Date: 2004/04/28 14:35:07 $
  */
 
 #define _GNU_SOURCE
@@ -3089,7 +3089,7 @@ coolpix:
     pre_mul[0] = 1.1629;
     pre_mul[2] = 1.3556;
     rgb_max = 0xffff;
-  } else if (!strcmp(model,"DIGILUX 2")) {
+  } else if (!strcmp(model,"DIGILUX 2") || !strcmp(model,"DMC-LC1")) {
     height = 1928;
     width  = 2568;
     data_offset = 1024;
