@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.123 $
-   $Date: 2003/06/22 17:01:02 $
+   $Revision: 1.124 $
+   $Date: 2003/06/24 15:07:14 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -26,7 +26,6 @@
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
-#include <unistd.h>
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -34,6 +33,7 @@
 #define strcasecmp stricmp
 typedef __int64 INT64;
 #else
+#include <unistd.h>
 #include <netinet/in.h>
 typedef long long INT64;
 #endif
@@ -2696,7 +2696,7 @@ void write_ppm16(FILE *ofp)
 int main(int argc, char **argv)
 {
   char data[256], *cp;
-  int arg, id, identify_only=0, write_to_files=1;
+  int arg, id, identify_only=0, write_to_files=1, minuso=0;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
@@ -2704,7 +2704,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.83"
+    "\nRaw Photo Decoder v4.84"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2713,6 +2713,7 @@ int main(int argc, char **argv)
     "\nValid options:"
     "\n-i        Identify files but don't decode them"
     "\n-c        Write to standard output"
+    "\n-o file   Write output to this file"
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-g <num>  Set gamma      (0.8 by default, only for 24-bit output)"
@@ -2736,6 +2737,8 @@ int main(int argc, char **argv)
 	identify_only = 1;  break;
       case 'c':
 	write_to_files = 0;  break;
+      case 'o':
+	minuso = ++arg;  break;
       case 'f':
 	four_color_rgb = 1;  break;
       case 'd':
@@ -2815,6 +2818,8 @@ int main(int argc, char **argv)
       strcpy (data, argv[arg]);
       if ((cp = strrchr (data, '.'))) *cp = 0;
       strcat (data, write_ext);
+      if (minuso)
+	strcpy (data, argv[minuso]);
       ofp = fopen (data, "wb");
       if (!ofp) {
 	perror(data);
