@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.30 $
-   $Date: 2001/10/19 20:14:37 $
+   $Revision: 1.31 $
+   $Date: 2001/10/19 23:01:31 $
 */
 
 #include <math.h>
@@ -873,7 +873,7 @@ get_rgb(float rgb[4], ushort image[4])
 }
 
 /*
-   Convert the GMCY grid to RGB and write it to a PPM file.
+   Write the image to a 24-bit PPM file.
  */
 write_ppm(FILE *ofp)
 {
@@ -937,7 +937,7 @@ write_ppm(FILE *ofp)
 
 
 /*
-   Write the rgb[] array to a PNG file
+   Write the image to a 48-bit PNG file.
  */
 write_png(FILE *ofp)
 {
@@ -978,8 +978,12 @@ write_png(FILE *ofp)
     exit(1);
   }
 
-  if (colors == 3)
-    max = rgb_mul[1] * 0x4000;
+  if (colors == 3) {		/* Preserve the green bits */
+    rgb_mul[0] /= rgb_mul[1];
+    rgb_mul[2] /= rgb_mul[1];
+    rgb_mul[1] = 1.0;
+    max = 0x4000;
+  }
 
   for (y=1; y < height-1; y++) {
     for (x=1; x < width-1; x++) {
