@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.192 $
-   $Date: 2004/05/11 19:09:02 $
+   $Revision: 1.193 $
+   $Date: 2004/05/14 21:26:40 $
  */
 
 #define _GNU_SOURCE
@@ -62,7 +62,7 @@ typedef unsigned short ushort;
 FILE *ifp;
 short order;
 char *ifname, make[64], model[64], model2[64];
-int data_offset, nef_curve_offset, timestamp;
+int data_offset, curve_offset, curve_length, timestamp;
 int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, colors, black, rgb_max;
@@ -176,6 +176,39 @@ void merror (void *ptr, char *where)
   if (ptr) return;
   fprintf (stderr, "%s: Out of memory in %s\n", ifname, where);
   longjmp (failure, 1);
+}
+
+/*
+   Get a 2-byte integer, making no assumptions about CPU byte order.
+   Nor should we assume that the compiler evaluates left-to-right.
+ */
+ushort fget2 (FILE *f)
+{
+  uchar a, b;
+
+  a = fgetc(f);
+  b = fgetc(f);
+  if (order == 0x4949)		/* "II" means little-endian */
+    return a + (b << 8);
+  else				/* "MM" means big-endian */
+    return (a << 8) + b;
+}
+
+/*
+   Same for a 4-byte integer.
+ */
+int fget4 (FILE *f)
+{
+  uchar a, b, c, d;
+
+  a = fgetc(f);
+  b = fgetc(f);
+  c = fgetc(f);
+  d = fgetc(f);
+  if (order == 0x4949)
+    return a + (b << 8) + (c << 16) + (d << 24);
+  else
+    return (a << 24) + (b << 16) + (c << 8) + d;
 }
 
 void canon_600_load_raw()
@@ -504,8 +537,37 @@ void canon_compressed_load_raw()
     black = (bblack << shift) / ((raw_width - width) * height);
 }
 
-ushort fget2 (FILE *);
-int    fget4 (FILE *);
+void kodak_curve (ushort *curve)
+{
+  int i, entries, tag, type, len, val;
+
+  for (i=0; i < 0x1000; i++)
+    curve[i] = i;
+  if (strcasecmp(make,"KODAK")) return;
+  if (!curve_offset) {
+    fseek (ifp, 12, SEEK_SET);
+    entries = fget2(ifp);
+    while (entries--) {
+      tag  = fget2(ifp);
+      type = fget2(ifp);
+      len  = fget4(ifp);
+      val  = fget4(ifp);
+      if (tag == 0x90d) {
+	curve_offset = val;
+	curve_length = len;
+      }
+    }
+  }
+  if (curve_offset) {
+    fseek (ifp, curve_offset, SEEK_SET);
+    for (i=0; i < curve_length; i++)
+      curve[i] = fget2(ifp);
+    for ( ; i < 0x1000; i++)
+      curve[i] = curve[i-1];
+    rgb_max = curve[i-1] << 2;
+  }
+  fseek (ifp, data_offset, SEEK_SET);
+}
 
 /*
    Not a full implementation of Lossless JPEG,
@@ -513,12 +575,15 @@ int    fget4 (FILE *);
  */
 void lossless_jpeg_load_raw()
 {
-  int tag, len, jhigh=0, jwide=0, trick, row, col, irow, icol, diff;
+  int tag, len, jhigh=0, jwide=0, trick, row, col, diff;
   uchar data[256], *dp;
   int vpred[2] = { 0x800, 0x800 }, hpred[2];
   struct decode *dstart[2], *dindex;
+  ushort curve[0x10000];
   INT64 bblack=0;
+  int min=INT_MAX;
 
+  kodak_curve (curve);
   order = 0x4d4d;
   if (fget2(ifp) != 0xffd8) return;
   do {
@@ -560,15 +625,19 @@ void lossless_jpeg_load_raw()
 	hpred[col & 1] += diff;
       diff = hpred[col & 1];
       if (diff < 0) diff = 0;
-      if ((unsigned) (irow = row-top_margin) >= height)
+      if ((unsigned) (row-top_margin) >= height)
 	continue;
-      if ((unsigned) (icol = col-left_margin) < width)
-	BAYER(irow,icol) = diff << 2;
-      else
-	bblack += diff;
+      if ((unsigned) (col-left_margin) < width) {
+	BAYER(row-top_margin,col-left_margin) = curve[diff] << 2;
+	if (min > curve[diff])
+	    min = curve[diff];
+      } else
+	bblack += curve[diff];
     }
   if (raw_width > width)
     black = (bblack << 2) / ((raw_width - width) * height);
+  if (!strcasecmp(make,"KODAK"))
+    black = min << 2;
 }
 
 void nikon_compressed_load_raw()
@@ -584,7 +653,7 @@ void nikon_compressed_load_raw()
   init_decoder();
   make_decoder (nikon_tree, 0);
 
-  fseek (ifp, nef_curve_offset, SEEK_SET);
+  fseek (ifp, curve_offset, SEEK_SET);
   for (i=0; i < 4; i++)
     vpred[i] = fget2(ifp);
   csize = fget2(ifp);
@@ -1109,7 +1178,6 @@ void kodak_radc_load_raw()
 	  BAYER(y,x) = val;
 	}
   }
-  black = 0;
 }
 
 #undef FORYX
@@ -1210,9 +1278,11 @@ void kodak_dc20_coeff (float juice)
 void kodak_easy_load_raw()
 {
   uchar *pixel;
+  ushort curve[0x1000];
   unsigned row, col, icol;
 
-  if (width < raw_width)
+  kodak_curve (curve);
+  if (raw_width > width)
     black = 0;
   pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "kodak_easy_load_raw()");
@@ -1221,35 +1291,16 @@ void kodak_easy_load_raw()
     for (col=0; col < raw_width; col++) {
       icol = col - left_margin;
       if (icol < width)
-	BAYER(row,icol) = (ushort) pixel[col] << 6;
+	BAYER(row,icol) = (ushort) curve[pixel[col]] << 2;
       else
-	black += pixel[col];
+	black += curve[pixel[col]];
     }
   }
   if (raw_width > width)
-    black = ((INT64) black << 6) / ((raw_width - width) * height);
+    black = ((INT64) black << 2) / ((raw_width - width) * height);
   if (!strncmp(model,"DC2",3))
     black = 0;
   free (pixel);
-}
-
-void kodak_dcr_curve (ushort *curve)
-{
-  int i, j;
-
-  for (i=0; i < 0x1000; i++)
-    curve[i] = i;
-  if (strncmp(model,"DCS Pro",7)) return;
-  fseek (ifp, 0x4000, SEEK_SET);
-  for (i=j=0; j < 100; i++) {
-    if (i > 0x10000) return;
-    if (fget2(ifp) == j) j++;
-    else j=0;
-  }
-  fseek (ifp, 7992, SEEK_CUR);
-  for (i=0; i < 0x400; i++)
-    curve[i] = fget2(ifp);
-  rgb_max = curve[i-1] << 2;
 }
 
 void kodak_compressed_load_raw()
@@ -1260,9 +1311,7 @@ void kodak_compressed_load_raw()
   INT64 bitbuf=0;
   int diff;
 
-  kodak_dcr_curve (curve);
-  fseek (ifp, data_offset, SEEK_SET);
-
+  kodak_curve (curve);
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
     {
@@ -1326,9 +1375,7 @@ void kodak_yuv_load_raw()
   int i, li=0, si, diff, six[6], y[4], cb=0, cr=0, rgb[3];
   ushort *ip, curve[0x1000];
 
-  kodak_dcr_curve (curve);
-  fseek (ifp, data_offset, SEEK_SET);
-
+  kodak_curve (curve);
   for (row=0; row < height; row+=2)
     for (col=0; col < width; col+=2) {
       if ((col & 127) == 0) {
@@ -2069,39 +2116,6 @@ void vng_interpolate()
   free (brow[4]);
 }
 
-/*
-   Get a 2-byte integer, making no assumptions about CPU byte order.
-   Nor should we assume that the compiler evaluates left-to-right.
- */
-ushort fget2 (FILE *f)
-{
-  uchar a, b;
-
-  a = fgetc(f);
-  b = fgetc(f);
-  if (order == 0x4949)		/* "II" means little-endian */
-    return a + (b << 8);
-  else				/* "MM" means big-endian */
-    return (a << 8) + b;
-}
-
-/*
-   Same for a 4-byte integer.
- */
-int fget4 (FILE *f)
-{
-  uchar a, b, c, d;
-
-  a = fgetc(f);
-  b = fgetc(f);
-  c = fgetc(f);
-  d = fgetc(f);
-  if (order == 0x4949)
-    return a + (b << 8) + (c << 16) + (d << 24);
-  else
-    return (a << 24) + (b << 16) + (c << 8) + d;
-}
-
 void tiff_parse_subifd(int base)
 {
   int entries, tag, type, len, val, save;
@@ -2111,7 +2125,7 @@ void tiff_parse_subifd(int base)
     tag  = fget2(ifp);
     type = fget2(ifp);
     len  = fget4(ifp);
-    if (type == 3) {		/* short int */
+    if (type == 3 && len < 3) {
       val = fget2(ifp);  fget2(ifp);
     } else
       val = fget4(ifp);
@@ -2146,10 +2160,9 @@ void tiff_parse_subifd(int base)
 	break;
       case 0x117:		/* StripByteCounts */
 	break;
-      case 0x828d:		/* Unknown */
-      case 0x828e:		/* Unknown */
-      case 0x9217:		/* Unknown */
-	break;
+      case 0x123:
+	curve_offset = val;
+	curve_length = len;
     }
   }
 }
@@ -2195,9 +2208,9 @@ void nef_parse_makernote()
       camera_blue/= fget4(ifp);
     }
     if (tag == 0x8c)
-      nef_curve_offset = base+val + 2112;
+      curve_offset = base+val + 2112;
     if (tag == 0x96)
-      nef_curve_offset = base+val + 2;
+      curve_offset = base+val + 2;
     if (tag == 0x97) {
       if (!strcmp(model,"NIKON D100 ")) {
 	fseek (ifp, base+val + 72, SEEK_SET);
@@ -2255,7 +2268,6 @@ void parse_tiff(int base)
   char software[64];
   int wide=0, high=0, cr2_offset=0, offset=0;
 
-  nef_curve_offset = 0;
   fseek (ifp, base, SEEK_SET);
   order = fget2(ifp);
   val = fget2(ifp);		/* Should be 42 for standard TIFF */
@@ -2266,7 +2278,7 @@ void parse_tiff(int base)
       tag  = fget2(ifp);
       type = fget2(ifp);
       len  = fget4(ifp);
-      if (type == 3) {		/* short int */
+      if (type == 3 && len < 3) {
 	val = fget2(ifp);  fget2(ifp);
       } else
 	val = fget4(ifp);
@@ -2294,6 +2306,10 @@ void parse_tiff(int base)
 	case 0x111:			/* StripOffset */
 	  cr2_offset = val;
 	  offset = fget4(ifp);
+	  break;
+	case 0x123:
+	  curve_offset = val;
+	  curve_length = len;
 	  break;
 	case 0x827d:			/* Model2 tag */
 	  fgets (model2, 64, ifp);
@@ -2669,7 +2685,7 @@ int identify()
   make[0] = model[0] = model2[0] = 0;
   memset (white, 0, sizeof white);
   camera_red = camera_blue = timestamp = 0;
-  data_offset = tiff_data_compression = 0;
+  data_offset = curve_offset = tiff_data_compression = 0;
   zero_after_ff = 0;
 
   order = fget2(ifp);
@@ -3049,7 +3065,7 @@ coolpix:
     load_raw = fuji_f700_load_raw;
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
-    rgb_max = 0x3e00;
+    rgb_max = 14000;
   } else if (!strcmp(make,"Minolta")) {
     load_raw = be_low_12_load_raw;
     if (!strncmp(model,"DiMAGE A",8))
@@ -3193,62 +3209,68 @@ coolpix:
     pre_mul[2] = 1.405;
   } else if (!strcasecmp(make,"KODAK")) {
     filters = 0x61616161;
-    black = 400;
     if (!strcmp(model,"NC2000F")) {
       width -= 4;
       left_margin = 1;
-      pre_mul[0] = 1.327;
-      pre_mul[2] = 2.093;
+      curve_length = 176;
+      pre_mul[0] = 1.509;
+      pre_mul[2] = 2.686;
     } else if (!strcmp(model,"EOSDCS3B")) {
       width -= 4;
       left_margin = 2;
-      pre_mul[0] = 1.43;
-      pre_mul[2] = 2.16;
+      pre_mul[0] = 1.629;
+      pre_mul[2] = 2.767;
     } else if (!strcmp(model,"EOSDCS1")) {
       width -= 4;
       left_margin = 2;
-      pre_mul[0] = 1.28;
-      pre_mul[2] = 2.00;
+      pre_mul[0] = 1.386;
+      pre_mul[2] = 2.405;
     } else if (!strcmp(model,"DCS315C")) {
-      black = 0;
-      pre_mul[0] = 0.973;
-      pre_mul[2] = 0.987;
+      black = 32;
+      pre_mul[1] = 1.068;
+      pre_mul[2] = 1.036;
     } else if (!strcmp(model,"DCS330C")) {
-      black = 0;
-      pre_mul[0] = 0.996;
-      pre_mul[2] = 1.279;
+      black = 32;
+      pre_mul[1] = 1.012;
+      pre_mul[2] = 1.804;
     } else if (!strcmp(model,"DCS420")) {
       width -= 4;
       left_margin = 2;
-      pre_mul[0] = 1.21;
-      pre_mul[2] = 1.63;
+      pre_mul[0] = 1.327;
+      pre_mul[2] = 2.074;
     } else if (!strcmp(model,"DCS460")) {
       width -= 4;
       left_margin = 2;
-      pre_mul[0] = 1.46;
-      pre_mul[2] = 1.84;
+      pre_mul[0] = 1.724;
+      pre_mul[2] = 2.411;
     } else if (!strcmp(model,"DCS460A")) {
       width -= 4;
       left_margin = 2;
       colors = 1;
       filters = 0;
     } else if (!strcmp(model,"DCS520C")) {
-      pre_mul[0] = 1.00;
-      pre_mul[2] = 1.20;
+      black = 720;
+      pre_mul[0] = 1.006;
+      pre_mul[2] = 1.858;
     } else if (!strcmp(model,"DCS560C")) {
-      pre_mul[0] = 0.985;
-      pre_mul[2] = 1.15;
+      black = 750;
+      pre_mul[1] = 1.053;
+      pre_mul[2] = 1.703;
     } else if (!strcmp(model,"DCS620C")) {
-      pre_mul[0] = 1.00;
-      pre_mul[2] = 1.20;
+      black = 720;
+      pre_mul[1] = 1.002;
+      pre_mul[2] = 1.818;
     } else if (!strcmp(model,"DCS620X")) {
-      pre_mul[0] = 1.12;
-      pre_mul[2] = 1.07;
+      black = 740;
+      pre_mul[0] = 1.486;
+      pre_mul[2] = 1.280;
       is_cmy = 1;
     } else if (!strcmp(model,"DCS660C")) {
-      pre_mul[0] = 1.05;
-      pre_mul[2] = 1.17;
+      black = 855;
+      pre_mul[0] = 1.156;
+      pre_mul[2] = 1.626;
     } else if (!strcmp(model,"DCS660M")) {
+      black = 855;
       colors = 1;
       filters = 0;
     } else if (!strcmp(model,"DCS720X")) {
@@ -3289,7 +3311,6 @@ coolpix:
     switch (tiff_data_compression) {
       case 0:				/* No compression */
       case 1:
-	rgb_max = 0x3fc0;
 	load_raw = kodak_easy_load_raw;
 	break;
       case 7:				/* Lossless JPEG */
@@ -3297,7 +3318,6 @@ coolpix:
       case 32867:
 	break;
       case 65000:			/* Kodak DCR compression */
-	black = 0;
 	if (kodak_data_compression == 32803)
 	  load_raw = kodak_compressed_load_raw;
 	else {
@@ -3662,7 +3682,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.82"
+    "\nRaw Photo Decoder \"dcraw\" v5.83"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
