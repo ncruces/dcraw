@@ -2,8 +2,8 @@
    Simple reference decompresser for Canon digital cameras.
    Outputs raw 16-bit CCD data, no header, native byte order.
 
-   $Revision: 1.11 $
-   $Date: 2004/02/22 04:02:44 $
+   $Revision: 1.12 $
+   $Date: 2004/08/06 00:08:01 $
 */
 
 #include <stdio.h>
@@ -216,13 +216,14 @@ void make_decoder(struct decode *dest, const uchar *source, int level)
   for (i=next=0; i <= leaf && next < 16; )
     i += source[next++];
 
-  if (level < next) {		/* Are we there yet? */
-    dest->branch[0] = free;
-    make_decoder(free,source,level+1);
-    dest->branch[1] = free;
-    make_decoder(free,source,level+1);
-  } else
-    dest->leaf = source[16 + leaf++];
+  if (i > leaf)
+    if (level < next) {		/* Are we there yet? */
+      dest->branch[0] = free;
+      make_decoder(free,source,level+1);
+      dest->branch[1] = free;
+      make_decoder(free,source,level+1);
+    } else
+      dest->leaf = source[16 + leaf++];
 }
 
 void init_tables(unsigned table)
