@@ -9,7 +9,7 @@
 .\" dcoffin@shore.net
 .\" http://www.shore.net/~dcoffin
 .\"
-.TH dcraw 1 "March 14, 2003"
+.TH dcraw 1 "May 30, 2003"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -41,6 +41,10 @@ more sensitive to ultraviolet light than odd-row green pixels,
 this difference causes a mesh pattern in the output.
 .B -f
 solves this problem with minimal loss of detail.
+.TP
+.B -d
+Show the raw data as a grayscale image with no interpolation.
+Good for photographing black-and-white documents.
 .TP
 .B -g gamma
 Specify the gamma value for eight-bit output.  Default is 0.8.
