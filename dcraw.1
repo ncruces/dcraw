@@ -1,7 +1,7 @@
 .\"
 .\" Man page for dcraw (Raw Photo Decoder)
 .\"
-.\" Copyright (c) 2004 by David Coffin
+.\" Copyright (c) 2005 by David Coffin
 .\"
 .\" You may distribute without restriction.
 .\"
@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "October 22, 2004"
+.TH dcraw 1 "January 19, 2005"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -32,22 +32,12 @@ can decode the last file, 1 if it can't.
 .TP
 .B -c
 Write binary image data to standard output.
-Otherwise,
+By default,
 .B dcraw
 creates files with a ".ppm" extension.
 .TP
 .B -v
-Print verbose messages.  Otherwise,
-.B dcraw
-prints only warnings and errors.
-.TP
-.B -f
-Interpolate RGB as four colors.  The default is to assume that
-all green pixels are the same.  If even-row green pixels are
-more sensitive to ultraviolet light than odd-row green pixels,
-this difference causes a mesh pattern in the output.
-.B -f
-solves this problem with minimal loss of detail.
+Print verbose messages.  Default is to print only warnings and errors.
 .TP
 .B -d
 Show the raw data as a grayscale image with no interpolation.
@@ -62,18 +52,11 @@ Half-size the output image.  Instead of interpolating, reduce
 each 2x2 block of sensors to one pixel.  Much faster than
 .BR -q .
 .TP
-.B -s
-For cameras based on the Fuji Super CCD SR, use the secondary
-sensors, in effect underexposing the image by four stops to
-reveal detail in the highlights.  For all other cameras,
-.B -s
-is silently ignored.
-.TP
-.B -g gamma
-Specify the gamma value for eight-bit output.  Default is 0.6.
-.TP
-.B -b brightness
-Specify the output brightness.  Default is 1.0.
+.B -f
+Interpolate RGB as four colors.  This causes a slight loss
+of detail, so use
+.B -f
+only if you see false 2x2 mesh patterns in blue sky.
 .TP
 .B -a
 Automatic color balance.  The default is to use a fixed
@@ -86,8 +69,18 @@ If this can't be found,
 prints a warning and reverts to the default.
 .TP
 .B -r red_mul -l blue_mul
-After all other color adjustments, multiply the red and blue
-channels by these values.  Default is 1.0.
+Further adjust the color balance by multiplying the red and
+blue channels by these values.  Both default to 1.0.
+.TP
+.B -b brightness
+Change the output brightness.  Default is 1.0.
+.TP
+.B -s
+For cameras based on the Fuji Super CCD SR, use the secondary
+sensors, in effect underexposing the image by four stops to
+reveal detail in the highlights.  For all other cameras,
+.B -s
+is silently ignored.
 .TP
 .B -t [0-7]
 Flip the output image.  The most common flips are 5
@@ -96,16 +89,16 @@ dcraw tries to use the flip specified by the camera.
 .RB \^" -t\ 0 \^"
 forces
 .B dcraw
-not to flip the image.
+not to flip images.
 .TP
 .B -2
-Write eight bits per color value with gamma correction and
-automatic brightness adjustment.  Double the height
-if necessary to correct the aspect ratio.  This is the default.
+Write eight bits per color value with a 99th-percentile white
+point and the standard 0.45 gamma curve.  Double the height if
+necessary to correct the aspect ratio.  This is the default.
 .TP
 .B -4
-Write sixteen bits per color value, with no gamma correction,
-no brightness adjustment, and no changes to the aspect ratio.
+Write sixteen bits per color value.  Output is linear with
+input -- no white point, no gamma, same aspect ratio.
 .TP
 .B -3
 Same image as
@@ -129,16 +122,8 @@ vendor.  Sometimes
 .B dcraw
 gives better results!
 .SH TIPS
-First raise the brightness if the highlights are too dark,
-then lower the gamma if the lowlights are too dark.
-Use
-.B -q
-or
-.B -h
-until you get it right.
-.P
 To balance the color, do
-.RB \^" dcraw\ -q\ -g\ 1\ -b\ 0.5 \^"
+.RB \^" dcraw\ -h\ -b\ 0.5 \^"
 and select a rectangle of something that you know is white.
 Compute the average R, G, and B values for this area, then
 set red_mul and blue_mul to G/R and G/B.
