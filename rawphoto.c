@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.15 $
-   $Date: 2004/04/07 15:00:12 $
+   $Revision: 1.16 $
+   $Date: 2004/04/20 03:35:56 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -32,7 +32,7 @@
 #include <libintl.h>
 #define _(String) gettext(String)
 
-#define PLUG_IN_VERSION  "1.1.4 - 7 April 2004"
+#define PLUG_IN_VERSION  "1.1.5 - 19 April 2004"
 
 static void query(void);
 static void run(const gchar *name,
@@ -84,7 +84,7 @@ static void query (void)
 			  "Loads raw digital camera files",
 			  "This plug-in loads raw digital camera files.",
 			  "Dave Coffin at cybercom dot net, user dcoffin",
-			  "Copyright 2003 by Dave Coffin",
+			  "Copyright 2004 by Dave Coffin",
 			  PLUG_IN_VERSION,
 			  "<Load>/rawphoto",
 			  NULL,
@@ -95,7 +95,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-    "bay,bmq,cr2,crw,cs1,dc2,dcr,fff,jpg,k25,kdc,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
+    "bay,bmq,cr2,crw,cs1,dc2,dcr,fff,jpg,k25,kdc,mos,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
 }
 
 static void run (const gchar *name,
