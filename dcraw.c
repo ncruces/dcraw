@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.162 $
-   $Date: 2004/02/07 13:36:34 $
+   $Revision: 1.163 $
+   $Date: 2004/02/10 18:29:09 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1756,12 +1756,16 @@ void vng_interpolate()
       if ((col & 1) == 0)
 	ip = code[row & 7];
       memset (gval, 0, sizeof gval);
-      while ((g = *ip++) != INT_MAX) {		/* Calculate gradients */
-	diff = abs(pix[g] - pix[*ip++]);
-	diff <<= *ip++;
+      while ((g = ip[0]) != INT_MAX) {		/* Calculate gradients */
+	num = (diff = pix[g] - pix[ip[1]]) >> 31;
+	gval[ip[3]] += (diff = ((diff ^ num) - num) << ip[2]);
+	ip += 5;
+	if ((g = ip[-1]) == -1) continue;
+	gval[g] += diff;
 	while ((g = *ip++) != -1)
 	  gval[g] += diff;
       }
+      ip++;
       gmin = INT_MAX;				/* Choose a threshold */
       gmax = 0;
       for (g=0; g < 8; g++) {
@@ -3178,7 +3182,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.44"
+    "\nRaw Photo Decoder v5.45"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
