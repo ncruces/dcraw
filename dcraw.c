@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.60 $
-   $Date: 2002/06/20 20:32:08 $
+   $Revision: 1.61 $
+   $Date: 2002/06/23 20:39:42 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -44,7 +44,7 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-int height, width, colors, black, canon, rgb_max;
+int height, width, trim, colors, black, canon, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
 int nef_data_offset;
 unsigned filters;
@@ -675,39 +675,59 @@ int    fget4 (FILE *f);
 
 void nikon_d1x_read_crw()
 {
-  int waste=0;
+  int waste=0, comp;
   static const uchar nikon_tree[] = {
     0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
     5,4,3,6,2,7,1,0,8,9,11,10,12
   };
   int vpred[4], hpred[2], csize, row, col, i, len;
+  uchar test[256], skip16=0;
   ushort *curve;
   struct decode *dindex;
   register int diff;
 
-/* Read an uncompressed image */
   if (!strcmp(name,"NIKON D1X"))
     waste = 4;
+/*
+   Try to figure out if the image is compressed, based on
+   my limited collection of NEF files.  For the D100, every
+   16th byte of an uncompressed image is zero.
+ */
   fseek (ifp, nef_data_offset+58, SEEK_SET);
-  if (fget2(ifp) != 0x8799) {
-    fseek (ifp, nef_data_offset+142, SEEK_SET);
-    fseek (ifp, fget4(ifp)+8, SEEK_SET);
-    getbits(-1);
+  comp = fget2(ifp);
+  fseek (ifp, nef_data_offset+142, SEEK_SET);
+  fseek (ifp, fget4(ifp)+8, SEEK_SET);
+  if (!strcmp(name,"NIKON D100")) {
+    width = 3034;
+    fread (test, 1, 256, ifp);
+    for (i=0; i < 16; i++)
+      if (test[i*16+15]) goto compressed;
+    fseek (ifp, -256, SEEK_CUR);
+    width = 3037;
+    waste = 3;
+    skip16 = 1;
+  } else if (comp == 0x8799)
+    goto compressed;
 
-    for (row=0; row < height; row++) {
-      for (col=0; col < width; col++)
-	image[row*width+col][FC(row,col)] = getbits(12) << 2;
-      for (col=0; col < waste; col++)
-	getbits(12);
+/* Read an uncompressed image */
+  getbits(-1);
+  for (row=0; row < height; row++) {
+    for (col=0; col < width+waste; col++) {
+      i = getbits(12);
+      if (col < width)
+	image[row*width+col][FC(row,col)] = i << 2;
+      if (skip16 && (col % 10) == 9)
+	getbits(8);
     }
-    return;
   }
+  return;
 
 /* Read an compressed image */
+compressed:
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
 
-  if (!strcmp(name,"NIKON D100 "))
+  if (!strcmp(name,"NIKON D100"))
     fseek (ifp, 5974, SEEK_SET);
   else
     fseek (ifp, 3488, SEEK_SET);
@@ -750,6 +770,19 @@ void nikon_d1x_read_crw()
   free (curve);
 }
 
+void olympus_read_crw()
+{
+  ushort pixel[2256];
+  int row, col;
+
+  fseek (ifp, 0x4000, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (pixel, 2, 2256, ifp);
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = ntohs(pixel[col]) >> 2;
+  }
+}
+
 void subtract_black()
 {
   ushort *img;
@@ -763,6 +796,104 @@ void subtract_black()
     else
       *img++ = 0;
   rgb_max -= black;
+}
+
+/*
+   RGB interpolation algorithm designed by Matt Dillon.
+   GMCY cameras still use my algorithm.
+   His explanation follows:
+
+ * When this function is called, we only have one color for
+ * each pixel.  This code searches the 5x5 neighborhood and
+ * synthesizes the other colors based on interpolation.  The
+ * algorithm works as follows.  Take one portion of the
+ * CCD filter pattern:
+ *
+ *	  0 1 2 3 4
+ *	0 G R G R G
+ *	1 B G B G B
+ *	2 G R<G>R G
+ *	3 B G B G B
+ *	4 G R G R G
+ *
+ * Lets say we are on pixel (x,y) = (2,2), the bracketed green above, and
+ * we are trying to synthesize the Blue and Red guns for that pixel based
+ * on the surrounding pixels.
+ *
+ * We could average the surrounding blue pixels to synthesize a blue for
+ * (2,2) but that will blur the image somewhat if we are on the boundary
+ * of an edge.  Instead what we do is calculate a temporary green for each
+ * blue pixel and then generate the blue for (2,2) by scaling it against
+ * the differential between the temporary green and the green in (2,2).
+ *
+ * For example, the green for the blue pixel at (2,1) is calculated by
+ * averaging the green at (2,0) and (2,2).  A scaling factor is generated
+ * using this green and the green at (2,2), we multiply in the Blue pixel
+ * at (2,1), and that is the Blue we store for (2,2).  It's actually somewhat
+ * more complicated since there are other blue's around (2,2).  What we do
+ * is execute this calculate for each blue and do a weighted average of the
+ * result, and that final number is the Blue we store at (2,2).
+ *
+ * The scaling factor tends to blow up in low-light situations due to
+ * the calculation of the scaling factor becoming skewed (think about the
+ * difference between two pixel brightnesses of 10 and 15, and 4000 and 4005).
+ * To compensate we introduce a constant in the scaling process, llfactor.
+ * The higher the constant the closer the scaling factor gets to 1:1 (a
+ * straight average of the surrounding blue's regardless of the scale
+ * generated using the green's).  This results in somewhat more blurring
+ * but hides low-light dropouts.
+ */
+#define lowlight_val 0
+void dillon_interpolate()
+{
+  int row, col, cc, c;
+  int vb, vr, val;
+  int dx, dy;
+  int avg[4], sum[4];
+  int base = 4096 + 64;
+  int llfactor = 8 + lowlight_val * 16;
+  int weight;
+  int size;
+  ushort (*oimage)[4];
+
+  size = height * width * 8;
+  oimage = malloc(size);
+  if (!oimage) {
+    perror("dillon_interpolate() calloc failed");
+    exit(1);
+  }
+  memcpy (oimage, image, size);
+
+  for (row=2; row < height-2; row++) {
+    for (col=2; col < width-2; col++) {
+      cc = FC(row,col);
+      vb = oimage[row*width+col][cc];
+      avg[0] = avg[1] = avg[2] = avg[3] = 0;
+      sum[0] = sum[1] = sum[2] = sum[3] = 0;
+      for (dy = -1; dy <= 1; ++dy) {
+	for (dx = -1; dx <= 1; ++dx) {
+	  c = FC(row+dy, col+dx);
+	  vr = oimage[(row+dy*2)*width + (col+dx*2)][cc];
+	  vr = (vb + vr) / 2;
+	  /*
+	   * RGB CCDs almost universally repeat the same
+	   * color filter 2 pixels in any direction.
+	   */
+	  val = oimage[(row+dy)*width + (col+dx)][c];
+	  weight = base - abs(vr - vb);
+	  val = (llfactor + vb) * val / (llfactor + vr);
+	  weight = 100;
+	  avg[c] += val * weight;
+	  sum[c] += weight;
+	}
+      }
+      for (c=0; c < colors; c++) {
+	if (sum[c])
+	  image[row*width+col][c] = (avg[c] + (sum[c]/2)) / sum[c];
+      }
+    }
+  }
+  free (oimage);
 }
 
 /*
@@ -878,7 +1009,7 @@ void parse_tiff()
   int doff, entries, tag, type, len, val, save;
 
   fseek (ifp, 2, SEEK_SET);	/* open_and_id() already got byte order */
-  if (fget2(ifp) != 42) return;
+  val = fget2(ifp);		/* Should be 42 for standard TIFF */
   while ((doff = fget4(ifp))) {
     fseek (ifp, doff, SEEK_SET);
     entries = fget2(ifp);
@@ -947,7 +1078,7 @@ void make_coeff();
  */
 int open_and_id(char *fname)
 {
-  char head[8];
+  char head[8], *c;
   int hlen;
 
   rgb_mul[0] = 1.592;
@@ -974,6 +1105,8 @@ int open_and_id(char *fname)
     } else
       parse_tiff();
   }
+  c = name + strlen(name);	/* Remove trailing spaces */
+  while (*--c == ' ') *c = 0;
   if (name[0] == 0) {
     fprintf(stderr,"%s has an unknown format.\n",fname);
     return 1;
@@ -1061,7 +1194,7 @@ int open_and_id(char *fname)
     fprintf(stderr,"crw.c was compiled without EOS-1D support.\n");
     return 1;
 #endif
-  } else if (!strcmp(name,"NIKON D1 ")) {
+  } else if (!strcmp(name,"NIKON D1")) {
     height = 1324;
     width  = 2012;
     colors = 3;
@@ -1088,15 +1221,23 @@ int open_and_id(char *fname)
     read_crw = nikon_d1x_read_crw;
     rgb_mul[0] = 1.910;
     rgb_mul[2] = 1.220;
-  } else if (!strcmp(name,"NIKON D100 ")) {
+  } else if (!strcmp(name,"NIKON D100")) {
     height = 2024;
-    width  = 3034;
+    width  = 3037;
     colors = 3;
     canon = 0;
     filters = 0x61616161;
     read_crw = nikon_d1x_read_crw;
     rgb_mul[0] = 2.374;
     rgb_mul[2] = 1.677;
+  } else if (!strcmp(name,"E-10")) {
+    height = 1684;
+    width  = 2256;
+    colors = 3;
+    filters = 0x94949494;
+    read_crw = olympus_read_crw;
+    rgb_mul[0] = 1.43;
+    rgb_mul[2] = 1.77;
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
@@ -1192,8 +1333,8 @@ void write_ppm(FILE *ofp)
    Build a histogram of magnitudes using 4096 bins of 64 values each.
  */
   memset (histogram, 0, sizeof histogram);
-  for (y=1; y < height-1; y++)
-    for (x=1; x < width-1; x++) {
+  for (y=trim; y < height-trim; y++)
+    for (x=trim; x < width-trim; x++) {
       get_rgb (rgb, image[y*width+x]);
       val = (int) sqrt(rgb[3]) >> 6;
       if (val > 0xfff) val=0xfff;
@@ -1207,9 +1348,9 @@ void write_ppm(FILE *ofp)
   max = val << 6;
   max2 = max * max;
 
-  fprintf(ofp,"P6\n%d %d\n255\n",width-2,height-2);
+  fprintf(ofp,"P6\n%d %d\n255\n",width-trim*2,height-trim*2);
 
-  ppm = calloc(width-2,3);
+  ppm = calloc(width-trim*2,3);
   if (!ppm) {
     perror("ppm calloc failed");
     exit(1);
@@ -1217,9 +1358,9 @@ void write_ppm(FILE *ofp)
   expo = (gamma_val-1)/2;		/* Pull these out of the loop */
   mul = bright * 442 / max;
 
-  for (y=1; y < height-1; y++)
+  for (y=trim; y < height-trim; y++)
   {
-    for (x=1; x < width-1; x++)
+    for (x=trim; x < width-trim; x++)
     {
       get_rgb(rgb,image[y*width+x]);
 /* In some math libraries, pow(0,expo) doesn't return zero */
@@ -1230,10 +1371,10 @@ void write_ppm(FILE *ofp)
       {
 	val=rgb[c]*scale;
 	if (val > 255) val=255;
-	ppm[x-1][c]=val;
+	ppm[x-trim][c]=val;
       }
     }
-    fwrite (ppm, width-2, 3, ofp);
+    fwrite (ppm, width-trim*2, 3, ofp);
   }
   free (ppm);
 }
@@ -1260,12 +1401,12 @@ void write_psd(FILE *ofp)
   float rgb[4];
   ushort *buffer, *pred;
 
-  hw[0] = htonl(height-2);	/* write the header */
-  hw[1] = htonl(width-2);
+  hw[0] = htonl(height-trim*2);	/* write the header */
+  hw[1] = htonl(width-trim*2);
   memcpy (head+14, hw, sizeof hw);
   fwrite (head, 40, 1, ofp);
 
-  psize = (height-2) * (width-2);
+  psize = hw[0] * hw[1];
   buffer = calloc (6, psize);
   if (!buffer) {
     perror("psd calloc failed");
@@ -1273,9 +1414,9 @@ void write_psd(FILE *ofp)
   }
   pred = buffer;
 
-  for (y=1; y < height-1; y++)
+  for (y=trim; y < height-trim; y++)
   {
-    for (x=1; x < width-1; x++)
+    for (x=trim; x < width-trim; x++)
     {
       get_rgb(rgb, image[y * width + x]);
       for (c=0; c < 3; c++) {
@@ -1315,7 +1456,7 @@ void write_png(FILE *ofp)
     return;
   }
   png_init_io (png_ptr, ofp);
-  png_set_IHDR (png_ptr, info_ptr, width-2, height-2,
+  png_set_IHDR (png_ptr, info_ptr, width-trim*2, height-trim*2,
        16, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
        PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
 
@@ -1327,14 +1468,14 @@ void write_png(FILE *ofp)
   if (htons(0xaa55) != 0xaa55)
     png_set_swap(png_ptr);
 
-  png = calloc(width-2,6);
+  png = calloc(width-trim*2,6);
   if (!png) {
     perror("png calloc failed");
     exit(1);
   }
 
-  for (y=1; y < height-1; y++) {
-    for (x=1; x < width-1; x++) {
+  for (y=trim; y < height-trim; y++) {
+    for (x=trim; x < width-trim; x++) {
       get_rgb(rgb, image[y*width+x]);
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
@@ -1366,7 +1507,7 @@ void exten(char *new, const char *old, const char *ext)
 int main(int argc, char **argv)
 {
   char data[256];
-  int i, arg, smooth=1, write_to_files=1;
+  int i, arg, write_to_files=1, dillon=0, smooth=1;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
@@ -1374,7 +1515,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.96"
+    "\nCanon PowerShot Converter v3.00"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
@@ -1382,6 +1523,7 @@ int main(int argc, char **argv)
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
     "\n-c        Write to standard output"
+    "\n-d        Use Dillon interpolation for RGB cameras"
     "\n-s <num>  Number of times to smooth colors (1 by default)"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
@@ -1404,6 +1546,8 @@ int main(int argc, char **argv)
     {
       case 'c':
 	write_to_files = 0;  break;
+      case 'd':
+	dillon = 1;  break;
       case 's':
 	smooth = atoi(argv[++arg]);  break;
       case 'g':
@@ -1454,11 +1598,18 @@ int main(int argc, char **argv)
       fprintf (stderr, "Subtracting thermal noise (%d)...\n",black);
       subtract_black();
     }
-    fprintf (stderr, "First interpolation...\n");
-    first_interpolate();
-    for (i=0; i < smooth; i++) {
-      fprintf (stderr, "Second interpolation...\n");
-      second_interpolate();
+    if (dillon && colors == 3) {
+      fprintf (stderr, "Dillon interpolation...\n");
+      dillon_interpolate();
+      trim = 2;
+    } else {
+      fprintf (stderr, "First interpolation...\n");
+      first_interpolate();
+      for (i=0; i < smooth; i++) {
+	fprintf (stderr, "Second interpolation...\n");
+	second_interpolate();
+      }
+      trim = 1;
     }
     ofp = stdout;
     strcpy (data, "standard output");
