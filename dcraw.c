@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.219 $
-   $Date: 2004/12/04 05:42:44 $
+   $Revision: 1.220 $
+   $Date: 2004/12/08 23:50:03 $
  */
 
 #define _GNU_SOURCE
@@ -3272,7 +3272,8 @@ fuji_s7000:
     if (!strncmp(model,"DiMAGE A",8)) {
       load_raw = packed_12_load_raw;
       rgb_max = model[8] == '1' ? 15916:16380;
-    } else if (!strncmp(model,"DYNAX",5)) {
+    } else if (!strncmp(model,"DYNAX",5) ||
+	       !strncmp(model,"MAXXUM",6)) {
       load_raw = packed_12_load_raw;
       rgb_max = 16364;
     } else if (!strncmp(model,"DiMAGE G",8)) {
