@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.19 $
-   $Date: 2005/01/21 07:00:26 $
+   $Revision: 1.20 $
+   $Date: 2005/01/21 21:44:35 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -29,15 +29,25 @@
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
 
+#if GIMP_CHECK_VERSION(1,3,2)
+#define GimpRunModeType GimpRunMode
+#endif
+
+#define RAWPHOTO_CONST
+#if GIMP_CHECK_VERSION(1,3,17)
+#define RAWPHOTO_CONST const
+#endif
+
+#include <locale.h>
 #include <libintl.h>
 #define _(String) gettext(String)
 
-#define PLUG_IN_VERSION  "1.1.8 - 21 January 2005"
+#define PLUG_IN_VERSION  "1.1.9 - 21 January 2005"
 
 static void query(void);
-static void run(const gchar *name,
+static void run(RAWPHOTO_CONST gchar *name,
 		gint nparams,
-		const GimpParam *param,
+		RAWPHOTO_CONST GimpParam *param,
 		gint *nreturn_vals,
 		GimpParam **return_vals);
 
@@ -84,7 +94,7 @@ static void query (void)
 			  "Loads raw digital camera files",
 			  "This plug-in loads raw digital camera files.",
 			  "Dave Coffin at cybercom dot net, user dcoffin",
-			  "Copyright 2004-2005 by Dave Coffin",
+			  "Copyright 2003-2005 by Dave Coffin",
 			  PLUG_IN_VERSION,
 			  "<Load>/rawphoto",
 			  NULL,
@@ -98,14 +108,14 @@ static void query (void)
     "bay,bmq,cr2,crw,cs1,dc2,dcr,erf,fff,hdr,jpg,k25,kdc,mos,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
 }
 
-static void run (const gchar *name,
+static void run (RAWPHOTO_CONST gchar *name,
 		gint nparams,
-		const GimpParam *param,
+		RAWPHOTO_CONST GimpParam *param,
 		gint *nreturn_vals,
 		GimpParam **return_vals)
 {
   static GimpParam values[2];
-  GimpRunMode run_mode;
+  GimpRunModeType run_mode;
   GimpPDBStatusType status;
   gint32 image_id = -1;
   gchar *command, *fname;
@@ -240,6 +250,17 @@ static gint32 load_image (gchar *filename)
   return image;
 }
 
+#if !GIMP_CHECK_VERSION(1,3,23)
+/* this is set to true after OK click in any dialog */
+gboolean result = FALSE;
+
+static void callback_ok (GtkWidget * widget, gpointer data)
+{
+  result = TRUE;
+  gtk_widget_destroy (GTK_WIDGET (data));
+}
+#endif
+
 #define NCHECK (sizeof cfg.check_val / sizeof (gboolean))
 
 gint load_dialog (gchar * name)
@@ -258,11 +279,22 @@ gint load_dialog (gchar * name)
   gimp_ui_init ("rawphoto", TRUE);
 
   dialog = gimp_dialog_new (_("Raw Photo Loader 1.1"), "rawphoto",
+#if !GIMP_CHECK_VERSION(1,3,23)
+			gimp_standard_help_func, "rawphoto",
+			GTK_WIN_POS_MOUSE,
+			FALSE, TRUE, FALSE,
+			_("OK"), callback_ok, NULL, NULL, NULL, TRUE,
+			FALSE, _("Cancel"), gtk_widget_destroy, NULL,
+			1, NULL, FALSE, TRUE, NULL);
+  gtk_signal_connect
+	(GTK_OBJECT(dialog), "destroy", GTK_SIGNAL_FUNC(gtk_main_quit), NULL);
+#else
 			NULL, 0,
 			gimp_standard_help_func, "rawphoto",
 			GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
 			GTK_STOCK_OK,     GTK_RESPONSE_OK,
 			NULL);
+#endif
 
   table = gtk_table_new (9, 2, FALSE);
   gtk_container_set_border_width (GTK_CONTAINER(table), 6);
@@ -302,7 +334,14 @@ gint load_dialog (gchar * name)
 
   gtk_widget_show (dialog);
 
+#if !GIMP_CHECK_VERSION(1,3,23)
+  gtk_main();
+  gdk_flush();
+
+  return result;
+#else
   i = gimp_dialog_run (GIMP_DIALOG (dialog));
   gtk_widget_destroy (dialog);
   return i == GTK_RESPONSE_OK;
+#endif
 }
