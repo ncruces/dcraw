@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.243 $
-   $Date: 2005/03/23 23:00:33 $
+   $Revision: 1.244 $
+   $Date: 2005/03/25 19:39:58 $
  */
 
 #define _GNU_SOURCE
@@ -3947,7 +3947,7 @@ dimage_z2:
       data_offset += 4352*2*1444;
     filters = 0x49494949;
     load_raw = fuji_s3_load_raw;
-    maximum = 0xffff;
+    maximum = 0x3dfd;
   } else if (!strcmp(model,"FinePix S5000")) {
     height = 2499;
     width  = 2500;
