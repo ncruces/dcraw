@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.234 $
-   $Date: 2005/02/02 22:29:22 $
+   $Revision: 1.235 $
+   $Date: 2005/02/16 06:11:39 $
  */
 
 #define _GNU_SOURCE
@@ -564,7 +564,7 @@ void CLASS kodak_curve (ushort *curve)
   }
   if (curve_offset) {
     fseek (ifp, curve_offset, SEEK_SET);
-    for (i=0; i < curve_length; i++)
+    for (i=0; i < curve_length && i < 0x1000; i++)
       curve[i] = fget2(ifp);
     for ( ; i < 0x1000; i++)
       curve[i] = curve[i-1];
@@ -971,13 +971,15 @@ void CLASS rollei_load_raw()
 void CLASS phase_one_load_raw()
 {
   int row, col, a, b;
-  ushort pixel[4134], akey, bkey;
+  ushort *pixel, akey, bkey;
 
   fseek (ifp, 8, SEEK_CUR);
   fseek (ifp, fget4(ifp) + 296, SEEK_CUR);
   akey = fget2(ifp);
   bkey = fget2(ifp);
   fseek (ifp, data_offset + 12 + top_margin*raw_width*2, SEEK_SET);
+  pixel = calloc (raw_width, sizeof *pixel);
+  merror (pixel, "phase_one_load_raw()");
   for (row=0; row < height; row++) {
     read_shorts (pixel, raw_width);
     for (col=0; col < raw_width; col+=2) {
@@ -989,6 +991,7 @@ void CLASS phase_one_load_raw()
     for (col=0; col < width; col++)
       BAYER(row,col) = pixel[col+left_margin];
   }
+  free (pixel);
 }
 
 void CLASS ixpress_load_raw()
@@ -1548,7 +1551,7 @@ void CLASS sony_decrypt (unsigned *data, int len, int start, int key)
 void CLASS sony_load_raw()
 {
   uchar head[40];
-  ushort pixel[3360];
+  ushort *pixel;
   unsigned i, key, row, col;
   INT64 bblack=0;
 
@@ -1562,6 +1565,8 @@ void CLASS sony_load_raw()
   for (i=26; i-- > 22; )
     key = key << 8 | head[i];
   fseek (ifp, data_offset, SEEK_SET);
+  pixel = calloc (raw_width, sizeof *pixel);
+  merror (pixel, "sony_load_raw()");
   for (row=0; row < height; row++) {
     fread (pixel, 2, raw_width, ifp);
     sony_decrypt ((void *) pixel, raw_width/2, !row, key);
@@ -1570,6 +1575,7 @@ void CLASS sony_load_raw()
     for (col=0; col < width; col++)
       BAYER(row,col) = ntohs(pixel[col+left_margin]);
   }
+  free (pixel);
   if (bblack)
     black = bblack / ((left_margin-9) * height);
 }
@@ -2898,6 +2904,7 @@ int CLASS identify()
     {  6218368, "Casio",    "QV-5700" },
     {  7684000, "Casio",    "QV-4000" },
     {  9313536, "Casio",    "EX-P600" },
+    { 10979200, "Casio",    "EX-P700" },
     {  4841984, "Pentax",   "Optio S" },
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
@@ -3843,6 +3850,13 @@ konica_400z:
     load_raw = packed_12_load_raw;
     pre_mul[0] = 2.356;
     pre_mul[1] = 1.069;
+  } else if (!strcmp(model,"EX-P700")) {
+    height = 2318;
+    width  = 3082;
+    raw_width = 4672;
+    load_raw = packed_12_load_raw;
+    pre_mul[0] = 2.34;
+    pre_mul[2] = 1.24;
   } else if (!strcmp(make,"Nucore")) {
     filters = 0x61616161;
     load_raw = low_12_load_raw;
@@ -3915,7 +3929,7 @@ void CLASS apply_profile (char *pfname)
   size = width * height * 4;
   if (shift)
     for (i=0; i < size; i++)
-      image[0][i] <<= 2;
+      image[0][i] <<= shift;
   rgb_max = 0xffff;
   use_gamma = use_coeff = is_cmy = 0;
 
@@ -4210,7 +4224,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.34"
+    "\nRaw Photo Decoder \"dcraw\" v6.35"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
