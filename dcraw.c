@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.146 $
-   $Date: 2003/11/05 18:10:17 $
+   $Revision: 1.147 $
+   $Date: 2003/11/06 00:58:27 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -439,9 +439,9 @@ void init_tables(unsigned table)
    getbits(-1) initializes the buffer
    getbits(n) where 0 <= n <= 25 returns an n-bit integer
  */
-unsigned long getbits(int nbits)
+unsigned getbits(int nbits)
 {
-  static unsigned long bitbuf=0, ret=0;
+  static unsigned bitbuf=0, ret=0;
   static int vbits=0;
   unsigned char c;
 
@@ -449,7 +449,7 @@ unsigned long getbits(int nbits)
   if (nbits == -1)
     ret = bitbuf = vbits = 0;
   else {
-    ret = bitbuf << (32 - vbits) >> (32 - nbits);
+    ret = bitbuf << (8*sizeof(int) - vbits) >> (8*sizeof(int) - nbits);
     vbits -= nbits;
   }
   while (vbits < 25) {
