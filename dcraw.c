@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.97 $
-   $Date: 2003/02/17 04:23:32 $
+   $Revision: 1.98 $
+   $Date: 2003/02/22 20:44:54 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -743,6 +743,21 @@ void nikon_read_crw()
       if (skip16 && (col % 10) == 9)
 	getbits(8);
     }
+  }
+}
+
+void nikon_e950_read_crw()
+{
+  int irow, row, col;
+
+  fseek (ifp, 0, SEEK_SET);
+  getbits(-1);
+  for (irow=0; irow < height; irow++) {
+    row = irow * 2 % height;
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = getbits(10) << 4;
+    for (col=28; col--; )
+      getbits(8);
   }
 }
 
@@ -1739,6 +1754,21 @@ void foveon_coeff()
   use_coeff = 1;
 }
 
+void nikon_e950_coeff()
+{
+  int r, g;
+  float sum, my_coeff[3][4] =
+  { { -1.4, 1.4, -1.2, 2.2 }, { 4, -2, -2, 3 }, { -1, 1.5, 3.3, -2 } };
+
+  for (r=0; r < 3; r++) {
+    for (sum=g=0; g < 4; g++)
+      sum += my_coeff[r][g];
+    for (g=0; g < 4; g++)
+      coeff[r][g] = my_coeff[r][g] / sum;
+  }
+  use_coeff = 1;
+}
+
 /*
    Given a matrix that converts RGB to GMCY, create a matrix to do
    the opposite.  Only square matrices can be inverted, so I create
@@ -1835,10 +1865,12 @@ int identify(char *fname)
     parse_tiff(120);
   else if (magic == 0x464f5662)		/* "FOVb" */
     parse_foveon();
-  else if (fsize == 2940928)		/* Nikon "DIAG RAW" formats */
+  else if (fsize == 2465792)		/* Nikon "DIAG RAW" formats */
+    strcpy (model,"E950");
+  else if (fsize == 2940928)
     strcpy (model,"E2500");
   else if (fsize == 4771840)
-    strcpy (model,"E995");
+    strcpy (model,"E990/995");
   else if (fsize == 5865472)
     strcpy (model,"E4500");
   else if (fsize == 5869568)
@@ -1997,15 +2029,29 @@ int identify(char *fname)
     pre_mul[0] = 2.374;
     pre_mul[2] = 1.677;
     rgb_max = 15632;
+  } else if (!strcmp(model,"E950")) {
+    height = 1203;
+    width  = 1616;
+    filters = 0x4b4b4b4b;
+    colors = 4;
+    read_crw = nikon_e950_read_crw;
+    nikon_e950_coeff();
+    pre_mul[0] = 1.09392;
+    pre_mul[1] = 1.04542;
+    pre_mul[2] = 1.2396;
+  } else if (!strcmp(model,"E990/995")) {
+    height = 1540;
+    width  = 2064;
+    filters = 0xb4b4b4b4;
+    colors = 4;
+    read_crw = nikon_read_crw;
+    pre_mul[0] = 1.196;
+    pre_mul[1] = 1.246;
+    pre_mul[2] = 1.018;
   } else if (!strcmp(model,"E2500")) {
     height = 1204;
     width  = 1616;
     filters = 0x4b4b4b4b;
-    goto coolpix;
-  } else if (!strcmp(model,"E995")) {
-    height = 1540;
-    width  = 2064;
-    filters = 0xb4b4b4b4;
     goto coolpix;
   } else if (!strcmp(model,"E4300")) {
     height = 1710;
@@ -2178,7 +2224,7 @@ coolpix:
     } else
       fprintf (stderr, "%s: Cannot use camera white balance.\n",fname);
   }
-  if (colors == 4)
+  if (colors == 4 && !use_coeff)
     gmcy_coeff();
   if (use_coeff)
     for (g=0; g < colors; g++) {
@@ -2407,7 +2453,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.45"
+    "\nRaw Photo Decoder v4.47"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
