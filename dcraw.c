@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.90 $
-   $Date: 2003/01/02 23:24:00 $
+   $Revision: 1.91 $
+   $Date: 2003/01/09 05:07:39 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -56,7 +56,7 @@ int raw_height, raw_width;	/* Including black borders */
 int tiff_data_offset, tiff_data_compression;
 int nef_curve_offset;
 int height, width, colors, black, rgb_max;
-int is_canon, is_cmy, is_rgb, trim, xmag, ymag;
+int is_canon, is_cmy, use_coeff, trim, xmag, ymag;
 unsigned filters;
 ushort (*image)[4];
 void (*read_crw)();
@@ -1455,7 +1455,73 @@ void parse_foveon()
   free (buf);
 }
 
-void make_coeff();
+void foveon_coeff()
+{
+  static const float foveon[3][3] = {
+    {  1.25, 0, -0.25 },
+    { -2.5,  6, -2.5  },
+    { -0.5,  0,  1.5  }
+  };
+  int i, j;
+
+  for (i=0; i < 3; i++)
+    for (j=0; j < 3; j++)
+      coeff[i][j] = foveon[i][j];
+  use_coeff = 1;
+}
+
+/*
+   Given a matrix that converts RGB to GMCY, create a matrix to do
+   the opposite.  Only square matrices can be inverted, so I create
+   four 3x3 matrices by omitting a different GMCY color in each one.
+   The final coeff[][] matrix is the sum of these four.
+ */
+void gmcy_coeff()
+{
+  static const float gmcy[4][3] = {
+/*    red  green  blue			   */
+    { 0.11, 0.86, 0.08 },	/* green   */
+    { 0.50, 0.29, 0.51 },	/* magenta */
+    { 0.11, 0.92, 0.75 },	/* cyan    */
+    { 0.81, 0.98, 0.08 }	/* yellow  */
+  };
+  double invert[3][6], num;
+  int ignore, i, j, k, r, g;
+
+  memset (coeff, 0, sizeof coeff);
+  for (ignore=0; ignore < 4; ignore++) {
+    for (j=0; j < 3; j++) {
+      g = (j < ignore) ? j : j+1;
+      for (r=0; r < 3; r++) {
+	invert[j][r] = gmcy[g][r];	/* 3x3 matrix to invert */
+	invert[j][r+3] = (r == j);	/* Identity matrix	*/
+      }
+    }
+    for (j=0; j < 3; j++) {
+      num = invert[j][j];		/* Normalize this row	*/
+      for (i=0; i < 6; i++)
+	invert[j][i] /= num;
+      for (k=0; k < 3; k++) {		/* Subtract it from the other rows */
+	if (k==j) continue;
+	num = invert[k][j];
+	for (i=0; i < 6; i++)
+	  invert[k][i] -= invert[j][i] * num;
+      }
+    }
+    for (j=0; j < 3; j++) {		/* Add the result to coeff[][] */
+      g = (j < ignore) ? j : j+1;
+      for (r=0; r < 3; r++)
+	coeff[r][g] += invert[r][j+3];
+    }
+  }
+  for (r=0; r < 3; r++) {		/* Normalize such that:		*/
+    for (num=g=0; g < 4; g++)		/* (1,1,1,1) x coeff = (1,1,1) */
+      num += coeff[r][g];
+    for (g=0; g < 4; g++)
+      coeff[r][g] /= num;
+  }
+  use_coeff = 1;
+}
 
 /*
    Identify which camera created this file, and set global variables
@@ -1470,7 +1536,7 @@ int identify(char *fname)
   camera_red = camera_blue = 0;
   rgb_max = 0x4000;
   colors = 3;
-  is_cmy = 0;
+  is_cmy = use_coeff = 0;
   xmag = ymag = 1;
 
   make[0] = model[0] = model2[0] = 0;
@@ -1790,6 +1856,7 @@ int identify(char *fname)
     width  = 2271;
     filters = 0;
     read_crw = foveon_read_crw;
+    foveon_coeff();
     pre_mul[0] = 1.159;
     pre_mul[1] = 1.006;
   } else {
@@ -1810,7 +1877,14 @@ int identify(char *fname)
     } else
       fprintf (stderr, "%s: Cannot use camera white balance.\n",fname);
   }
-  if ((is_rgb = colors == 3)) {
+  if (colors == 4)
+    gmcy_coeff();
+  if (use_coeff)
+    for (g=0; g < colors; g++) {
+      coeff[0][g] *= red_scale;
+      coeff[2][g] *= blue_scale;
+    }
+  else if (colors == 3) {
     pre_mul[0] *= red_scale;	/* Apply user-selected color balance */
     pre_mul[2] *= blue_scale;
     if (four_color_rgb) {		/* Use two types of green */
@@ -1823,66 +1897,8 @@ int identify(char *fname)
       }
       if (filters != magic) colors++;
     }
-  } else if (colors == 4) {
-    make_coeff();
-    for (g=0; g < 4; g++) {
-      coeff[0][g] *= red_scale;
-      coeff[2][g] *= blue_scale;
-    }
   }
   return 0;
-}
-
-/*
-   Given a matrix that converts RGB to GMCY, create a matrix to do
-   the opposite.  Only square matrices can be inverted, so I create
-   four 3x3 matrices by omitting a different GMCY color in each one.
-   The final coeff[][] matrix is the sum of these four.
- */
-void make_coeff()
-{
-  static const float gmcy[4][3] = {
-/*    red  green  blue			   */
-    { 0.11, 0.86, 0.08 },	/* green   */
-    { 0.50, 0.29, 0.51 },	/* magenta */
-    { 0.11, 0.92, 0.75 },	/* cyan    */
-    { 0.81, 0.98, 0.08 }	/* yellow  */
-  };
-  double invert[3][6], num;
-  int ignore, i, j, k, r, g;
-
-  memset (coeff, 0, sizeof coeff);
-  for (ignore=0; ignore < 4; ignore++) {
-    for (j=0; j < 3; j++) {
-      g = (j < ignore) ? j : j+1;
-      for (r=0; r < 3; r++) {
-	invert[j][r] = gmcy[g][r];	/* 3x3 matrix to invert */
-	invert[j][r+3] = (r == j);	/* Identity matrix	*/
-      }
-    }
-    for (j=0; j < 3; j++) {
-      num = invert[j][j];		/* Normalize this row	*/
-      for (i=0; i < 6; i++)
-	invert[j][i] /= num;
-      for (k=0; k < 3; k++) {		/* Subtract it from the other rows */
-	if (k==j) continue;
-	num = invert[k][j];
-	for (i=0; i < 6; i++)
-	  invert[k][i] -= invert[j][i] * num;
-      }
-    }
-    for (j=0; j < 3; j++) {		/* Add the result to coeff[][] */
-      g = (j < ignore) ? j : j+1;
-      for (r=0; r < 3; r++)
-	coeff[r][g] += invert[r][j+3];
-    }
-  }
-  for (r=0; r < 3; r++) {		/* Normalize such that:		*/
-    for (num=g=0; g < 4; g++)		/* (1,1,1,1) x coeff = (1,1,1) */
-      num += coeff[r][g];
-    for (g=0; g < 4; g++)
-      coeff[r][g] /= num;
-  }
 }
 
 void get_rgb(float rgb[4], ushort image[4])
@@ -1895,7 +1911,7 @@ void get_rgb(float rgb[4], ushort image[4])
     for (r=0; r < 3; r++)		/* RGB from grayscale */
       rgb[r] = image[0];
     rgb[3] = 3 * rgb[0]*rgb[0];
-  } else if (is_rgb)
+  } else if (!use_coeff)
     for (r=0; r < 3; r++) {		/* RGB from RGB */
       if (r == 1 && colors == 4)
 	rgb[1] = (image[1] + image[3]) >> 1;
@@ -1904,8 +1920,8 @@ void get_rgb(float rgb[4], ushort image[4])
       rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
     }
   else
-    for (r=0; r < 3; r++) {		/* RGB from GMCY */
-      for (g=0; g < 4; g++)
+    for (r=0; r < 3; r++) {		/* RGB from GMCY or Foveon */
+      for (g=0; g < colors; g++)
 	rgb[r] += image[g] * coeff[r][g];
       if (rgb[r] < 0) rgb[r] = 0;
       if (rgb[r] > rgb_max) rgb[r] = rgb_max;
@@ -2120,7 +2136,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.32"
+    "\nRaw Photo Decoder v4.34"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
