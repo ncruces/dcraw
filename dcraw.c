@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.125 $
-   $Date: 2003/06/27 17:12:37 $
+   $Revision: 1.126 $
+   $Date: 2003/07/02 04:36:23 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -767,13 +767,10 @@ void nikon_e950_load_raw()
 void fuji_load_raw()
 {
   ushort pixel[2944];
-  int gray=0, row, col, r, c;
+  int row, col, r, c;
 
-  fseek (ifp, 0, SEEK_SET);
-  while (gray < 2944)
-    if (fget2(ifp) == 2048) gray++;
-    else gray=0;
-  fseek (ifp, (2944*23+32) << 1, SEEK_CUR);
+  fseek (ifp, 100, SEEK_SET);
+  fseek (ifp, fget4(ifp) + (2944*24+32)*2, SEEK_SET);
   for (row=0; row < 2144; row++) {
     fread (pixel, 2, 2944, ifp);
     for (col=0; col < 2880; col++) {
@@ -2715,7 +2712,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.85"
+    "\nRaw Photo Decoder v4.86"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
