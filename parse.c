@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.21 $
-   $Date: 2004/11/23 10:16:42 $
+   $Revision: 1.22 $
+   $Date: 2004/11/27 07:51:39 $
  */
 
 #include <stdio.h>
@@ -117,9 +117,9 @@ void tiff_dump(int base, int tag, int type, int count, int level)
   fseek (ifp, save, SEEK_SET);
 }
 
-void nef_parse_makernote()
+void nef_parse_makernote (base)
 {
-  int base=0, offset=0, entries, tag, type, count, val, save;
+  int offset=0, entries, tag, type, count, val, save;
   short sorder;
   char buf[10];
 
@@ -136,7 +136,10 @@ void nef_parse_makernote()
     val = fget2(ifp);		/* should be 42 decimal */
     offset = fget4(ifp);
     fseek (ifp, offset-8, SEEK_CUR);
-  } else if (!strcmp (buf,"OLYMP"))
+  } else if (!strncmp (buf,"FUJIFILM",8)) {
+    order = 0x4949;
+    fseek (ifp,  2, SEEK_CUR);
+  } else if (!strcmp(buf,"OLYMP") || !strcmp(buf,"LEICA"))
     fseek (ifp, -2, SEEK_CUR);
   else if (!strcmp (buf,"AOC"))
     fseek (ifp, -4, SEEK_CUR);
@@ -144,30 +147,29 @@ void nef_parse_makernote()
     fseek (ifp, -10, SEEK_CUR);
 
   entries = fget2(ifp);
+  if (entries > 100) return;
   while (entries--) {
     save = ftell(ifp);
     tag  = fget2(ifp);
     type = fget2(ifp);
     count= fget4(ifp);
+    if (strstr(make,"Minolta") || strstr(make,"MINOLTA")) {
+      val  = fget4(ifp);
+      fseek (ifp, -4, SEEK_CUR);
+      switch (tag) {
+	case 0x81:
+	  thumb_length = count;
+	case 0x88:
+	  thumb_offset = base+val;
+	  break;
+	case 0x89:
+	  thumb_length = val;
+      }
+    }
     tiff_dump (base, tag, type, count, 2);
     fseek (ifp, save+12, SEEK_SET);
   }
   order = sorder;
-}
-
-void mrw_parse_makernote(int base)
-{
-  int entries, tag, type, count, val;
-
-  entries = fget2(ifp);
-  while (entries--) {
-    tag  = fget2(ifp);
-    type = fget2(ifp);
-    count= fget4(ifp);
-    val  = fget4(ifp);
-    if (tag == 0x81 || tag == 0x88)
-      thumb_offset = base + val;
-  }
 }
 
 void nef_parse_exif(int base)
@@ -182,14 +184,8 @@ void nef_parse_exif(int base)
     type = fget2(ifp);
     count= fget4(ifp);
     tiff_dump (base, tag, type, count, 1);
-    if (tag == 0x927c) {
-      if (!strncmp(make,"NIKON",5) ||
-	  !strncmp(make,"PENTAX",6) ||
-	  !strncmp(make,"OLYMPUS",7))
-	nef_parse_makernote();
-      else if (strstr(make,"Minolta"))
-	mrw_parse_makernote(base);
-    }
+    if (tag == 0x927c)
+      nef_parse_makernote (base);
     fseek (ifp, save+12, SEEK_SET);
   }
 }
@@ -311,6 +307,28 @@ void parse_tiff_file (int base)
 	spp > 1 ? 6:5, width, height, (1 << bps) - 1);
     thumb_length = width * height * spp * ((bps+7)/8);
   }
+}
+
+void parse_minolta()
+{
+  int data_offset, save, tag, len;
+
+  fseek (ifp, 4, SEEK_SET);
+  data_offset = fget4(ifp) + 8;
+  while ((save=ftell(ifp)) < data_offset) {
+    tag = fget4(ifp);
+    len = fget4(ifp);
+    printf ("Tag %c%c%c offset %06x length %06x\n",
+	tag>>16, tag>>8, tag, save, len);
+    switch (tag) {
+      case 0x545457:				/* TTW */
+	parse_tiff_file (ftell(ifp));
+    }
+    fseek (ifp, save+len+8, SEEK_SET);
+  }
+  strcpy (thumb_head, "\xff");
+  thumb_offset++;
+  thumb_length--;
 }
 
 /*
@@ -802,19 +820,15 @@ int identify()
       fseek (ifp, hlen, SEEK_SET);
     } else
       parse_tiff_file(0);
-  } else if (!memcmp (head,"\0MRM",4)) {
-    fseek (ifp, 4, SEEK_SET);
-    thumb_length = fget4(ifp);
-    parse_tiff_file(48);
-    strcpy (thumb_head, "\xff");
-    thumb_offset++;
-    thumb_length -= thumb_offset;
-  } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
+  } else if (!memcmp (head,"\0MRM",4))
+    parse_minolta();
+    else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
 	     !memcmp (head+6,"Exif",4)) {
     fseek (ifp, 4, SEEK_SET);
     fseek (ifp, 4 + fget2(ifp), SEEK_SET);
     if (fgetc(ifp) != 0xff)
       parse_tiff_file (12);
+    thumb_length = 0;
   } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     toff = fget4(ifp);
