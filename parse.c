@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.20 $
-   $Date: 2004/10/25 04:10:34 $
+   $Revision: 1.21 $
+   $Date: 2004/11/23 10:16:42 $
  */
 
 #include <stdio.h>
@@ -36,6 +36,7 @@ typedef unsigned char uchar;
 
 FILE *ifp;
 short order;
+char *fname;
 char make[128], model[128], model2[128], thumb_head[128];
 int width, height, offset, bps;
 int thumb_offset, thumb_length, thumb_layers;
@@ -135,9 +136,11 @@ void nef_parse_makernote()
     val = fget2(ifp);		/* should be 42 decimal */
     offset = fget4(ifp);
     fseek (ifp, offset-8, SEEK_CUR);
-  } else if(!strcmp (buf,"OLYMP")) { /* starts with "OLYMP\0\1\0" ? */
-    fseek (ifp, -2, SEEK_CUR); /* The count seems to be 8 bytes in */
-  } else
+  } else if (!strcmp (buf,"OLYMP"))
+    fseek (ifp, -2, SEEK_CUR);
+  else if (!strcmp (buf,"AOC"))
+    fseek (ifp, -4, SEEK_CUR);
+  else
     fseek (ifp, -10, SEEK_CUR);
 
   entries = fget2(ifp);
@@ -179,11 +182,14 @@ void nef_parse_exif(int base)
     type = fget2(ifp);
     count= fget4(ifp);
     tiff_dump (base, tag, type, count, 1);
-    if (tag == 0x927c)
-      if (!strncmp(make,"NIKON",5) || !strncmp(make,"OLYMPUS",7))
+    if (tag == 0x927c) {
+      if (!strncmp(make,"NIKON",5) ||
+	  !strncmp(make,"PENTAX",6) ||
+	  !strncmp(make,"OLYMPUS",7))
 	nef_parse_makernote();
       else if (strstr(make,"Minolta"))
 	mrw_parse_makernote(base);
+    }
     fseek (ifp, save+12, SEEK_SET);
   }
 }
@@ -455,46 +461,183 @@ void rollei_decode (FILE *tfp)
     }
 }
 
+void get_utf8 (char *buf, int len)
+{
+  ushort c;
+  char *cp;
+
+  for (cp=buf; (c = fget2(ifp)) && cp+3 < buf+len; ) {
+    if (c < 0x80)
+      *cp++ = c;
+    else if (c < 0x800) {
+      *cp++ = 0xc0 + (c >> 6);
+      *cp++ = 0x80 + (c & 0x3f);
+    } else {
+      *cp++ = 0xe0 + (c >> 12);
+      *cp++ = 0x80 + (c >> 6 & 0x3f);
+      *cp++ = 0x80 + (c & 0x3f);
+    }
+  }
+  *cp = 0;
+}
+
+ushort sget2 (uchar *s)
+{
+  return s[0] + (s[1]<<8);
+}
+
+int sget4 (uchar *s)
+{
+  return s[0] + (s[1]<<8) + (s[2]<<16) + (s[3]<<24);
+}
+
 void parse_foveon()
 {
-  char *buf, *bp, *np;
-  int off1, off2, len, i;
+  int entries, img=0, off, len, tag, save, i, j, k, pent, poff[256][2];
+  char name[128], value[128], camf[0x20000], *pos, *cp, *dp;
+  unsigned val, key, type, num, ndim, dim[3];
 
   order = 0x4949;			/* Little-endian */
   fseek (ifp, -4, SEEK_END);
-  off2 = fget4(ifp);
-
-  fseek (ifp, off2, SEEK_SET);
-  while (fget4(ifp) != 0x464d4143)	/* Search for "CAMF" */
-    if (feof(ifp)) return;
-  off1 = fget4(ifp);
-  fseek (ifp, off1+8, SEEK_SET);
-  off1 += (fget4(ifp)+3) * 8;
-  len = (off2 - off1)/2;
-  fseek (ifp, off1, SEEK_SET);
-  buf = malloc(len);
-  if (!buf) {
-    perror("parse_foveon() malloc failed");
-    exit(1);
+  fseek (ifp, fget4(ifp), SEEK_SET);
+  if (fget4(ifp) != 0x64434553) {	/* SECd */
+    printf ("Bad Section identifier at %6x\n", (int)ftell(ifp)-4);
+    return;
   }
-  for (i=0; i < len; i++)		/* Convert Unicode to ASCII */
-    buf[i] = fget2(ifp);
-  for (bp=buf; bp < buf+len && *bp; ) {
-    np = bp + strlen(bp) + 1;
-    printf ("%-16s%s\n", bp, np);
-    if (!strcmp(bp,"CAMMANUF"))
-      strcpy (make, np);
-    if (!strcmp(bp,"CAMMODEL"))
-      strcpy (model, np);
-    bp = np + strlen(np) + 1;
+  fget4(ifp);
+  entries = fget4(ifp);
+  while (entries--) {
+    off = fget4(ifp);
+    len = fget4(ifp);
+    tag = fget4(ifp);
+    save = ftell(ifp);
+    fseek (ifp, off, SEEK_SET);
+    printf ("%c%c%c%c at offset %06x, length %06x, ",
+	tag, tag >> 8, tag >> 16, tag >> 24, off, len);
+    if (fget4(ifp) != (0x20434553 | (tag << 24))) {
+      printf ("Bad Section identifier at %6x\n", off);
+      goto next;
+    }
+    val = fget4(ifp);
+    printf ("version %d.%d, ",val >> 16, val & 0xffff);
+    switch (tag) {
+      case 0x32414d49:			/* IMA2 */
+      case 0x47414d49:			/* IMAG */
+	if (++img == 2) {		/* second image */
+	  thumb_offset = off;
+	  thumb_length = 1;
+	}
+	printf ("type %d, "	, fget4(ifp));
+	printf ("format %2d, "	, fget4(ifp));
+	printf ("columns %4d, "	, fget4(ifp));
+	printf ("rows %4d, "	, fget4(ifp));
+	printf ("rowsize %d\n"	, fget4(ifp));
+	break;
+      case 0x464d4143:			/* CAMF */
+	printf ("type %d, ", fget4(ifp));
+	fget4(ifp);
+	for (i=0; i < 4; i++)
+	  putchar(fgetc(ifp));
+	val = fget4(ifp);
+	printf (" version %d.%d:\n",val >> 16, val & 0xffff);
+	key = fget4(ifp);
+	if ((len -= 28) > 0x20000)
+	  len = 0x20000;
+	fread (camf, 1, len, ifp);
+	for (i=0; i < len; i++) {
+	  key = (key * 1597 + 51749) % 244944;
+	  val = key * (INT64) 301593171 >> 24;
+	  camf[i] ^= ((((key << 8) - val) >> 1) + val) >> 17;
+	}
+	for (pos=camf; (unsigned) (pos-camf) < len; pos += sget4(pos+8)) {
+	  if (strncmp (pos, "CMb", 3)) {
+	    printf("Bad CAMF tag \"%.4s\"\n", pos);
+	    break;
+	  }
+	  val = sget4(pos+4);
+	  printf ("  %4.4s version %d.%d: ", pos, val >> 16, val & 0xffff);
+	  switch (pos[3]) {
+	    case 'M':
+	      cp = pos + sget4(pos+16);
+	      type = sget4(cp);
+	      ndim = sget4(cp+4);
+	      dim[0] = dim[1] = dim[2] = 1;
+	      printf ("%d-dimensonal array %s of type %d:\n    Key: (",
+		ndim, pos+sget4(pos+12), sget4(cp));
+	      dp = pos + sget4(cp+8);
+	      for (i=ndim; i--; ) {
+		cp += 12;
+		dim[i] = sget4(cp);
+		printf ("%s %d%s", pos+sget4(cp+4), dim[i], i ? ", ":")\n");
+	      }
+	      for (i=0; i < dim[2]; i++) {
+		for (j=0; j < dim[1]; j++) {
+		  printf ("    ");
+		  for (k=0; k < dim[0]; k++)
+		    switch (type) {
+		      case 0:
+		      case 6:
+			printf ("%7d", sget2(dp));
+			dp += 2;
+			break;
+		      case 1:
+		      case 2:
+			printf (" %d", sget4(dp));
+			dp += 4;
+			break;
+		      case 3:
+			val = sget4(dp);
+			printf (" %9f", *(float *)(&val));
+			dp += 4;
+		    }
+		  printf ("\n");
+		}
+		printf ("\n");
+	      }
+	      break;
+	    case 'P':
+	      val = sget4(pos+16);
+	      num = sget4(pos+val);
+	      printf ("%s, %d parameters:\n", pos+sget4(pos+12), num);
+	      cp = pos+val+8 + num*8;
+	      for (i=0; i < num; i++) {
+		val += 8;
+		printf ("    %s = %s\n", cp+sget4(pos+val), cp+sget4(pos+val+4));
+	      }
+	      break;
+	    case 'T':
+	      cp = pos + sget4(pos+16);
+	      printf ("%s = %.*s\n", pos+sget4(pos+12), sget4(cp), cp+4);
+	      break;
+	    default:
+	      printf ("\n");
+	  }
+	}
+	break;
+      case 0x504f5250:			/* PROP */
+	printf ("entries %d, ", pent=fget4(ifp));
+	printf ("charset %d, ", fget4(ifp));
+	fget4(ifp);
+	printf ("nchars %d\n", fget4(ifp));
+	off += pent*8 + 24;
+	if (pent > 256) pent=256;
+	for (i=0; i < pent*2; i++)
+	  poff[0][i] = off + fget4(ifp)*2;
+	for (i=0; i < pent; i++) {
+	  fseek (ifp, poff[i][0], SEEK_SET);
+	  get_utf8 (name, 128);
+	  fseek (ifp, poff[i][1], SEEK_SET);
+	  get_utf8 (value, 128);
+	  printf ("  %s = %s\n", name, value);
+	  if (!strcmp (name,"CAMMANUF"))
+	    strcpy (make, value);
+	  if (!strcmp (name,"CAMMODEL"))
+	    strcpy (model, value);
+	}
+    }
+next:
+    fseek (ifp, save, SEEK_SET);
   }
-  free(buf);
-
-  fseek (ifp, off2, SEEK_SET);
-  while (fget4(ifp) != 0x47414d49)	/* Search for "IMAG" */
-    if (feof(ifp)) return;
-  thumb_offset = fget4(ifp);
-  thumb_length = 1;
 }
 
 void foveon_tree (unsigned huff[1024], unsigned code)
@@ -638,7 +781,7 @@ void kodak_yuv_decode (FILE *tfp)
    Identify which camera created this file, and set global variables
    accordingly.	 Return nonzero if the file cannot be decoded.
  */
-int identify(char *fname)
+int identify()
 {
   char head[32], thumb_name[256], *thumb, *rgb;
   unsigned hlen, fsize, toff, tlen, lsize, i;
@@ -716,7 +859,7 @@ int identify(char *fname)
   tfp = fopen (thumb_name, "wb");
   if (!tfp) {
     perror(thumb_name);
-    exit(1);
+    return 0;
   }
   if (!strncmp(model,"DCS Pro",7)) {
     kodak_yuv_decode (tfp);
@@ -768,18 +911,19 @@ int main(int argc, char **argv)
     "\nRaw Photo Parser and Thumbnail Extracter"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n", argv[0]);
-    exit(1);
+    return 1;
   }
 
   for (arg=1; arg < argc; arg++)
   {
-    ifp = fopen(argv[arg],"rb");
+    fname = argv[arg];
+    ifp = fopen (fname,"rb");
     if (!ifp) {
-      perror(argv[arg]);
+      perror (fname);
       continue;
     }
-    printf ("\nParsing %s:\n", argv[arg]);
-    identify (argv[arg]);
+    printf ("\nParsing %s:\n", fname);
+    identify();
     fclose (ifp);
   }
   return 0;
