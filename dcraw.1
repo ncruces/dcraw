@@ -6,10 +6,10 @@
 .\" You may distribute without restriction.
 .\"
 .\" David Coffin
-.\" cybercom dot net, user dcoffin
+.\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "July 17, 2003"
+.TH dcraw 1 "November 7, 2003"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -90,7 +90,7 @@ ppm(5), ppm2tiff(1), pnmtopng(1), gphoto2(1).
 .SH BUGS
 The
 .B -w
-option does not work with all cameras.
+option does not work with most cameras.
 .P
 No attempt is made to save camera settings or thumbnail images.
 .P
@@ -105,6 +105,9 @@ gives better results!
 .SH TIPS
 First raise the brightness if the highlights are too dark,
 then lower the gamma if the lowlights are too dark.
+Use
+.B -q
+until you get it right.
 .P
 To balance the color, do
 .RB \^" dcraw\ -q\ -g\ 1\ -b\ 0.5 \^"
@@ -112,4 +115,4 @@ and select a rectangle of something that you know is white.
 Compute the average R, G, and B values for this area, then
 set red_mul and blue_mul to G/R and G/B.
 .SH AUTHOR
-Written by David Coffin, now at cybercom dot net with username dcoffin
+Written by David Coffin, dcoffin a cybercom o net
