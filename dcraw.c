@@ -19,11 +19,12 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.241 $
-   $Date: 2005/03/19 01:40:04 $
+   $Revision: 1.242 $
+   $Date: 2005/03/23 17:52:43 $
  */
 
 #define _GNU_SOURCE
+#define _USE_MATH_DEFINES
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1409,24 +1410,6 @@ void CLASS kodak_dc120_load_raw()
       BAYER(row,col) = (ushort) pixel[(col + shift) % 848];
   }
   maximum = 0xff;
-}
-
-void CLASS kodak_dc20_coeff (float juice)
-{
-  static const float my_coeff[3][4] =
-  { {  2.25,  0.75, -1.75, -0.25 },
-    { -0.25,  0.75,  0.75, -0.25 },
-    { -0.25, -1.75,  0.75,  2.25 } };
-  static const float flat[3][4] =
-  { {  1, 0,   0,   0 },
-    {  0, 0.5, 0.5, 0 },
-    {  0, 0,   0,   1 } };
-  int r, g;
-
-  for (r=0; r < 3; r++)
-    for (g=0; g < 4; g++)
-      coeff[r][g] = my_coeff[r][g] * juice + flat[r][g] * (1-juice);
-  use_coeff = 1;
 }
 
 void CLASS kodak_easy_load_raw()
@@ -3316,34 +3299,6 @@ void CLASS parse_foveon()
   is_foveon = 1;
 }
 
-void CLASS foveon_coeff()
-{
-  static const float foveon[3][3] =
-  { {  1.4032, -0.2231, -0.1016 },
-    { -0.5263,  1.4816,  0.0170 },
-    { -0.0112,  0.0183,  0.9113 } };
-  int i, j;
-
-  for (i=0; i < 3; i++)
-    for (j=0; j < 3; j++)
-      coeff[i][j] = foveon[i][j];
-  use_coeff = 1;
-}
-
-void CLASS nikon_e950_coeff()
-{
-  int r, g;
-  static const float my_coeff[3][4] =
-  { { -1.936280,  1.800443, -1.448486,  2.584324 },
-    {  1.405365, -0.524955, -0.289090,  0.408680 },
-    { -1.204965,  1.082304,  2.941367, -1.818705 } };
-
-  for (r=0; r < 3; r++)
-    for (g=0; g < 4; g++)
-      coeff[r][g] = my_coeff[r][g];
-  use_coeff = 1;
-}
-
 /*
    Thanks to Adobe for providing these excellent CAM -> XYZ matrices!
  */
@@ -3547,6 +3502,25 @@ void CLASS adobe_coeff()
       dng_coeff (cc, cm, xyz);
       break;
     }
+}
+
+void CLASS simple_coeff (int index)
+{
+  static const float table[][12] = {
+  /* index 0 -- all Foveon cameras */
+  { 1.4032,-0.2231,-0.1016,-0.5263,1.4816,0.017,-0.0112,0.0183,0.9113 },
+  /* index 1 -- Kodak DC20 and DC25 */
+  { 2.25,0.75,-1.75,-0.25,-0.25,0.75,0.75,-0.25,-0.25,-1.75,0.75,2.25 },
+  /* index 2 -- Nikon E700, E800, and E950 */
+  { -1.936280,  1.800443, -1.448486,  2.584324,
+     1.405365, -0.524955, -0.289090,  0.408680,
+    -1.204965,  1.082304,  2.941367, -1.818705 }
+  };
+  int i, c;
+
+  for (i=0; i < 3; i++)
+    FORCC coeff[i][c] = table[index][i*colors+c];
+  use_coeff = 1;
 }
 
 /*
@@ -3753,7 +3727,7 @@ nucore:
     if (width < height) xmag = 2;
     filters = 0;
     load_raw = foveon_load_raw;
-    foveon_coeff();
+    simple_coeff(0);
   } else if (!strcmp(model,"PowerShot 600")) {
     height = 613;
     width  = 854;
@@ -3873,10 +3847,10 @@ canon_cr2:
   } else if (fsize == 2465792) {
     height = 1203;
     width  = 1616;
-    filters = 0x4b4b4b4b;
     colors = 4;
+    filters = 0x4b4b4b4b;
+    simple_coeff(2);
     load_raw = nikon_e950_load_raw;
-    nikon_e950_coeff();
     pre_mul[0] = 1.18193;
     pre_mul[2] = 1.16452;
     pre_mul[3] = 1.17250;
@@ -3886,7 +3860,7 @@ canon_cr2:
     width  = 2064;
     colors = 4;
     filters = 0xb4b4b4b4;
-    nikon_e950_coeff();
+    simple_coeff(2);
     pre_mul[0] = 1.196;
     pre_mul[1] = 1.246;
     pre_mul[2] = 1.018;
@@ -4299,37 +4273,24 @@ konica_400z:
 		ifname, make, model, tiff_data_compression);
 	return 1;
     }
-    if (!strcmp(model,"DC20")) {
+    if (strstr(model,"DC25")) {
+      strcpy (model, "DC25");
+      data_offset = 15424;
+    }
+    if (!strncmp(model,"DC2",3)) {
       height = 242;
       if (fsize < 100000) {
-	width = 249;
-	raw_width = 256;
+	raw_width = 256; width = 249;
       } else {
-	width = 501;
-	raw_width = 512;
+	raw_width = 512; width = 501;
       }
-      data_offset = raw_width + 1;
+      data_offset += raw_width + 1;
       colors = 4;
       filters = 0x8d8d8d8d;
-      kodak_dc20_coeff (1.0);
+      simple_coeff(1);
       pre_mul[1] = 1.179;
       pre_mul[2] = 1.209;
       pre_mul[3] = 1.036;
-      load_raw = kodak_easy_load_raw;
-    } else if (strstr(model,"DC25")) {
-      strcpy (model, "DC25");
-      height = 242;
-      if (fsize < 100000) {
-	width = 249;
-	raw_width = 256;
-	data_offset = 15681;
-      } else {
-	width = 501;
-	raw_width = 512;
-	data_offset = 15937;
-      }
-      colors = 4;
-      filters = 0xb4b4b4b4;
       load_raw = kodak_easy_load_raw;
     } else if (!strcmp(model,"Digital Camera 40")) {
       strcpy (model, "DC40");
@@ -4751,7 +4712,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.04"
+    "\nRaw Photo Decoder \"dcraw\" v7.05"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
