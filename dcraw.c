@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.83 $
-   $Date: 2002/12/16 06:23:49 $
+   $Revision: 1.84 $
+   $Date: 2002/12/17 01:45:16 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -883,6 +883,24 @@ void subtract_black()
   rgb_max -= black;
 }
 
+void scale_colors()
+{
+  int row, col, c, val;
+
+  if (colors != 3) return;
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++) {
+      c = FC(row,col);
+      if (c != 1) {
+	val = image[row*width+col][c] * rgb_mul[c];
+	if (val > rgb_max &&
+	  image[row*width+col+(col ? -1:1)][1]+256 > rgb_max)
+	    val = rgb_max;
+	image[row*width+col][c] = val;
+      }
+    }
+}
+
 /*
    This algorithm is officially called:
 
@@ -920,7 +938,7 @@ void vng_interpolate()
     +1,+0,+2,+1,0,0x10
   }, chood[] = { -1,-1, -1,0, -1,+1, 0,+1, +1,+1, +1,0, +1,-1, 0,-1 };
   ushort (*brow[5])[4], *pix;
-  int code[8][576], *ip, ihood[8], gval[8], gmin, gmax, sum[4];
+  int code[8][640], *ip, gval[8], gmin, gmax, sum[4];
   int row, col, shift, x, y, x1, x2, y1, y2, t, weight, grads, color, diag;
   int g, diff, thold, num, c;
 
@@ -982,13 +1000,18 @@ void vng_interpolate()
 	  if (grads & 1<<g) *ip++ = g;
 	*ip++ = -1;
       }
-    *ip++ = INT_MAX;
+      *ip++ = INT_MAX;
+      for (cp=chood, g=0; g < 8; g++) {
+	y = *cp++;  x = *cp++;
+	*ip++ = (y*width + x) * 4;
+	color = FC(row,col);
+	if ((g & 1) == 0 &&
+	    FC(row+y,col+x) != color && FC(row+y*2,col+x*2) == color)
+	  *ip++ = (y*width + x) * 8 + color;
+	else
+	  *ip++ = 0;
+      }
     }
-  }
-  for (cp=chood, g=0; g < 8; g++) {
-    ihood[g]  = *cp++ * width;
-    ihood[g] += *cp++;
-    ihood[g] *= 4;
   }
   brow[4] = calloc (width*3, sizeof **brow);
   if (!brow[4]) {
@@ -1017,15 +1040,18 @@ void vng_interpolate()
       }
       thold = gmin + (gmax >> 1);
       memset (sum, 0, sizeof sum);
-      for (num=g=0; g < 8; g++) {		/* Average the neighbors */
+      color = FC(row,col);
+      for (num=g=0; g < 8; g++,ip+=2) {		/* Average the neighbors */
 	if (gval[g] <= thold) {
 	  for (c=0; c < colors; c++)
-	    sum[c] += pix[ihood[g] + c];
+	    if (c == color && ip[1])
+	      sum[c] += (pix[c] + pix[ip[1]]) >> 1;
+	    else
+	      sum[c] += pix[ip[0] + c];
 	  num++;
 	}
       }
-      color = FC(row,col);			/* Save to buffer */
-      for (c=0; c < colors; c++) {
+      for (c=0; c < colors; c++) {		/* Save to buffer */
 	t = pix[color] + (sum[c] - sum[color])/num;
 	brow[2][col][c] = t > 0 ? t:0;
       }
@@ -1496,6 +1522,7 @@ int identify(char *fname)
     read_crw = nikon_read_crw;
     rgb_mul[0] = 2.374;
     rgb_mul[2] = 1.677;
+    rgb_max = 15632;
   } else if (!strcmp(model,"E5000") || !strcmp(model,"E5700")) {
     height = 1924;
     width  = 2576;
@@ -1710,9 +1737,7 @@ void get_rgb(float rgb[4], ushort image[4])
     rgb[3] = 3 * rgb[0]*rgb[0];
   } else if (colors == 3)
     for (r=0; r < 3; r++) {		/* RGB from RGB */
-      rgb[r] = image[r] * rgb_mul[r];
-      if (rgb[r] > rgb_max && image[1]+256 > rgb_max)
-	  rgb[r] = rgb_max;
+      rgb[r] = image[r];
       rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
     }
   else
@@ -1931,7 +1956,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.03"
+    "\nRaw Photo Decoder v4.10"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2017,6 +2042,7 @@ int main(int argc, char **argv)
       fprintf (stderr, "Subtracting thermal noise (%d)...\n", black);
       subtract_black();
     }
+    scale_colors();
     trim = 0;
     if (filters) {
       trim = 1;
