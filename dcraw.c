@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.87 $
-   $Date: 2002/12/19 03:13:42 $
+   $Revision: 1.88 $
+   $Date: 2002/12/19 16:33:15 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -895,9 +895,7 @@ void scale_colors()
 #endif
       val *= pre_mul[c];
       if (val < 0) val = 0;
-      if (val > rgb_max && (!is_rgb || (c & 1) ||
-	  image[row*width+col+(col ? -1:1)][FC(row,col+1)]+256 > rgb_max))
-	val = rgb_max;
+      if (val > rgb_max) val = rgb_max;
       image[row*width+col][c] = val;
     }
 #ifdef STATS
@@ -1987,7 +1985,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.25"
+    "\nRaw Photo Decoder v4.26"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
