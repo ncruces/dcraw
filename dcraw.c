@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.224 $
-   $Date: 2005/01/04 23:08:52 $
+   $Revision: 1.225 $
+   $Date: 2005/01/08 05:26:49 $
  */
 
 #define _GNU_SOURCE
@@ -847,6 +847,24 @@ void CLASS fuji_s2_load_raw()
       r = row + ((col+1) >> 1);
       c = 2143 - row + (col >> 1);
       BAYER(r,c) = ntohs(pixel[col]) << 2;
+    }
+  }
+}
+
+void CLASS fuji_s3_load_raw()
+{
+  ushort pixel[4352];
+  int row, col, r, c;
+
+  fseek (ifp, (4352*2+32)*2, SEEK_CUR);
+  for (row=0; row < 1440; row++) {
+    fread (pixel, 2, 4352, ifp);
+    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
+      swab (pixel, pixel, 4352*2);
+    for (col=0; col < 4288; col++) {
+      r = 2143 + row - (col >> 1);
+      c = row + ((col+1) >> 1);
+      BAYER(r,c) = pixel[col] << 2;
     }
   }
 }
@@ -2859,6 +2877,7 @@ int CLASS identify()
   static const char *corp[] =
     { "Canon", "NIKON", "Kodak", "OLYMPUS", "PENTAX",
       "MINOLTA", "Minolta", "Konica" };
+  float tmp;
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
@@ -3257,6 +3276,13 @@ coolpix:
     black = 512;
     pre_mul[0] = 1.424;
     pre_mul[2] = 1.718;
+    strcpy (model+7, " S2Pro");
+  } else if (!strcmp(model,"FinePix S3Pro")) {
+    height = 3583;
+    width  = 3584;
+    filters = 0x49494949;
+    load_raw = fuji_s3_load_raw;
+    rgb_max = 0xffff;
   } else if (!strcmp(model,"FinePix S5000")) {
     height = 2499;
     width  = 2500;
@@ -3313,6 +3339,12 @@ fuji_s7000:
     load_raw = be_low_12_load_raw;
     rgb_max = 15860;
     if (!strncmp(model,"DiMAGE A",8)) {
+      if (!strcmp(model,"DiMAGE A200")) {
+	filters = 0x49494949;
+	tmp = camera_red;
+	camera_red  = 1 / camera_blue;
+	camera_blue = 1 / tmp;
+      }
       load_raw = packed_12_load_raw;
       rgb_max = model[8] == '1' ? 15916:16380;
     } else if (!strncmp(model,"DYNAX",5) ||
@@ -4036,7 +4068,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.21"
+    "\nRaw Photo Decoder \"dcraw\" v6.22"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
