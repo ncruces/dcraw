@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.116 $
-   $Date: 2003/06/02 14:49:38 $
+   $Revision: 1.117 $
+   $Date: 2003/06/03 19:06:14 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -869,7 +869,7 @@ void casio_qv5700_load_raw()
 void nucore_load_raw()
 {
   uchar *data, *dp;
-  int row, col;
+  int irow, row, col;
 
   data = calloc (width, 2);
   if (!data) {
@@ -877,8 +877,12 @@ void nucore_load_raw()
     exit(1);
   }
   fseek (ifp, tiff_data_offset, SEEK_SET);
-  for (row=0; row < height; row++) {
+  for (irow=0; irow < height; irow++) {
     fread (data, 2, width, ifp);
+    if (model[0] == 'B' && width == 2598)
+      row = height - 1 - irow/2 - height/2 * (irow & 1);
+    else
+      row = irow;
     for (dp=data, col=0; col < width; col++, dp+=2)
       image[row*width+col][FC(row,col)] = (dp[0] << 2) + (dp[1] << 10);
   }
@@ -2008,6 +2012,10 @@ nucore:
     fget4(ifp);
     raw_width  = fget4(ifp);
     raw_height = fget4(ifp);
+    if (model[0] == 'B' && raw_width == 2597) {
+      raw_width++;
+      tiff_data_offset -= 0x1000;
+    }
   } else if (magic == 0x46554a49)	/* "FUJI" */
     parse_tiff(120);
   else if (magic == 0x464f5662)		/* "FOVb" */
@@ -2641,7 +2649,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.75"
+    "\nRaw Photo Decoder v4.76"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
