@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.99 $
-   $Date: 2003/02/23 16:34:58 $
+   $Revision: 1.100 $
+   $Date: 2003/02/25 00:41:11 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1757,14 +1757,14 @@ void foveon_coeff()
 void nikon_e950_coeff()
 {
   int r, g;
-  float sum, my_coeff[3][4] =
-  { { -1.4, 1.4, -1.2, 2.2 }, { 4, -2, -2, 3 }, { -1, 1.5, 3.3, -2 } };
+  float my_coeff[3][4] =
+  { { -1.936280,  1.800443, -1.448486,  2.584324 },
+    {  1.405365, -0.524955, -0.289090,  0.408680 },
+    { -1.204965,  1.082304,  2.941367, -1.818705 } };
 
   for (r=0; r < 3; r++) {
-    for (sum=g=0; g < 4; g++)
-      sum += my_coeff[r][g];
     for (g=0; g < 4; g++)
-      coeff[r][g] = my_coeff[r][g] / sum;
+      coeff[r][g] = my_coeff[r][g];
   }
   use_coeff = 1;
 }
@@ -2036,9 +2036,9 @@ int identify(char *fname)
     colors = 4;
     read_crw = nikon_e950_read_crw;
     nikon_e950_coeff();
-    pre_mul[0] = 1.09392;
-    pre_mul[1] = 1.04542;
-    pre_mul[2] = 1.2396;
+    pre_mul[0] = 1.18193;
+    pre_mul[2] = 1.16452;
+    pre_mul[3] = 1.17250;
   } else if (!strcmp(model,"E990/995")) {
     height = 1540;
     width  = 2064;
@@ -2454,7 +2454,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.48"
+    "\nRaw Photo Decoder v4.49"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
