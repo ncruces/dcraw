@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.218 $
-   $Date: 2004/12/01 21:54:52 $
+   $Revision: 1.219 $
+   $Date: 2004/12/04 05:42:44 $
  */
 
 #define _GNU_SOURCE
@@ -3236,9 +3236,10 @@ coolpix:
     pre_mul[0] = 1.62;
     pre_mul[2] = 1.38;
     goto fuji_s7000;
-  } else if (!strcmp(model,"FinePix E550")) {
-    pre_mul[0] = 1.45;
-    pre_mul[2] = 1.25;
+  } else if (!strcmp(model,"FinePix E550") ||
+	     !strcmp(model,"FinePix F810")) {
+    pre_mul[0] = 1.65;
+    pre_mul[2] = 1.29;
 fuji_s7000:
     height = 3587;
     width  = 3588;
@@ -3978,7 +3979,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.16"
+    "\nRaw Photo Decoder \"dcraw\" v6.17"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
