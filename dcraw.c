@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.128 $
-   $Date: 2003/07/17 19:06:11 $
+   $Revision: 1.129 $
+   $Date: 2003/09/11 20:35:53 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -33,6 +33,7 @@
 #define strcasecmp stricmp
 typedef __int64 INT64;
 #else
+#define __USE_XOPEN
 #include <unistd.h>
 #include <netinet/in.h>
 typedef long long INT64;
@@ -767,19 +768,64 @@ void nikon_e950_load_raw()
 /*
    The Fuji Super CCD is just a Bayer grid rotated 45 degrees.
  */
-void fuji_load_raw()
+void fuji_s2_load_raw()
 {
   ushort pixel[2944];
   int row, col, r, c;
 
-  fseek (ifp, 100, SEEK_SET);
-  fseek (ifp, fget4(ifp) + (2944*24+32)*2, SEEK_SET);
+  fseek (ifp, tiff_data_offset + (2944*24+32)*2, SEEK_SET);
   for (row=0; row < 2144; row++) {
     fread (pixel, 2, 2944, ifp);
     for (col=0; col < 2880; col++) {
       r = row + ((col+1) >> 1);
       c = 2143 - row + (col >> 1);
       image[r*width+c][FC(r,c)] = ntohs(pixel[col]) << 2;
+    }
+  }
+}
+
+void fuji_s5000_load_raw()
+{
+  ushort pixel[1472];
+  int row, col, r, c;
+
+  fseek (ifp, tiff_data_offset + (1472*4+24)*2, SEEK_SET);
+  for (row=0; row < 2152; row++) {
+    fread (pixel, 2, 1472, ifp);
+    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
+      swab (pixel, pixel, 1472*2);
+    for (col=0; col < 1424; col++) {
+      r = 1423 - col + (row >> 1);
+      c = col + ((row+1) >> 1);
+      image[r*width+c][FC(r,c)] = pixel[col];
+    }
+  }
+}
+
+/*
+   The Fuji Super CCD SR has two photodiodes for each pixel.
+   The secondary has about 1/16 the sensitivity of the primary,
+   but this ratio may vary.
+ */
+void fuji_f700_load_raw()
+{
+  ushort pixel[2944];
+  int row, col, r, c, val;
+
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  for (row=0; row < 2168; row++) {
+    fread (pixel, 2, 2944, ifp);
+    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
+      swab (pixel, pixel, 2944*2);
+    for (col=0; col < 1440; col++) {
+      r = 1439 - col + (row >> 1);
+      c = col + ((row+1) >> 1);
+      val = pixel[col+16];
+      if (val == 0x3fff)		/* If the primary is maxed, */
+	val = pixel[col+1488] << 4;	/* use the secondary.       */
+      if (val > 0xffff)
+	val = 0xffff;
+      image[r*width+c][FC(r,c)] = val >> 1;
     }
   }
 }
@@ -2076,9 +2122,13 @@ nucore:
   } else if (!memcmp(head+19,"ARECOYK",7)) {
     strcpy (make, "CONTAX");
     strcpy (model,"N DIGITAL");
-  } else if (magic == 0x46554a49)	/* "FUJI" */
-    parse_tiff(120);
-  else if (magic == 0x464f5662)		/* "FOVb" */
+  } else if (magic == 0x46554a49) {	/* "FUJI" */
+    fseek (ifp, 84, SEEK_SET);
+    parse_tiff (fget4(ifp)+12);
+    order = 0x4d4d;
+    fseek (ifp, 100, SEEK_SET);
+    tiff_data_offset = fget4(ifp);
+  } else if (magic == 0x464f5662)	/* "FOVb" */
     parse_foveon();
   else if (fsize == 2465792)		/* Nikon "DIAG RAW" formats */
     strcpy (model,"E950");
@@ -2320,9 +2370,24 @@ coolpix:
     height = 3584;
     width  = 3583;
     filters = 0x61616161;
-    load_raw = fuji_load_raw;
+    load_raw = fuji_s2_load_raw;
     pre_mul[0] = 1.424;
     pre_mul[2] = 1.718;
+  } else if (!strcmp(model,"FinePix S5000")) {
+    height = 2499;
+    width  = 2500;
+    filters = 0x49494949;
+    load_raw = fuji_s5000_load_raw;
+    pre_mul[0] = 1.639;
+    pre_mul[2] = 1.438;
+  } else if (!strcmp(model,"FinePix F700")) {
+    height = 2523;
+    width  = 2524;
+    filters = 0x49494949;
+    load_raw = fuji_f700_load_raw;
+    pre_mul[0] = 1.639;
+    pre_mul[2] = 1.438;
+    rgb_max = 0x7fff;
   } else if (!strcmp(make,"Minolta")) {
     height = raw_height;
     width  = raw_width;
@@ -2717,7 +2782,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.88"
+    "\nRaw Photo Decoder v4.90"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
