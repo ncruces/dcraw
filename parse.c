@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.13 $
-   $Date: 2004/04/29 19:11:08 $
+   $Revision: 1.14 $
+   $Date: 2004/05/01 04:08:26 $
  */
 
 #include <stdio.h>
@@ -479,6 +479,11 @@ void kodak_yuv_decode (FILE *tfp)
 	  blen[i++] = c >> 4;
 	}
 	li = bitbuf = bits = y[1] = y[3] = cb = cr = 0;
+	if (len % 8 == 4) {
+	  bitbuf  = fgetc(ifp) << 8;
+	  bitbuf += fgetc(ifp);
+	  bits = 16;
+	}
       }
       for (si=0; si < 6; si++) {
 	len = blen[li++];
