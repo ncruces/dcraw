@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.212 $
-   $Date: 2004/10/23 04:40:54 $
+   $Revision: 1.213 $
+   $Date: 2004/10/24 23:27:22 $
  */
 
 #define _GNU_SOURCE
@@ -565,7 +565,7 @@ void CLASS kodak_curve (ushort *curve)
  */
 void CLASS lossless_jpeg_load_raw()
 {
-  int tag, len, jhigh=0, jwide=0, trick, row, col, diff;
+  int tag, len, jhigh=0, jwide=0, jrow, jcol, jidx, diff, i, row, col;
   uchar data[256], *dp;
   int vpred[2] = { 0x800, 0x800 }, hpred[2];
   struct decode *dstart[2], *dindex;
@@ -584,7 +584,7 @@ void CLASS lossless_jpeg_load_raw()
     switch (tag) {
       case 0xffc3:
 	jhigh = (data[1] << 8) + data[2];
-	jwide = (data[3] << 8) + data[4];
+	jwide =((data[3] << 8) + data[4])*2;
 	break;
       case 0xffc4:
 	init_decoder();
@@ -596,25 +596,39 @@ void CLASS lossless_jpeg_load_raw()
     }
   } while (tag != 0xffda);
 
-  trick = 2 * jwide / width;
   zero_after_ff = 1;
   getbits(-1);
-  for (row=0; row < raw_height; row++)
-    for (col=0; col < raw_width; col++)
+  for (jrow=0; jrow < jhigh; jrow++)
+    for (jcol=0; jcol < jwide; jcol++)
     {
-      for (dindex = dstart[col & 1]; dindex->branch[0]; )
+      for (dindex = dstart[jcol & 1]; dindex->branch[0]; )
 	dindex = dindex->branch[getbits(1)];
       len = dindex->leaf;
       diff = getbits(len);
       if ((diff & (1 << (len-1))) == 0)
 	diff -= (1 << len) - 1;
-      if (col < 2 && (row % trick == 0)) {
-	vpred[col] += diff;
-	hpred[col] = vpred[col];
+      if (jcol < 2) {
+	vpred[jcol] += diff;
+	hpred[jcol] = vpred[jcol];
       } else
-	hpred[col & 1] += diff;
-      diff = hpred[col & 1];
+	hpred[jcol & 1] += diff;
+      diff = hpred[jcol & 1];
       if (diff < 0) diff = 0;
+      jidx = jrow*jwide + jcol;
+      if (raw_width == 5108) {
+	i = jidx / (1680*jhigh);
+	if (i < 2) {
+	  row = jidx / 1680 % jhigh;
+	  col = jidx % 1680 + i*1680;
+	} else {
+	  jidx -= 2*1680*jhigh;
+	  row = jidx / 1748;
+	  col = jidx % 1748 + 2*1680;
+	}
+      } else {
+	row = jidx / raw_width;
+	col = jidx % raw_width;
+      }
       if ((unsigned) (row-top_margin) >= height)
 	continue;
       if ((unsigned) (col-left_margin) < width) {
@@ -3035,6 +3049,17 @@ nucore:
     filters = 0x94949494;
     pre_mul[0] = 1.95;
     pre_mul[2] = 1.36;
+  } else if (!strcmp(model,"EOS-1Ds Mark II")) {
+    raw_height = 3349;
+    raw_width  = 5108;
+    top_margin  = 13;
+    left_margin = 98;
+    height = raw_height - top_margin;
+    width  = raw_width - left_margin;
+    filters = 0x94949494;
+    pre_mul[0] = 1.609;
+    pre_mul[2] = 1.848;
+    rgb_max = 0x3a00;
   } else if (!strcmp(model,"EOS D2000C")) {
     black = 800;
     pre_mul[2] = 1.25;
@@ -3887,7 +3912,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.09"
+    "\nRaw Photo Decoder \"dcraw\" v6.10"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
