@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.74 $
-   $Date: 2002/11/11 02:26:53 $
+   $Revision: 1.75 $
+   $Date: 2002/11/13 17:37:41 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1682,7 +1682,7 @@ void get_rgb(float rgb[4], ushort image[4])
  */
 void write_ppm(FILE *ofp)
 {
-  int y, x;
+  int y, x, i, ymag=1, xmag=1;
   register unsigned c, val;
   uchar (*ppm)[3];
   float rgb[4], max, max2, expo, mul, scale;
@@ -1707,9 +1707,12 @@ void write_ppm(FILE *ofp)
   max = val << 6;
   max2 = max * max;
 
-  fprintf (ofp, "P6\n%d %d\n255\n", width-trim*2, height-trim*2);
+  if (hood == tall_hood) xmag = 2;
+  if (hood == wide_hood) ymag = 2;
+  fprintf (ofp, "P6\n%d %d\n255\n",
+	xmag*(width-trim*2), ymag*(height-trim*2));
 
-  ppm = calloc(width-trim*2,3);
+  ppm = calloc (width-trim*2, 3*xmag);
   if (!ppm) {
     perror("ppm calloc failed");
     exit(1);
@@ -1730,10 +1733,12 @@ void write_ppm(FILE *ofp)
       {
 	val=rgb[c]*scale;
 	if (val > 255) val=255;
-	ppm[x-trim][c]=val;
+	for (i=0; i < xmag; i++)
+	  ppm[xmag*(x-trim)+i][c] = val;
       }
     }
-    fwrite (ppm, width-trim*2, 3, ofp);
+    for (i=0; i < ymag; i++)
+      fwrite (ppm, width-trim*2, 3*xmag, ofp);
   }
   free (ppm);
 }
@@ -1874,7 +1879,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v3.50"
+    "\nRaw Photo Decoder v3.52"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
