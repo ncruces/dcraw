@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "January 19, 2005"
+.TH dcraw 1 "February 26, 2005"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -18,10 +18,9 @@ dcraw - convert raw digital photos to PPM format
 [\fIOPTION\fR]... [\fIFILE\fR]...
 .SH DESCRIPTION
 .B dcraw
-converts a list of raw digital camera files to
+converts raw digital photos to
 .BR ppm (5)
-format.  Dozens of cameras are supported, and new ones are
-added as they reach the market.
+format.
 .SH OPTIONS
 .TP
 .B -i
@@ -74,6 +73,19 @@ blue channels by these values.  Both default to 1.0.
 .TP
 .B -b brightness
 Change the output brightness.  Default is 1.0.
+.TP
+.B -n
+By default,
+.B dcraw
+clips all colors to prevent pink hues in the highlights.
+Combine this option with
+.B -b 0.25
+to leave the image data completely unclipped.
+.TP
+.B -m
+Write raw camera colors to the output file.  By default,
+.B dcraw
+converts to sRGB colorspace.
 .TP
 .B -s
 For cameras based on the Fuji Super CCD SR, use the secondary
