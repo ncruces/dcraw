@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.105 $
-   $Date: 2003/03/17 19:34:10 $
+   $Revision: 1.106 $
+   $Date: 2003/03/23 02:49:33 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1835,7 +1835,7 @@ int identify(char *fname)
   unsigned hlen, fsize, magic, g;
 
   pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
-  camera_red = camera_blue = 0;
+  camera_red = camera_blue = black = 0;
   rgb_max = 0x4000;
   colors = 3;
   is_cmy = use_coeff = 0;
@@ -2291,6 +2291,8 @@ void get_rgb(float rgb[4], ushort image[4])
     rgb[0] = cmy[0] + cmy[1] - cmy[2];
     rgb[1] = cmy[1] + cmy[2] - cmy[0];
     rgb[2] = cmy[2] + cmy[0] - cmy[1];
+    for (r=0; r < 3; r++)
+      if (rgb[r] < 0) rgb[r] = 0;
     rgb[3] = rgb[0]*rgb[0] + rgb[1]*rgb[1] + rgb[2]*rgb[2];
   }
 }
@@ -2441,22 +2443,9 @@ void write_ppm16(FILE *ofp)
   free (ppm);
 }
 
-/*
-   Creates a new filename with a different extension
- */
-void exten(char *new_name, const char *old, const char *ext)
-{
-  char *cp;
-
-  strcpy(new_name,old);
-  cp=strrchr(new_name,'.');
-  if (!cp) cp=new_name+strlen(new_name);
-  strcpy(cp,ext);
-}
-
 int main(int argc, char **argv)
 {
-  char data[256];
+  char data[256], *cp;
   int arg, id_one_file=0, write_to_files=1;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
@@ -2465,7 +2454,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.53"
+    "\nRaw Photo Decoder v4.54"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2530,7 +2519,6 @@ int main(int argc, char **argv)
 
   for ( ; arg < argc; arg++)
   {
-    black = 0;
     ifp = fopen(argv[arg],"rb");
     if (!ifp) perror(argv[arg]);
     if (id_one_file) {
@@ -2568,8 +2556,10 @@ int main(int argc, char **argv)
     ofp = stdout;
     strcpy (data, "standard output");
     if (write_to_files) {
-      exten(data, argv[arg], write_ext);
-      ofp = fopen(data,"wb");
+      strcpy (data, argv[arg]);
+      if ((cp = strrchr (data, '.'))) *cp = 0;
+      strcat (data, write_ext);
+      ofp = fopen (data, "wb");
       if (!ofp) {
 	perror(data);
 	continue;
