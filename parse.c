@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.12 $
-   $Date: 2004/02/20 04:22:08 $
+   $Revision: 1.13 $
+   $Date: 2004/04/29 19:11:08 $
  */
 
 #include <stdio.h>
@@ -460,6 +460,7 @@ void kodak_yuv_decode (FILE *tfp)
 
   fseek (ifp, thumb_offset, SEEK_SET);
   width = (width+1) & -2;
+  height = (height+1) & -2;
   fprintf (tfp, "P6 %d %d 65535\n", width, height);
   out = malloc (width * 12);
   if (!out) {
@@ -587,7 +588,7 @@ int identify(char *fname)
     perror(thumb_name);
     exit(1);
   }
-  if (!strcasecmp(model,"DCS Pro 14N")) {
+  if (!strncmp(model,"DCS Pro",7)) {
     kodak_yuv_decode (tfp);
     goto done;
   }
