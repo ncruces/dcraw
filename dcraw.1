@@ -1,7 +1,7 @@
 .\"
 .\" Man page for dcraw (Raw Photo Decoder)
 .\"
-.\" Copyright (c) 2003 by David Coffin
+.\" Copyright (c) 2004 by David Coffin
 .\"
 .\" You may distribute without restriction.
 .\"
@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "March 6, 2004"
+.TH dcraw 1 "September 5, 2004"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -81,6 +81,15 @@ prints a warning and reverts to the default.
 .B -r red_mul -l blue_mul
 After all other color adjustments, multiply the red and blue
 channels by these values.  Default is 1.0.
+.TP
+.B -t [0-7]
+Flip the output image.  The most common flips are 5
+(90 degrees CCW) and 6 (90 degrees clockwise).  By default,
+dcraw tries to use the flip specified by the camera.
+.RB \^" -t\ 0 \^"
+forces
+.B dcraw
+not to flip the image.
 .TP
 .B -2
 Write eight bits per color value with gamma correction and
