@@ -3,16 +3,16 @@
    Copyright 1997-2003 by Dave Coffin <dcoffin@shore.net>
 
    This is a portable ANSI C program to convert raw image files from
-   any digital camera into PPM or PNG format.  TIFF and CIFF parsing
-   are based upon public specifications, but no such documentation
-   is available for the raw sensor data, so writing this program has
+   any digital camera into PPM format.  TIFF and CIFF parsing are
+   based upon public specifications, but no such documentation is
+   available for the raw sensor data, so writing this program has
    been an immense effort.
 
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.91 $
-   $Date: 2003/01/09 05:07:39 $
+   $Revision: 1.92 $
+   $Date: 2003/01/13 21:54:22 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -32,10 +32,6 @@ typedef __int64 INT64;
 #else
 #include <netinet/in.h>
 typedef long long INT64;
-#endif
-
-#ifndef NO_PNG
-#include <png.h>
 #endif
 
 #ifdef LJPEG_DECODE
@@ -601,8 +597,7 @@ int ReadJpegData (char *buffer, int numBytes)
  */
 void PmPutRow(ushort **buf, int numComp, int numCol, int row)
 {
-  register int r, col;
-  int trick=1;
+  int r, col, trick=1;
 
   if (make[0] == 'C') trick=2;		/* Canon */
   row *= trick;
@@ -643,10 +638,9 @@ void nikon_compressed_read_crw()
     0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
     5,4,3,6,2,7,1,0,8,9,11,10,12
   };
-  int vpred[4], hpred[2], csize, row, col, i, len;
+  int vpred[4], hpred[2], csize, row, col, i, len, diff;
   ushort *curve;
   struct decode *dindex;
-  register int diff;
 
   if (!strcmp(model,"D1X"))
     waste = 4;
@@ -849,7 +843,7 @@ void kodak_compressed_read_crw()
   uchar c, blen[256];
   unsigned row, col, len, i, bits=0, pred[2];
   INT64 bitbuf=0;
-  register int diff;
+  int diff;
 
   fseek (ifp, tiff_data_offset, SEEK_SET);
 
@@ -910,7 +904,7 @@ void foveon_decoder(struct decode *dest, unsigned huff[1024], unsigned code)
 void foveon_read_crw()
 {
   struct decode decode[2048], *dindex;
-  short table[1024], pred[3];
+  short diff[1024], pred[3];
   unsigned huff[1024], bitbuf=0, top=0, left=0;
   int row, col, bit=-1, c, i;
 
@@ -920,7 +914,7 @@ void foveon_read_crw()
   }
   fseek (ifp, 260, SEEK_SET);
   for (i=0; i < 1024; i++)
-    table[i] = fget2(ifp);
+    diff[i] = fget2(ifp);
   for (i=0; i < 1024; i++)
     huff[i] = fget4(ifp);
 
@@ -938,8 +932,7 @@ void foveon_read_crw()
 	      bitbuf = (bitbuf << 8) + fgetc(ifp);
 	  dindex = dindex->branch[bitbuf >> bit & 1];
 	}
-	i = dindex->leaf;
-	pred[c] += table[i];
+	pred[c] += diff[dindex->leaf];
       }
       if ((unsigned) row-top  >= height ||
 	  (unsigned) col-left >= width ) continue;
@@ -1159,7 +1152,7 @@ void vng_interpolate()
  */
 ushort fget2 (FILE *f)
 {
-  register uchar a, b;
+  uchar a, b;
 
   a = fgetc(f);
   b = fgetc(f);
@@ -1174,7 +1167,7 @@ ushort fget2 (FILE *f)
  */
 int fget4 (FILE *f)
 {
-  register uchar a, b, c, d;
+  uchar a, b, c, d;
 
   a = fgetc(f);
   b = fgetc(f);
@@ -1942,7 +1935,7 @@ void get_rgb(float rgb[4], ushort image[4])
 void write_ppm(FILE *ofp)
 {
   int y, x, i;
-  register unsigned c, val;
+  unsigned c, val;
   uchar (*ppm)[3];
   float rgb[4], max, max2, expo, mul, scale;
   int total, histogram[0x1000];
@@ -1981,7 +1974,7 @@ void write_ppm(FILE *ofp)
   {
     for (x=trim; x < width-trim; x++)
     {
-      get_rgb(rgb,image[y*width+x]);
+      get_rgb (rgb, image[y*width+x]);
 /* In some math libraries, pow(0,expo) doesn't return zero */
       scale = 0;
       if (rgb[3]) scale = mul * pow(rgb[3]/max2,expo);
@@ -2035,11 +2028,9 @@ void write_psd(FILE *ofp)
   }
   pred = buffer;
 
-  for (y=trim; y < height-trim; y++)
-  {
-    for (x=trim; x < width-trim; x++)
-    {
-      get_rgb(rgb, image[y * width + x]);
+  for (y=trim; y < height-trim; y++) {
+    for (x=trim; x < width-trim; x++) {
+      get_rgb (rgb, image[y*width+x]);
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
 	if (val > 0xffff) val=0xffff;
@@ -2052,65 +2043,37 @@ void write_psd(FILE *ofp)
   free (buffer);
 }
 
-#ifndef NO_PNG
 /*
-   Write the image to a 48-bit PNG file.
+   Write the image to a 48-bit PPM file.
  */
-void write_png(FILE *ofp)
+void write_ppm16(FILE *ofp)
 {
-  png_structp png_ptr;
-  png_infop info_ptr;
-  ushort (*png)[3];
+  ushort (*ppm)[3];
   int y, x, c, val;
   float rgb[4];
 
-  png_ptr = png_create_write_struct
-       (PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  if (!png_ptr) return;
-  info_ptr = png_create_info_struct(png_ptr);
-  if (!info_ptr) {
-    png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
-    return;
-  }
-  if (setjmp(png_ptr->jmpbuf)) {
-    png_destroy_write_struct(&png_ptr, &info_ptr);
-    return;
-  }
-  png_init_io (png_ptr, ofp);
-  png_set_IHDR (png_ptr, info_ptr, width-trim*2, height-trim*2,
-       16, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
-       PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+  fprintf (ofp, "P6\n%d %d\n65535\n",
+	width-trim*2, height-trim*2);
 
-/* Comment out this line if you want compression */
-  png_set_compression_level(png_ptr, 0);
-
-  png_write_info(png_ptr, info_ptr);
-
-  if (htons(0xaa55) != 0xaa55)
-    png_set_swap(png_ptr);
-
-  png = calloc(width-trim*2,6);
-  if (!png) {
-    perror("write_png() calloc failed");
+  ppm = calloc (width-trim*2, 6);
+  if (!ppm) {
+    perror("write_ppm16() calloc failed");
     exit(1);
   }
 
   for (y=trim; y < height-trim; y++) {
     for (x=trim; x < width-trim; x++) {
-      get_rgb(rgb, image[y*width+x]);
+      get_rgb (rgb, image[y*width+x]);
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
 	if (val > 0xffff) val=0xffff;
-	png[x-trim][c] = val;
+	ppm[x-trim][c] = htons(val);
       }
     }
-    png_write_row(png_ptr, (png_bytep) png);
+    fwrite (ppm, width-trim*2, 6, ofp);
   }
-  free (png);
-  png_write_end(png_ptr, NULL);
-  png_destroy_write_struct(&png_ptr, &info_ptr);
+  free (ppm);
 }
-#endif
 
 /*
    Creates a new filename with a different extension
@@ -2136,7 +2099,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.34"
+    "\nRaw Photo Decoder v4.35"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2152,9 +2115,7 @@ int main(int argc, char **argv)
     "\n-l <num>  Set blue scaling (daylight = 1.0)"
     "\n-2        Write 24-bit PPM (default)"
     "\n-3        Write 48-bit PSD (Adobe Photoshop)"
-#ifndef NO_PNG
-    "\n-4        Write 48-bit PNG"
-#endif
+    "\n-4        Write 48-bit PPM"
     "\n\n",
       argv[0], gamma_val, bright);
     exit(1);
@@ -2187,12 +2148,10 @@ int main(int argc, char **argv)
 	write_fun = write_psd;
 	write_ext = ".psd";
 	break;
-#ifndef NO_PNG
       case '4':
-	write_fun = write_png;
-	write_ext = ".png";
+	write_fun = write_ppm16;
+	write_ext = ".ppm";
 	break;
-#endif
       default:
 	fprintf (stderr, "Unknown option \"%s\"\n", argv[arg]);
 	exit(1);
