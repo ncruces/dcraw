@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.161 $
-   $Date: 2004/01/04 09:21:49 $
+   $Revision: 1.162 $
+   $Date: 2004/02/07 13:36:34 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -851,6 +851,19 @@ void ixpress_load_raw()
       swab (pixel, pixel, 4090*2);
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = pixel[width-1-col];
+  }
+}
+
+void pentax_optio_s4_load_raw()
+{
+  int row, col;
+
+  getbits(-1);
+  for (row=0; row < height; row++) {
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = getbits(12) << 2;
+    for (col=0; col < 17; col++)
+      getbits(16);
   }
 }
 
@@ -2317,6 +2330,7 @@ int identify()
     {  3217760, "Casio",    "QV-3*00EX" },
     {  6218368, "Casio",    "QV-5700" },
     {  7684000, "Casio",    "QV-4000" },
+    {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
 
 /*  What format is this file?  Set make[] if we recognize it. */
@@ -2677,6 +2691,12 @@ coolpix:
     load_raw = be_low_12_load_raw;
     pre_mul[0] = 1.76;
     pre_mul[1] = 1.07;
+  } else if (!strcmp(model,"Optio S4")) {
+    height = 1737;
+    width  = 2324;
+    load_raw = pentax_optio_s4_load_raw;
+    pre_mul[0] = 2.09;
+    pre_mul[1] = 1.06;
   } else if (!strcmp(make,"Phase One")) {
     switch (raw_height) {
       case 2060:
@@ -3158,7 +3178,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.43"
+    "\nRaw Photo Decoder v5.44"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
