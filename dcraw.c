@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.239 $
-   $Date: 2005/03/11 18:47:13 $
+   $Revision: 1.240 $
+   $Date: 2005/03/18 22:15:37 $
  */
 
 #define _GNU_SOURCE
@@ -95,8 +95,9 @@ float bright=1.0, red_scale=1.0, blue_scale=1.0;
 int four_color_rgb=0, document_mode=0, quick_interpolate=0;
 int verbose=0, use_auto_wb=0, use_camera_wb=0, use_camera_rgb=0;
 int fuji_secondary, use_secondary=0;
-float camera_red, camera_blue;
-float pre_mul[4], coeff[3][4];
+float cam_mul[4], pre_mul[4], coeff[3][4];
+#define camera_red  cam_mul[0]
+#define camera_blue cam_mul[2]
 int histogram[3][0x2000];
 void write_ppm(FILE *);
 void (*write_fun)(FILE *) = write_ppm;
@@ -2292,11 +2293,9 @@ void CLASS scale_colors()
     FORCC if (sum[c] == 0) val = 0;
     if (val)
       FORCC pre_mul[c] = count[c] / sum[c];
-    else if (camera_red && camera_blue) {
-      pre_mul[0] = camera_red;
-      pre_mul[2] = camera_blue;
-      pre_mul[1] = pre_mul[3] = 1.0;
-    } else
+    else if (camera_red && camera_blue)
+      memcpy (pre_mul, cam_mul, sizeof pre_mul);
+    else
       fprintf (stderr, "%s: Cannot use camera white balance.\n", ifname);
   }
   if (!use_coeff) {
@@ -2581,10 +2580,7 @@ void CLASS parse_makernote()
 	camera_blue = get2() / 256.0;
       } else if (!strcmp(model,"NIKON D2H")) {
 	fseek (ifp, 10, SEEK_CUR);
-	camera_red  = get2();
-	camera_red /= get2();
-	camera_blue = get2();
-	camera_blue = get2() / camera_blue;
+	goto get2_rggb;
       } else if (!strcmp(model,"NIKON D70")) {
 	fseek (ifp, 20, SEEK_CUR);
 	camera_red  = get2();
@@ -2622,6 +2618,14 @@ get2_256:
       order = 0x4d4d;
       camera_red  = get2() / 256.0;
       camera_blue = get2() / 256.0;
+    }
+    if (tag == 0x4001) {
+      fseek (ifp, strstr(model,"EOS-1D") ? 68:50, SEEK_CUR);
+get2_rggb:
+      camera_red  = get2();
+      camera_red /= get2();
+      camera_blue = get2();
+      camera_blue = get2() / camera_blue;
     }
     fseek (ifp, save+4, SEEK_SET);
   }
@@ -3585,12 +3589,15 @@ int CLASS identify()
   raw_height = raw_width = fuji_width = flip = 0;
   make[0] = model[0] = model2[0] = 0;
   memset (white, 0, sizeof white);
-  camera_red = camera_blue = timestamp = tiff_samples = 0;
+  timestamp = tiff_samples = 0;
   data_offset = meta_length = tiff_data_compression = 0;
   zero_after_ff = is_dng = fuji_secondary = filters = 0;
   black = is_foveon = use_coeff = 0;
-  pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
   use_gamma = xmag = ymag = 1;
+  for (i=0; i < 4; i++) {
+    cam_mul[i] = 1 & i;
+    pre_mul[i] = 1;
+  }
   colors = 3;
   for (i=0; i < 0x1000; i++) curve[i] = i;
   maximum = 0xfff;
@@ -3655,6 +3662,11 @@ nucore:
   } else if (!memcmp (head+25,"ARECOYK",7)) {
     strcpy (make, "Contax");
     strcpy (model,"N Digital");
+    fseek (ifp, 60, SEEK_SET);
+    camera_red  = get4();
+    camera_red /= get4();
+    camera_blue = get4();
+    camera_blue = get4() / camera_blue;
   } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     parse_tiff (get4()+12);
@@ -4744,7 +4756,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.02"
+    "\nRaw Photo Decoder \"dcraw\" v7.03"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
