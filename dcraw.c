@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.206 $
-   $Date: 2004/09/19 05:00:32 $
+   $Revision: 1.207 $
+   $Date: 2004/10/02 21:59:44 $
  */
 
 #define _GNU_SOURCE
@@ -1854,9 +1854,7 @@ void CLASS bad_pixels()
   }
   free (fname);
   if (!fp) return;
-  while (1) {
-    fgets (line, 128, fp);
-    if (feof(fp)) break;
+  while (fgets (line, 128, fp)) {
     cp = strchr (line, '#');
     if (cp) *cp = 0;
     if (sscanf (line, "%d %d %d", &col, &row, &time) != 3) continue;
@@ -1975,36 +1973,36 @@ void CLASS vng_interpolate()
 {
   static const signed char *cp, terms[] = {
     -2,-2,+0,-1,0,0x01, -2,-2,+0,+0,1,0x01, -2,-1,-1,+0,0,0x01,
-    -2,-1,+0,-1,0,0x02, -2,-1,+0,+0,0,0x03, -2,-1,+0,+1,0,0x01,
+    -2,-1,+0,-1,0,0x02, -2,-1,+0,+0,0,0x03, -2,-1,+0,+1,1,0x01,
     -2,+0,+0,-1,0,0x06, -2,+0,+0,+0,1,0x02, -2,+0,+0,+1,0,0x03,
-    -2,+1,-1,+0,0,0x04, -2,+1,+0,-1,0,0x04, -2,+1,+0,+0,0,0x06,
+    -2,+1,-1,+0,0,0x04, -2,+1,+0,-1,1,0x04, -2,+1,+0,+0,0,0x06,
     -2,+1,+0,+1,0,0x02, -2,+2,+0,+0,1,0x04, -2,+2,+0,+1,0,0x04,
     -1,-2,-1,+0,0,0x80, -1,-2,+0,-1,0,0x01, -1,-2,+1,-1,0,0x01,
-    -1,-2,+1,+0,0,0x01, -1,-1,-1,+1,0,0x88, -1,-1,+1,-2,0,0x40,
+    -1,-2,+1,+0,1,0x01, -1,-1,-1,+1,0,0x88, -1,-1,+1,-2,0,0x40,
     -1,-1,+1,-1,0,0x22, -1,-1,+1,+0,0,0x33, -1,-1,+1,+1,1,0x11,
     -1,+0,-1,+2,0,0x08, -1,+0,+0,-1,0,0x44, -1,+0,+0,+1,0,0x11,
-    -1,+0,+1,-2,0,0x40, -1,+0,+1,-1,0,0x66, -1,+0,+1,+0,1,0x22,
-    -1,+0,+1,+1,0,0x33, -1,+0,+1,+2,0,0x10, -1,+1,+1,-1,1,0x44,
+    -1,+0,+1,-2,1,0x40, -1,+0,+1,-1,0,0x66, -1,+0,+1,+0,1,0x22,
+    -1,+0,+1,+1,0,0x33, -1,+0,+1,+2,1,0x10, -1,+1,+1,-1,1,0x44,
     -1,+1,+1,+0,0,0x66, -1,+1,+1,+1,0,0x22, -1,+1,+1,+2,0,0x10,
-    -1,+2,+0,+1,0,0x04, -1,+2,+1,+0,0,0x04, -1,+2,+1,+1,0,0x04,
+    -1,+2,+0,+1,0,0x04, -1,+2,+1,+0,1,0x04, -1,+2,+1,+1,0,0x04,
     +0,-2,+0,+0,1,0x80, +0,-1,+0,+1,1,0x88, +0,-1,+1,-2,0,0x40,
     +0,-1,+1,+0,0,0x11, +0,-1,+2,-2,0,0x40, +0,-1,+2,-1,0,0x20,
-    +0,-1,+2,+0,0,0x30, +0,-1,+2,+1,0,0x10, +0,+0,+0,+2,1,0x08,
+    +0,-1,+2,+0,0,0x30, +0,-1,+2,+1,1,0x10, +0,+0,+0,+2,1,0x08,
     +0,+0,+2,-2,1,0x40, +0,+0,+2,-1,0,0x60, +0,+0,+2,+0,1,0x20,
     +0,+0,+2,+1,0,0x30, +0,+0,+2,+2,1,0x10, +0,+1,+1,+0,0,0x44,
-    +0,+1,+1,+2,0,0x10, +0,+1,+2,-1,0,0x40, +0,+1,+2,+0,0,0x60,
+    +0,+1,+1,+2,0,0x10, +0,+1,+2,-1,1,0x40, +0,+1,+2,+0,0,0x60,
     +0,+1,+2,+1,0,0x20, +0,+1,+2,+2,0,0x10, +1,-2,+1,+0,0,0x80,
     +1,-1,+1,+1,0,0x88, +1,+0,+1,+2,0,0x08, +1,+0,+2,-1,0,0x40,
     +1,+0,+2,+1,0,0x10
   }, chood[] = { -1,-1, -1,0, -1,+1, 0,+1, +1,+1, +1,0, +1,-1, 0,-1 };
   ushort (*brow[5])[4], *pix;
-  int code[8][640], *ip, gval[8], gmin, gmax, sum[4];
+  int code[8][2][320], *ip, gval[8], gmin, gmax, sum[4];
   int row, col, shift, x, y, x1, x2, y1, y2, t, weight, grads, color, diag;
   int g, diff, thold, num, c;
 
   for (row=0; row < 8; row++) {		/* Precalculate for bilinear */
-    ip = code[row];
     for (col=1; col < 3; col++) {
+      ip = code[row][col & 1];
       memset (sum, 0, sizeof sum);
       for (y=-1; y <= 1; y++)
 	for (x=-1; x <= 1; x++) {
@@ -2024,10 +2022,9 @@ void CLASS vng_interpolate()
     }
   }
   for (row=1; row < height-1; row++) {	/* Do bilinear interpolation */
-    pix = image[row*width+1];
     for (col=1; col < width-1; col++) {
-      if (col & 1)
-	ip = code[row & 7];
+      pix = image[row*width+col];
+      ip = code[row & 7][col & 1];
       memset (sum, 0, sizeof sum);
       for (g=8; g--; ) {
 	diff = pix[*ip++];
@@ -2038,15 +2035,14 @@ void CLASS vng_interpolate()
 	c = *ip++;
 	pix[c] = sum[c] / *ip++;
       }
-      pix += 4;
     }
   }
   if (quick_interpolate)
     return;
 
   for (row=0; row < 8; row++) {		/* Precalculate for VNG */
-    ip = code[row];
     for (col=0; col < 2; col++) {
+      ip = code[row][col];
       for (cp=terms, t=0; t < 64; t++) {
 	y1 = *cp++;  x1 = *cp++;
 	y2 = *cp++;  x2 = *cp++;
@@ -2068,8 +2064,7 @@ void CLASS vng_interpolate()
 	y = *cp++;  x = *cp++;
 	*ip++ = (y*width + x) * 4;
 	color = FC(row,col);
-	if ((g & 1) == 0 &&
-	    FC(row+y,col+x) != color && FC(row+y*2,col+x*2) == color)
+	if (FC(row+y,col+x) != color && FC(row+y*2,col+x*2) == color)
 	  *ip++ = (y*width + x) * 8 + color;
 	else
 	  *ip++ = 0;
@@ -2081,10 +2076,9 @@ void CLASS vng_interpolate()
   for (row=0; row < 3; row++)
     brow[row] = brow[4] + row*width;
   for (row=2; row < height-2; row++) {		/* Do VNG interpolation */
-    pix = image[row*width+2];
     for (col=2; col < width-2; col++) {
-      if ((col & 1) == 0)
-	ip = code[row & 7];
+      pix = image[row*width+col];
+      ip = code[row & 7][col & 1];
       memset (gval, 0, sizeof gval);
       while ((g = ip[0]) != INT_MAX) {		/* Calculate gradients */
 	num = (diff = pix[g] - pix[ip[1]]) >> 31;
@@ -2100,6 +2094,10 @@ void CLASS vng_interpolate()
       for (g=1; g < 8; g++) {
 	if (gmin > gval[g]) gmin = gval[g];
 	if (gmax < gval[g]) gmax = gval[g];
+      }
+      if (gmax == 0) {
+	memcpy (brow[2][col], pix, sizeof *image);
+	continue;
       }
       thold = gmin + (gmax >> 1);
       memset (sum, 0, sizeof sum);
@@ -2123,7 +2121,6 @@ void CLASS vng_interpolate()
 	}
 	brow[2][col][c] = t;
       }
-      pix += 4;
     }
     if (row > 3)				/* Write buffer to image */
       memcpy (image[(row-2)*width+2], brow[0]+2, (width-4)*sizeof *image);
@@ -2271,7 +2268,7 @@ void CLASS get_timestamp()
 	&t.tm_mday, &t.tm_hour, &t.tm_min, &t.tm_sec) != 6)
     return;
   t.tm_year -= 1900;
-  setenv ("TZ", "", 1);		/* Remove this to assume local time */
+  putenv ("TZ=");		/* Remove this to assume local time */
   if ((ts = mktime(&t)) > 0)
     timestamp = ts;
 }
@@ -2574,7 +2571,7 @@ void CLASS parse_rollei()
       ty = atoi(val);
   } while (strncmp(line,"EOHD",4));
   t.tm_year -= 1900;
-  setenv ("TZ", "", 1);
+  putenv ("TZ=");
   if ((ts = mktime(&t)) > 0)
     timestamp = ts;
   data_offset += tx * ty * 2;
@@ -3142,7 +3139,8 @@ coolpix:
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
     rgb_max = 0xf7ff;
-  } else if (!strcmp(model,"FinePix S7000")) {
+  } else if (!strcmp(model,"FinePix S7000") ||
+	     !strcmp(model,"FinePix E550")) {
     height = 3587;
     width  = 3588;
     filters = 0x49494949;
@@ -3603,6 +3601,7 @@ konica_510z:
 	filters |= 8 << i;
     }
     colors++;
+    pre_mul[3] = pre_mul[1];
     if (use_coeff)
       for (i=0; i < 3; i++)
 	coeff[i][3] = coeff[i][1] /= 2;
@@ -3845,7 +3844,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.02"
+    "\nRaw Photo Decoder \"dcraw\" v6.04"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
