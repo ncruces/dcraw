@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.208 $
-   $Date: 2004/10/04 20:33:44 $
+   $Revision: 1.209 $
+   $Date: 2004/10/07 01:11:51 $
  */
 
 #define _GNU_SOURCE
@@ -3141,14 +3141,18 @@ coolpix:
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
     rgb_max = 0xf7ff;
-  } else if (!strcmp(model,"FinePix S7000") ||
-	     !strcmp(model,"FinePix E550")) {
+  } else if (!strcmp(model,"FinePix S7000")) {
+    pre_mul[0] = 1.62;
+    pre_mul[2] = 1.38;
+    goto fuji_s7000;
+  } else if (!strcmp(model,"FinePix E550")) {
+    pre_mul[0] = 1.45;
+    pre_mul[2] = 1.25;
+fuji_s7000:
     height = 3587;
     width  = 3588;
     filters = 0x49494949;
     load_raw = fuji_s7000_load_raw;
-    pre_mul[0] = 1.81;
-    pre_mul[2] = 1.38;
     rgb_max = 0xf7ff;
   } else if (!strcmp(model,"FinePix F700")) {
     height = 2523;
@@ -3162,7 +3166,6 @@ coolpix:
     height = 1712;
     width  = 2312;
     raw_width = 2336;
-    filters = 0x94949494;
     data_offset = 4034;
     fseek (ifp, 2032, SEEK_SET);
     goto konica_400z;
@@ -3177,12 +3180,19 @@ coolpix:
       load_raw = packed_12_load_raw;
       rgb_max = model[8] == '1' ? 15916:16380;
     } else if (!strncmp(model,"DiMAGE G",8)) {
-      data_offset = 4016;
-      fseek (ifp, 1936, SEEK_SET);
+      if (model[8] <= '5') {
+	data_offset = 4016;
+	fseek (ifp, 1936, SEEK_SET);
 konica_510z:
-      height = 1956;
-      width  = 2607;
-      raw_width = 2624;
+	height = 1956;
+	width  = 2607;
+	raw_width = 2624;
+      } else if (model[8] == '6') {
+	data_offset = 4032;
+	fseek (ifp, 2030, SEEK_SET);
+	height = 2136;
+	width  = 2848;
+      }
       filters = 0x61616161;
 konica_400z:
       load_raw = be_low_10_load_raw;
@@ -3193,7 +3203,7 @@ konica_400z:
       camera_red  /= fget2(ifp);
       camera_blue /= fget2(ifp);
     }
-    pre_mul[0] = 2.00;
+    pre_mul[0] = 1.42;
     pre_mul[2] = 1.25;
   } else if (!strcmp(model,"*ist D")) {
     height = 2024;
@@ -3857,7 +3867,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.05"
+    "\nRaw Photo Decoder \"dcraw\" v6.06"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
