@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.34 $
-   $Date: 2001/10/28 01:00:19 $
+   $Revision: 1.35 $
+   $Date: 2001/11/06 00:16:04 $
 */
 
 #include <math.h>
@@ -840,7 +840,7 @@ get_rgb(float rgb[4], ushort image[4])
 /*
    Write the image to a 24-bit PPM file.
  */
-write_ppm(FILE *ofp)
+void write_ppm(FILE *ofp)
 {
   int y, x, i;
   register unsigned c, val;
@@ -899,17 +899,73 @@ write_ppm(FILE *ofp)
   free (ppm);
 }
 
+/*
+   Write the image to a 48-bit Photoshop file.
+ */
+void write_psd(FILE *ofp)
+{
+  unsigned char head[] = {
+    '8','B','P','S',		/* signature */
+    0,1,0,0,0,0,0,0,		/* version and reserved */
+    0,3,			/* number of channels */
+    0,0,0,0,			/* height, big-endian */
+    0,0,0,0,			/* width, big-endian */
+    0,16,			/* 16-bit color */
+    0,3,			/* mode (1=grey, 3=rgb) */
+    0,0,0,0,			/* color mode data */
+    0,0,0,0,			/* image resources */
+    0,0,0,0,			/* layer/mask info */
+    0,0				/* no compression */
+  };
+  int *hw = (int *)(head+14);
+  int psize, y, x, c, val, max=0xffff;
+  float rgb[4];
+  ushort *buffer, *pred;
+
+  hw[0] = htonl(height-2);	/* write the header */
+  hw[1] = htonl(width-2);
+  fwrite (head, 40, 1, ofp);
+
+  psize = (height-2) * (width-2);
+  buffer = calloc (6, psize);
+  if (!buffer) {
+    perror("psd calloc failed");
+    exit(1);
+  }
+  pred = buffer;
+
+  if (colors == 3)
+    max = 0x4000 * bright;
+  if (max > 0xffff)
+    max = 0xffff;
+
+  for (y=1; y < height-1; y++)
+  {
+    for (x=1; x < width-1; x++)
+    {
+      get_rgb(rgb, image[y * width + x]);
+      for (c=0; c < 3; c++) {
+	val = rgb[c] * bright;
+	if (val > max) val = max;
+	pred[c*psize] = htons(val);
+      }
+      pred++;
+    }
+  }
+  fwrite(buffer, psize, 6, ofp);
+  free (buffer);
+}
 
 /*
    Write the image to a 48-bit PNG file.
  */
-write_png(FILE *ofp)
+void write_png(FILE *ofp)
 {
   png_structp png_ptr;
   png_infop info_ptr;
   ushort (*png)[3];
-  float rgb[4], val;
-  int y, x, c, max=0xffff;
+  int y, x, c, val, max=0xffff;
+  float rgb[4];
 
   png_ptr = png_create_write_struct
        (PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
@@ -979,21 +1035,24 @@ exten(char *new, const char *old, const char *ext)
 main(int argc, char **argv)
 {
   char data[256];
-  int i, arg, write_to_files=1, format_png=0, row;
+  int i, arg, write_to_files=1;
+  void (*write_fun)(FILE *) = write_ppm;
+  const char *write_ext = ".ppm";
   FILE *ofp;
 
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.32"
+    "\nCanon PowerShot Converter v2.35"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
     "\n-c        Write to standard output"
-    "\n-g <num>  Set gamma value (%5.3f by default)"
+    "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
     "\n-2        Write 24-bit PPM (default)"
-    "\n-4        Write 48-bit PNG (-g ignored)\n\n",
+    "\n-3        Write 48-bit PSD (Adobe Photoshop)"
+    "\n-4        Write 48-bit PNG\n\n",
       argv[0], gamma_val, bright);
     exit(1);
   }
@@ -1010,9 +1069,17 @@ main(int argc, char **argv)
       case 'b':
 	bright = atof(argv[++arg]);  break;
       case '2':
-	format_png=0;  break;
+	write_fun = write_ppm;
+	write_ext = ".ppm";
+	break;
+      case '3':
+	write_fun = write_psd;
+	write_ext = ".psd";
+	break;
       case '4':
-	format_png=1;  break;
+	write_fun = write_png;
+	write_ext = ".png";
+	break;
       default:
 	fprintf(stderr,"Unknown option \"%s\"\n",argv[arg]);
 	exit(1);
@@ -1040,23 +1107,20 @@ main(int argc, char **argv)
     fclose(ifp);
 
     ofp = stdout;
+    strcpy (data, "standard output");
     if (write_to_files) {
-      exten(data, argv[arg], format_png ? ".png":".ppm");
+      exten(data, argv[arg], write_ext);
       ofp = fopen(data,"wb");
       if (!ofp) {
 	perror(data);
 	continue;
       }
     }
-    if (format_png) {
-      fprintf (stderr, "Writing PNG output...\n");
-      write_png(ofp);
-    } else {
-      fprintf (stderr, "Writing PPM output...\n");
-      write_ppm(ofp);
-    }
+    fprintf (stderr, "Writing data to %s...\n",data);
+    (*write_fun)(ofp);
     if (write_to_files)
       fclose(ofp);
+
     free (image);
   }
 }
