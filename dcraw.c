@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.114 $
-   $Date: 2003/05/30 02:19:44 $
+   $Revision: 1.115 $
+   $Date: 2003/05/30 03:42:18 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -135,15 +135,6 @@ struct decode {
 	1 G B G B G B	1 B G B G B G	1 G R G R G R
 	2 R G R G R G	2 G R G R G R	2 B G B G B G
 	3 G B G B G B	3 B G B G B G	3 G R G R G R
-
-   The Fuji S2 does not use a Bayer grid.  It has flat, wide
-   pixels in the following pattern, stored in the file with
-   a ninety-degree rotation (not shown here).
-
-	bbbb|rrrr|bbbb|rrrr|bbbb|rrrr
-	gggg|gggg|gggg|gggg|gggg|gggg
-	rrrr|bbbb|rrrr|bbbb|rrrr|bbbb
-	gggg|gggg|gggg|gggg|gggg|gggg
 
  */
 
@@ -767,22 +758,25 @@ void nikon_e950_load_raw()
 }
 
 /*
-   Rotate the image ninety degrees.
+   The Fuji Super CCD is just a Bayer grid rotated 45 degrees.
  */
 void fuji_load_raw()
 {
   ushort pixel[2944];
-  int gray=0, row, col;
+  int gray=0, row, col, r, c;
 
   fseek (ifp, 0, SEEK_SET);
   while (gray < 2944)
     if (fget2(ifp) == 2048) gray++;
     else gray=0;
   fseek (ifp, (2944*23+32) << 1, SEEK_CUR);
-  for (col=width; col--; ) {
+  for (row=0; row < 2144; row++) {
     fread (pixel, 2, 2944, ifp);
-    for (row=0; row < height; row++)
-      image[row*width+col][FC(row,col)] = ntohs(pixel[row]) << 2;
+    for (col=0; col < 2880; col++) {
+      r = row + ((col+1) >> 1);
+      c = 2143 - row + (col >> 1);
+      image[r*width+c][FC(r,c)] = ntohs(pixel[col]) << 2;
+    }
   }
 }
 
@@ -2246,10 +2240,9 @@ coolpix:
     pre_mul[1] = 1.300;
     pre_mul[3] = 1.148;
   } else if (!strcmp(model,"FinePixS2Pro")) {
-    height = 2880;
-    width  = 2144;
-    filters = 0x58525852;
-    xmag = 2;
+    height = 3584;
+    width  = 3583;
+    filters = 0x61616161;
     load_raw = fuji_load_raw;
     pre_mul[0] = 1.424;
     pre_mul[2] = 1.718;
@@ -2642,7 +2635,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.72"
+    "\nRaw Photo Decoder v4.74"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
