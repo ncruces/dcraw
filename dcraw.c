@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.55 $
-   $Date: 2002/05/05 04:52:02 $
+   $Revision: 1.56 $
+   $Date: 2002/05/05 20:35:28 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -935,6 +935,8 @@ void parse (int offset, int length)
   }
 }
 
+void make_coeff();
+
 /*
    Open a CRW file, identify which camera created it, and set
    global variables accordingly.  Returns nonzero if an error occurs.
@@ -942,12 +944,7 @@ void parse (int offset, int length)
 int open_and_id(char *fname)
 {
   char head[8];
-  static const float def_coeff[3][4] = {
-    { -2.400719,  3.539540, -2.515721,  3.421035 },	/* red from GMCY */
-    {  4.013642, -1.710916,  0.690795,  0.417247 },	/* green from GMCY */
-    { -2.345669,  3.385090,  3.521597, -2.249256 }	/* blue from GMCY */
-  };
-  int hlen, i, r, g;
+  int hlen;
 
   rgb_mul[0] = 1.592;
   rgb_mul[1] = 1.0;
@@ -1082,45 +1079,78 @@ int open_and_id(char *fname)
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
   }
-  for (r=0; r < 3; r++)	{
-    for (g=0; g < 4; g++)
-      coeff[r][g] = def_coeff[r][g] * rgb_mul[r];
-  }
+  if (colors == 4) make_coeff();
   return 0;
 }
 
 /*
-   Convert a GMCY quadruplet to an RGB triplet.
-
-   The following table shows how the four CCD pixel types respond
-   to the three primary colors, on a scale of 0-100.
-
-     RGB--->   red    green    blue
-    GMCY-v
-    green	11	86	 8
-    magenta	50	29	51
-    cyan	11	92	75
-    yellow	81	98	 8
-
-   get_rgb() is based on an inversion of this table.
+   Given a matrix that converts RGB to GMCY, create a matrix to do
+   the opposite.  Only square matrices can be inverted, so I create
+   four 3x3 matrices by omitting a different GMCY color in each one.
+   The final coeff[][] matrix is the sum of these four.
  */
+void make_coeff()
+{
+  static const float gmcy[4][3] = {
+/*    red  green  blue			   */
+    { 0.11, 0.86, 0.08 },	/* green   */
+    { 0.50, 0.29, 0.51 },	/* magenta */
+    { 0.11, 0.92, 0.75 },	/* cyan    */
+    { 0.81, 0.98, 0.08 }	/* yellow  */
+  };
+  double invert[3][6], num;
+  int ignore, i, j, k, r, g;
+
+  memset (coeff, 0, sizeof coeff);
+  for (ignore=0; ignore < 4; ignore++) {
+    for (j=0; j < 3; j++) {
+      g = (j < ignore) ? j : j+1;
+      for (r=0; r < 3; r++) {
+	invert[j][r] = gmcy[g][r];	/* 3x3 matrix to invert */
+	invert[j][r+3] = (r == j);	/* Identity matrix	*/
+      }
+    }
+    for (j=0; j < 3; j++) {
+      num = invert[j][j];		/* Normalize this row	*/
+      for (i=0; i < 6; i++)
+	invert[j][i] /= num;
+      for (k=0; k < 3; k++) {		/* Subtract it from the other rows */
+	if (k==j) continue;
+	num = invert[k][j];
+	for (i=0; i < 6; i++)
+	  invert[k][i] -= invert[j][i] * num;
+      }
+    }
+    for (j=0; j < 3; j++) {		/* Add the result to coeff[][] */
+      g = (j < ignore) ? j : j+1;
+      for (r=0; r < 3; r++)
+	coeff[r][g] += invert[r][j+3];
+    }
+  }
+  for (r=0; r < 3; r++)			/* Multiply coeff[][] by rgb_mul[] */
+    for (g=0; g < 4; g++)
+      coeff[r][g] *= rgb_mul[r];
+}
+
 void get_rgb(float rgb[4], ushort image[4])
 {
   int r, g;
 
   memset (rgb, 0, 4 * sizeof (float));
-  for (r=0; r < 3; r++)	{
-    if (colors == 3) {
+  if (colors == 3)
+    for (r=0; r < 3; r++) {		/* RGB from RGB */
       rgb[r] = image[r] * rgb_mul[r];
       if (rgb[r] > rgb_max)
 	  rgb[r] = rgb_max;
-    } else {
+      rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
+    }
+  else
+    for (r=0; r < 3; r++) {		/* RGB from GMCY */
       for (g=0; g < 4; g++)
 	rgb[r] += image[g] * coeff[r][g];
-      if (rgb[r] < 0) rgb[r]=0;
+      if (rgb[r] < 0) rgb[r] = 0;
+      rgb[3] += rgb[r]*rgb[r];
     }
-    rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
-  }
 }
 
 /*
@@ -1321,7 +1351,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.91"
+    "\nCanon PowerShot Converter v2.93"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
