@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.6 $
-   $Date: 2003/09/11 20:52:29 $
+   $Revision: 1.7 $
+   $Date: 2003/09/19 15:15:18 $
  */
 
 #include <stdio.h>
@@ -344,6 +344,47 @@ void parse_ciff (int offset, int length, int level)
   }
 }
 
+void parse_rollei()
+{
+  char line[128], *val;
+
+  while (1) {
+    fgets (line, 128, ifp);
+    if (!strncmp(line,"EOHD",4)) break;
+    fputs (line, stdout);
+    if ((val = strchr(line,'=')))
+      *val++ = 0;
+    else
+      val = line + strlen(line);
+    if (!strcmp(line,"HDR"))
+      thumb_offset = atoi(val);
+    if (!strcmp(line,"TX "))
+      width = atoi(val);
+    if (!strcmp(line,"TY "))
+      height = atoi(val);
+  }
+  strcpy (make, "Rollei");
+  strcpy (model, "d530flex");
+  thumb_length = width*height*2;
+}
+
+void rollei_decode (FILE *tfp)
+{
+  ushort data;
+  int row, col;
+
+  fseek (ifp, thumb_offset, SEEK_SET);
+  fprintf (tfp, "P6 %d %d 255\n", width, height);
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++) {
+      fread (&data, 2, 1, ifp);
+      data = ntohs(data);
+      putc (data << 3, tfp);
+      putc (data >> 5  << 2, tfp);
+      putc (data >> 11 << 3, tfp);
+    }
+}
+
 void parse_foveon()
 {
   char *buf, *bp, *np;
@@ -494,7 +535,9 @@ int identify(char *fname)
     parse_tiff_file (toff+12);
     thumb_offset = toff;
     thumb_length = tlen;
-  } else if (magic == 0x464f5662)	/* "FOVb" */
+  } else if (magic == 0x4453432d)	/* "DSC-" */
+    parse_rollei();
+  else if (magic == 0x464f5662)		/* "FOVb" */
     parse_foveon();
   if (model[0] == 0) {
     fprintf (stderr, "%s: unsupported file format.\n", fname);
@@ -524,6 +567,10 @@ int identify(char *fname)
   }
   if (!strcasecmp(model,"DCS Pro 14N")) {
     kodak_yuv_decode (tfp);
+    goto done;
+  }
+  if (!strcmp(make,"Rollei")) {
+    rollei_decode (tfp);
     goto done;
   }
   thumb = (char *) malloc(thumb_length);
