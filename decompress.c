@@ -2,8 +2,8 @@
    Simple reference decompresser for Canon digital cameras.
    Outputs raw 16-bit CCD data, no header, native byte order.
 
-   $Revision: 1.10 $
-   $Date: 2003/10/14 01:16:41 $
+   $Revision: 1.11 $
+   $Date: 2004/02/22 04:02:44 $
 */
 
 #include <stdio.h>
@@ -335,7 +335,7 @@ unsigned long getbits(int nbits)
 int main(int argc, char **argv)
 {
   struct decode *decode, *dindex;
-  int i, j, leaf, len, sign, diff, diffbuf[64], r, save;
+  int i, j, leaf, len, diff, diffbuf[64], r, save;
   int carry=0, column=0, base[2];
   unsigned short outbuf[64];
   uchar c;
@@ -367,12 +367,9 @@ int main(int argc, char **argv)
       i  += leaf >> 4;
       len = leaf & 15;
       if (len == 0) continue;
-      sign=(getbits(1));	/* 1 is positive, 0 is negative */
-      diff=getbits(len-1);
-      if (sign)
-	diff += 1 << (len-1);
-      else
-	diff += (-1 << len) + 1;
+      diff = getbits(len);
+      if ((diff & (1 << (len-1))) == 0)
+	diff -= (1 << len) - 1;
       if (i < 64) diffbuf[i] = diff;
     }
     diffbuf[0] += carry;
