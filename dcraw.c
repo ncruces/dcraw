@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.191 $
-   $Date: 2004/05/11 04:38:40 $
+   $Revision: 1.192 $
+   $Date: 2004/05/11 19:09:02 $
  */
 
 #define _GNU_SOURCE
@@ -3483,7 +3483,7 @@ void convert_to_rgb()
 {
   int row, col, r, g, c=0;
   ushort *img;
-  float rgb[4];
+  float rgb[3], mag;
 
   if (document_mode)
     colors = 1;
@@ -3507,19 +3507,24 @@ void convert_to_rgb()
 	rgb[1] = img[1] + img[2] - img[0];
 	rgb[2] = img[2] + img[0] - img[1];
       } else				/* RGB from RGB (easy) */
-	for (r=0; r < 3; r++)
-	  rgb[r] = img[r];
-      for (rgb[3]=r=0; r < 3; r++) {	/* Compute the magnitude */
-	if (rgb[r] < 0) rgb[r] = 0;
-	if (rgb[r] > rgb_max) rgb[r] = rgb_max;
-	rgb[3] += rgb[r]*rgb[r];
-      }
-      rgb[3] = sqrt(rgb[3])/2;
-      if (rgb[3] > 0xffff)
-	  rgb[3] = 0xffff;
-      for (r=0; r < 4; r++)
+	goto norgb;
+      for (r=0; r < 3; r++) {
+	if (rgb[r] < 0)
+	    rgb[r] = 0;
+	if (rgb[r] > rgb_max)
+	    rgb[r] = rgb_max;
 	img[r] = rgb[r];
-      histogram[img[3] >> 3]++;		/* bin width is 8 */
+      }
+norgb:
+      if (write_fun == write_ppm) {
+	for (mag=r=0; r < 3; r++)
+	  mag += (unsigned) img[r]*img[r];
+	mag = sqrt(mag)/2;
+	if (mag > 0xffff)
+	    mag = 0xffff;
+	img[3] = mag;
+	histogram[img[3] >> 3]++;
+      }
     }
 }
 
@@ -3657,7 +3662,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.81"
+    "\nRaw Photo Decoder \"dcraw\" v5.82"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
