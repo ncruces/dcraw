@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.71 $
-   $Date: 2002/10/27 18:50:40 $
+   $Revision: 1.72 $
+   $Date: 2002/10/27 23:55:19 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -963,9 +963,13 @@ void first_interpolate()
 }
 
 /*
-   We now have all color values for each pixel.  Smooth the
-   color balance to avoid artifacts.  This function may be
-   called more than once.
+   We now have all color values for each pixel.  Sharpen the
+   spatial detail by assuming that neighboring pixels have
+   similar color ratios.
+
+   To avoid amplifying noise, wherever any color value falls
+   below a certain threshold, that pixel and all neighboring
+   pixels will be left unchanged.
 */
 void second_interpolate()
 {
@@ -983,24 +987,27 @@ void second_interpolate()
   }
   for (row=2; row < height-2; row++) {
     for (col=2; col < width-2; col++) {
-      cc = FC(row,col);
       memset (avg, 0, sizeof avg);
-      for (y = row-1; y < row+2; y++)
+      for (y = row-1; y < row+2; y++)	/* Any noisy neighbors? */
 	for (x = col-1; x < col+2; x++)
-	  if ((c = FC(y,x)) != cc && image[y*width+x][cc]) {
+	  for (c=0; c < colors; c++)
+	    if (image[y*width+x][c] < 75) goto noise;
+      cc = FC(row,col);
+      for (y = row-1; y < row+2; y++)	/* Neighbors are OK to use */
+	for (x = col-1; x < col+2; x++)
+	  if ((c = FC(y,x)) != cc) {
 	    val = ((unsigned long) image[y*width+x][c] << 16) /
 		image[y*width+x][cc] * image[row*width+col][cc] >> 16;
 	    avg[c] += val;
 	    avg[c+4]++;
-	    if (y==row || x==col) {	/* Orthogonal neighbor */
+	    if (y==row || x==col) {	/* Count orthogonal neighbor twice */
 	      avg[c] += val;
 	      avg[c+4]++;
 	    }
 	  }
-      curr[col][cc] = image[row*width+col][cc];
+noise:
       for (c=0; c < colors; c++)
-	if (c != cc)
-	  curr[col][c] = avg[c+4] ? avg[c] / avg[c+4] : 0;
+	curr[col][c] = avg[c+4] ? avg[c]/avg[c+4] : image[row*width+col][c];
     }
     if (row > 2)
       memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
@@ -1687,7 +1694,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v3.15"
+    "\nCanon PowerShot Converter v3.18"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
