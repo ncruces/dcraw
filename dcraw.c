@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.194 $
-   $Date: 2004/05/22 15:41:31 $
+   $Revision: 1.195 $
+   $Date: 2004/06/16 17:19:36 $
  */
 
 #define _GNU_SOURCE
@@ -732,6 +732,24 @@ int nikon_is_compressed()
   fread (test, 1, 256, ifp);
   for (i=15; i < 256; i+=16)
     if (test[i]) return 1;
+  return 0;
+}
+
+/*
+   Returns 1 for a Coolpix 990, 0 for a Coolpix 995.
+ */
+int nikon_e990()
+{
+  int i, histo[256];
+  const uchar often[] = { 0x00, 0x55, 0xaa, 0xff };
+
+  memset (histo, 0, sizeof histo);
+  fseek (ifp, 2064*1540*3/4, SEEK_SET);
+  for (i=0; i < 2000; i++)
+    histo[fgetc(ifp)]++;
+  for (i=0; i < 4; i++)
+    if (histo[often[i]] > 400)
+      return 1;
   return 0;
 }
 
@@ -2666,7 +2684,7 @@ int identify()
     {   124928, "Kodak",    "DC20" },
     {  2465792, "NIKON",    "E950" },
     {  2940928, "NIKON",    "E2100" },
-    {  4771840, "NIKON",    "E990/995" },
+    {  4771840, "NIKON",    "E990" },
     {  5865472, "NIKON",    "E4500" },
     {  5869568, "NIKON",    "E4300" },
     {   787456, "Creative", "PC-CAM 600" },
@@ -2992,15 +3010,23 @@ nucore:
     pre_mul[0] = 1.18193;
     pre_mul[2] = 1.16452;
     pre_mul[3] = 1.17250;
-  } else if (!strcmp(model,"E990/995")) {
+  } else if (!strcmp(model,"E990")) {
     height = 1540;
     width  = 2064;
-    filters = 0xb4b4b4b4;
     colors = 4;
-    nikon_e950_coeff();
-    pre_mul[0] = 1.196;
-    pre_mul[1] = 1.246;
-    pre_mul[2] = 1.018;
+    if (nikon_e990()) {
+      filters = 0xb4b4b4b4;
+      nikon_e950_coeff();
+      pre_mul[0] = 1.196;
+      pre_mul[1] = 1.246;
+      pre_mul[2] = 1.018;
+    } else {
+      strcpy (model, "E995");
+      filters = 0xe1e1e1e1;
+      pre_mul[0] = 1.253;
+      pre_mul[1] = 1.178;
+      pre_mul[3] = 1.035;
+    }
   } else if (!strcmp(model,"E2100")) {
     width = 1616;
     if (nikon_e2100()) {
@@ -3030,6 +3056,10 @@ coolpix:
     pre_mul[0] = 1.300;
     pre_mul[1] = 1.300;
     pre_mul[3] = 1.148;
+  } else if (!strcmp(model,"E5400")) {
+    filters = 0x16161616;
+    pre_mul[0] = 1.700;
+    pre_mul[2] = 1.344;
   } else if (!strcmp(model,"E8700")) {
     filters = 0x16161616;
     pre_mul[0] = 2.131;
@@ -3149,6 +3179,8 @@ coolpix:
     load_raw = be_16_load_raw;
     rgb_max = 0xffff;
   } else if (!strcmp(make,"Leaf")) {
+    if (height > width)
+      filters = 0x16161616;
     load_raw = be_16_load_raw;
     pre_mul[0] = 1.1629;
     pre_mul[2] = 1.3556;
@@ -3682,7 +3714,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.84"
+    "\nRaw Photo Decoder \"dcraw\" v5.85"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
