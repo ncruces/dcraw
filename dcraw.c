@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.181 $
-   $Date: 2004/04/14 19:19:12 $
+   $Revision: 1.182 $
+   $Date: 2004/04/19 22:58:46 $
  */
 
 #define _GNU_SOURCE
@@ -860,7 +860,8 @@ void ixpress_load_raw()
   }
 }
 
-void pentax_optio_load_raw()
+/* For this function only, raw_width is in bytes, not pixels! */
+void packed_12_load_raw()
 {
   int row, col;
 
@@ -868,19 +869,9 @@ void pentax_optio_load_raw()
   for (row=0; row < height; row++) {
     for (col=0; col < width; col++)
       BAYER(row,col) = getbits(12) << 2;
-    for (col=0; col < 17; col++)
-      getbits(16);
+    for (col = width*3/2; col < raw_width; col++)
+      getbits(8);
   }
-}
-
-void packed_12_load_raw()
-{
-  int row, col;
-
-  getbits(-1);
-  for (row=0; row < height; row++)
-    for (col=0; col < width; col++)
-      BAYER(row,col) = getbits(12) << 2;
 }
 
 void unpacked_load_raw (int order, int rsh)
@@ -2225,35 +2216,53 @@ void parse_tiff(int base)
       tag  = fget2(ifp);
       type = fget2(ifp);
       len  = fget4(ifp);
-      val  = fget4(ifp);
+      if (type == 3) {		/* short int */
+	val = fget2(ifp);  fget2(ifp);
+      } else
+	val = fget4(ifp);
       save = ftell(ifp);
       fseek (ifp, val+base, SEEK_SET);
       switch (tag) {
-	case 256:			/* ImageWidth */
+	case 0x11:
+	  camera_red  = val / 256.0;
+	  break;
+	case 0x12:
+	  camera_blue = val / 256.0;
+	  break;
+	case 0x100:			/* ImageWidth */
 	  wide = val;
 	  break;
-	case 257:			/* ImageHeight */
+	case 0x101:			/* ImageHeight */
 	  high = val;
 	  break;
-	case 271:			/* Make tag */
+	case 0x10f:			/* Make tag */
 	  fgets (make, 64, ifp);
 	  break;
-	case 272:			/* Model tag */
+	case 0x110:			/* Model tag */
 	  fgets (model, 64, ifp);
 	  break;
-	case 273:			/* StripOffset */
+	case 0x111:			/* StripOffset */
 	  cr2_offset = val;
 	  offset = fget4(ifp);
 	  break;
-	case 33405:			/* Model2 tag */
+	case 0x827d:			/* Model2 tag */
 	  fgets (model2, 64, ifp);
 	  break;
-	case 305:			/* Software tag */
+	case 0x131:			/* Software tag */
 	  fgets (software, 64, ifp);
 	  if (!strncmp(software,"Adobe",5))
 	    make[0] = 0;
 	  break;
-	case 330:			/* SubIFD tag */
+	case 0x144:
+	  strcpy (make, "Leaf");
+	  raw_width  = wide;
+	  raw_height = high;
+	  if (len > 1)
+	    data_offset = fget4(ifp);
+	  else
+	    data_offset = val;
+	  break;
+	case 0x14a:			/* SubIFD tag */
 	  if (len > 2 && !strcmp(make,"Kodak"))
 	      len = 2;
 	  if (len > 1)
@@ -2282,7 +2291,7 @@ void parse_tiff(int base)
   if (!strcmp(model,"Canon EOS-1D Mark II"))
     data_offset = cr2_offset;
 
-  if (make[0] == 0 && wide == 0x2a80000 && high == 0x2a80000) {
+  if (make[0] == 0 && wide == 680 && high == 680) {
     strcpy (make, "Imacon");
     strcpy (model,"Ixpress");
   }
@@ -2599,6 +2608,7 @@ int identify()
     {  3217760, "Casio",    "QV-3*00EX" },
     {  6218368, "Casio",    "QV-5700" },
     {  7684000, "Casio",    "QV-4000" },
+    {  9313536, "Casio",    "EX-P600" },
     {  4841984, "Pentax",   "Optio S" },
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
@@ -2999,13 +3009,15 @@ coolpix:
   } else if (!strcmp(model,"Optio S")) {
     height = 1544;
     width  = 2068;
-    load_raw = pentax_optio_load_raw;
+    raw_width = 3136;
+    load_raw = packed_12_load_raw;
     pre_mul[0] = 1.506;
     pre_mul[2] = 1.152;
   } else if (!strcmp(model,"Optio S4")) {
     height = 1737;
     width  = 2324;
-    load_raw = pentax_optio_load_raw;
+    raw_width = 3520;
+    load_raw = packed_12_load_raw;
     pre_mul[0] = 1.308;
     pre_mul[2] = 1.275;
   } else if (!strcmp(make,"Phase One")) {
@@ -3063,6 +3075,18 @@ coolpix:
     data_offset = 68;
     load_raw = be_16_load_raw;
     rgb_max = 0xffff;
+  } else if (!strcmp(make,"Leaf")) {
+    load_raw = be_16_load_raw;
+    pre_mul[0] = 1.1629;
+    pre_mul[2] = 1.3556;
+    rgb_max = 0xffff;
+  } else if (!strcmp(model,"DIGILUX 2")) {
+    height = 1928;
+    width  = 2568;
+    data_offset = 1024;
+    load_raw = le_high_12_load_raw;
+    pre_mul[0] = 1.883;
+    pre_mul[2] = 1.367;
   } else if (!strcmp(model,"E-1")) {
     filters = 0x61616161;
     load_raw = le_high_12_load_raw;
@@ -3338,6 +3362,13 @@ coolpix:
     height = 1924;
     width  = 2576;
     load_raw = casio_qv5700_load_raw;
+  } else if (!strcmp(model,"EX-P600")) {
+    height = 2142;
+    width  = 2844;
+    raw_width = 4288;
+    load_raw = packed_12_load_raw;
+    pre_mul[0] = 2.356;
+    pre_mul[1] = 1.069;
   } else if (!strcmp(make,"Nucore")) {
     filters = 0x61616161;
     load_raw = nucore_load_raw;
@@ -3551,7 +3582,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.73"
+    "\nRaw Photo Decoder \"dcraw\" v5.75"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
