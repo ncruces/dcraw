@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "February 15, 2004"
+.TH dcraw 1 "March 6, 2004"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -56,6 +56,11 @@ Good for photographing black-and-white documents.
 .B -q
 Use simple bilinear interpolation for quick results.  The
 default is to use a slow, high-quality adaptive algorithm.
+.TP
+.B -h
+Half-size the output image.  Instead of interpolating, reduce
+each 2x2 block of sensors to one pixel.  Much faster than
+.BR -q .
 .TP
 .B -g gamma
 Specify the gamma value for eight-bit output.  Default is 0.6.
@@ -112,6 +117,8 @@ First raise the brightness if the highlights are too dark,
 then lower the gamma if the lowlights are too dark.
 Use
 .B -q
+or
+.B -h
 until you get it right.
 .P
 To balance the color, do
