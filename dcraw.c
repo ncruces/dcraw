@@ -1,7 +1,7 @@
 /*
-   CRW to PPM converter Version 0.2
+   CRW to PPM converter Version 0.3
 
-   by Dave Coffin (dcoffin at shore dot net)  2/24/97
+   by Dave Coffin (dcoffin at shore dot net)  3/24/97
 
    No rights reserved.  Do what you want with this code,
    but I accept no responsibility for any consequences
@@ -39,13 +39,15 @@ read_crw(int in)
   int bin, irow, icol, orow, ocol;
 
   read (in, data, 24);				/* Chop the header */
+  if (memcmp(data+4,"HEAPCCDR",8))		/* Make sure it's CRW */
+    return 1;
 
   for (irow=orow=0; irow < 613; irow++)
   {
     read (in, data, 1120);                      /* Read one row */
     for (icol=ocol=0; icol < 1067; icol++)
     {
-      if ( icol % 10 != 1 && icol % 10 != 9 )   /* Cut out noise columns */
+      if ( icol % 10 != 1 && icol % 10 != 9 ) /* Delete the "mystery pixels" */
 	pgm[orow][ocol++] = data[icol];
     }
     if ((orow+=2) > 612)        /* Once we've read all the even rows, */
@@ -105,16 +107,30 @@ read_pgm(int in)
 
 /*
    Converts a GMCY quadruplet into an RGB triplet.
-   Ask Canon how this works; I have no clue.
+
+   The following table shows how the four CCD pixel types respond
+to the three primary colors, on a scale of 0-100.
+
+     RGB--->   red    green    blue
+    GMCY-v
+    green	11	86	 8
+    magenta	50	29	51
+    cyan	11	92	75
+    yellow	81	98	 8
+
+   get_rgb() is based on this table.
 */
-get_rgb(float rgb[3], int gmcy[4])
+get_rgb(float rgb[3], uchar gmcy[4])
 {
   int r, g;
   static const float coeff[3][4] =
   {
-    { -5.175675,  3.853136, -1.681311,  5.270232 },
-    {  1.281218, -1.147541,  1.935073,  0.487001 },
-    { -3.167515,  2.900609,  4.132598, -1.720971 }
+    { -2.400719,  3.539540, -2.515721,  3.421035 }, /* red */
+#if 0
+    {  4.013642, -1.710916,  0.690795,  0.417247 }, /* green */
+#endif
+    {  2.006821, -0.855458,  0.345397,  0.208623 }, /* green/2 (why??) */
+    { -2.345669,  3.385090,  3.521597, -2.249256 }  /* blue */
   };
 
   memset(rgb,0,12);
@@ -142,41 +158,55 @@ color (unsigned x, unsigned y)
 }
 
 /*
-   Interpolate GMCY values for each non-edge pixel (using
-   all eight neighbors), then convert the result to RGB.
+     For all values of (x,y), the pixels (x,y), (x+1,y), (x,y+1),
+and (x+1,y+1) form a GMCY vector (i.e. no two have the same color).
+Convert these vectors to RGB, then try to remove the artifacts that
+appear when there's an edge between x and x+1.
 */
 write_ppm(char *fname)
 {
-  int out, y, x, sy, sx, c, val, gmcy[4];
-  uchar ppm[852][3];
+  int out, y, x, sy, sx, c, val, prev;
+  uchar gmcy[4], ppm[853][3];
   float rgb[3];
-  uchar shift[]={ 0,1,0, 1,2,1, 0,1,0 }, *sp;
 
   out = open(fname,WFLAGS,0644);
   if (out < 0)
   { perror(fname);
     return; }
-  write(out,"P6\n852 611\n255\n",15);
+  write(out,"P6\n853 612\n255\n",15);
 
-  for (y=0; y < 611; y++)
+  for (y=0; y < 612; y++)
   {
-    for (x=0; x < 852; x++)
+    for (x=0; x < 853; x++)
     {
-      memset(gmcy,0,sizeof gmcy);
-      sp=shift;
-      for (sy=y; sy < y+3; sy++) /* Average a 3x3 block */
-	for (sx=x; sx < x+3; sx++)
-	  gmcy[color(sx,sy)] += pgm[sy][sx] << *sp++;
-
-      get_rgb(rgb,gmcy);	/* Convert GMCY averages to RGB */
+      for (sy=y; sy < y+2; sy++)
+	for (sx=x; sx < x+2; sx++)
+	  gmcy[color(sx,sy)] = pgm[sy][sx];
+      get_rgb(rgb,gmcy);
       for (c=0; c < 3; c++)
       {
-	val = floor(rgb[c]/4);	/* Save the RGB values */
+	val = floor(rgb[c]);
 	if (val < 0) val=0;
 	if (val > 255) val=255;
 	ppm[x][c] = val;
       }
     }
+
+/* This moire smoothing doesn't work very well. */
+
+#ifdef MOIRE_SMOOTH
+    for (c=0; c < 3; c++)
+    {
+      prev = ppm[0][c];
+      for (x=1; x < 852; x++)
+      {
+	val = prev + ppm[x][c]*2 + ppm[x+1][c] + 1 >> 2;
+	prev = ppm[x][c];
+	ppm[x][c] = val;
+      }
+    }
+#endif
+
     write (out, ppm, sizeof ppm);
   }
   close(out);
@@ -202,7 +232,7 @@ main(int argc, char **argv)
   if (argc < 2)
   {
     puts("\nCRW to PPM converter by Dave Coffin (dcoffin@shore.net)");
-    puts("Version 0.2, last modified 2/24/97\n");
+    puts("Version 0.3, last modified 3/24/97\n");
     printf("Usage:  %s file1.crw file2.crw ...\n\n",argv[0]);
     exit(1);
   }
@@ -216,7 +246,10 @@ main(int argc, char **argv)
     read(fd,&magic,2);
     if (magic == 0x4d4d)		/* "MM" */
     {
-      read_crw(fd);
+      if (read_crw(fd))
+      { fprintf(stderr,"%s is not a CRW file.\n",argv[arg]);
+	continue;
+      }
 
 #ifdef WANT_PGM_FILE
       exten(fname, argv[arg],".pgm");	/* Write the pixel data to */
@@ -229,7 +262,7 @@ main(int argc, char **argv)
       close(fd);
 #endif
     }
-    else if (magic==0x3550 || magic==0x5035)	/* "P5" or "5P" */
+    else if (ntohs(magic)==0x5035)	/* "P5" */
     {
       if (read_pgm(fd)) continue;
     }
