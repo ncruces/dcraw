@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.50 $
-   $Date: 2002/04/07 19:09:14 $
+   $Revision: 1.51 $
+   $Date: 2002/04/16 23:32:41 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -45,6 +45,7 @@ typedef unsigned short ushort;
 FILE *ifp;
 short order;
 int height, width, colors, black, canon;
+int raw_height, raw_width;	/* Including black borders */
 int nef_data_offset;
 unsigned filters;
 char name[64];
@@ -457,13 +458,13 @@ unsigned long getbits(int nbits)
    larger than the global width, because it includes some
    blank pixels that (*read_crw) will strip off.
  */
-void decompress(ushort *outbuf, int width, int count)
+void decompress(ushort *outbuf, int count)
 {
   struct decode *decode, *dindex;
   int i, leaf, len, sign, diff, diffbuf[64];
   static int carry, pixel, base[2];
 
-  if (!width) {			/* Initialize */
+  if (!outbuf) {			/* Initialize */
     carry = pixel = 0;
     fseek (ifp, count, SEEK_SET);
     getbits(-1);
@@ -495,7 +496,7 @@ void decompress(ushort *outbuf, int width, int count)
     diffbuf[0] += carry;
     carry = diffbuf[0];
     for (i=0; i < 64; i++ ) {
-      if (pixel++ % width == 0)
+      if (pixel++ % raw_width == 0)
 	base[0] = base[1] = 512;
       outbuf[i] = ( base[i & 1] += diffbuf[i] );
     }
@@ -508,13 +509,13 @@ void pro90_read_crw()
   ushort pixel[1944*8];
   int row, r, col;
 
-  decompress(0,0,540);
+  decompress(0,540);
 /*
    Read eight rows at a time.
    Each row has 1896 image pixels and 48 black pixels.
  */
   for (row=0; row < height; row += 8) {
-    decompress(pixel,1944,243);
+    decompress(pixel,243);
     for (r=0; r < 8; r++) {
       for (col=0; col < width; col++)
 	image[(row+r)*width+col][FC(row+r,col)] =
@@ -531,14 +532,14 @@ void g1_read_crw()
   ushort pixel[2144*2];
   int row, r, col;
 
-  decompress(0,0,540);
+  decompress(0,540);
 /*
    Read two rows at a time.
    The image has a black border, eight pixels wide on top,
    two on the bottom, four on the left, and 52 on the right.
  */
   for (row = -8; row < height+2; row += 2) {
-    decompress(pixel,2144,67);
+    decompress(pixel,67);
     for (r=0; r < 2; r++)
       for (col = -4; col < width+52; col++)
 	if ((unsigned) (row+r) < height && (unsigned) col < width)
@@ -555,14 +556,14 @@ void g2_read_crw()
   ushort pixel[2376*8];
   int row, r, col;
 
-  decompress(0,0,540);
+  decompress(0,540);
 /*
    Read eight rows at a time.
    The image has a black border, six pixels wide on top,
    two on the bottom, 12 on the left, and 52 on the right.
  */
   for (row = -6; row < height+2; row += 8) {
-    decompress(pixel,2376,297);
+    decompress(pixel,297);
     for (r=0; r < 8; r++)
       for (col = -12; col < width+52; col++)
 	if ((unsigned) (row+r) < height && (unsigned) col < width)
@@ -575,41 +576,59 @@ void g2_read_crw()
 }
 
 /*
-   All other cameras give 10 bits per sample; the EOS D30 gives 12.
-   The other two bits are in a different part of the file, so I save
-   my place, and seek over there to pick them up.
+   The "PowerShot" cameras provide 10 bits per pixel in one compressed
+   chunk.  The "EOS" cameras provide 12 bits per pixel:  first the two
+   low bits of every pixel, not compressed, followed by the top ten bits
+   compressed as in the PowerShot cameras.
  */
 void d30_read_crw()
 {
-  ushort pixel[2224*4], *prow;
+  ushort *pixel, *prow;
   int i, row, r, col, save;
+  unsigned top, left, irow, icol;
   uchar c;
 
-  decompress(0,0,810076);
-/*
-   Read four rows at a time.
-   The image has a black border, six pixels wide on top,
-   two on the bottom, 48 on the left, and none on the right.
- */
-  for (row = -6; row < height+2; row += 4) {
-    decompress(pixel,2224,139);
-    save = ftell(ifp);
-    fseek (ifp, (row+6)*(2224/4) + 26, SEEK_SET);	/* Get low bits */
-    for (prow=pixel, i=0; i < 2224; i++) {
+/* Set the width of the black borders */
+  switch (raw_width) {
+    case 2224:  top = 6;  left = 48;  break;	/* EOS D30 */
+    case 3152:  top =12;  left = 64;  break;	/* EOS D60 */
+  }
+  pixel = calloc (raw_width*4, sizeof *pixel);
+  if (!pixel) {
+    perror("d30_read_crw() calloc failed");
+    exit(1);
+  }
+  decompress(0, 540 + raw_height*raw_width/4);
+  for (row=0; row < raw_height; row+=4) {
+    decompress(pixel, raw_width/16);		/* Get four rows */
+    save = ftell(ifp);				/* Don't lose our place */
+    fseek (ifp, 26 + row*raw_width/4, SEEK_SET);/* Add the low bits */
+    for (prow=pixel, i=0; i < raw_width; i++) {
       c = fgetc(ifp);
       for (r=0; r < 8; r+=2)
 	*prow++ = (*prow << 2) + ((c >> r) & 3);
     }
     fseek (ifp, save, SEEK_SET);
     for (r=0; r < 4; r++)
-      for (col = -48; col < width; col++)
-	if ((unsigned) (row+r) < height && col >= 0)
-	  image[(row+r)*width+col][FC(row+r,col)] =
-		(pixel[(r*2224)+col+48] & 0xfff) << 2;
+      for (col=0; col < raw_width; col++) {
+	irow = row+r-top;
+	icol = col-left;
+	if (irow < height && icol < width)
+	  image[irow*width+icol][FC(irow,icol)] =
+		(pixel[r*raw_width+col] & 0xfff) << 2;
 	else
-	    black += pixel[(r*2224)+col+48] & 0xfff;
+	    black += pixel[r*raw_width+col] & 0xfff;
+      }
   }
-  black = ((long long) black << 2) / (8 * 2224 + 48 * height);
+  free (pixel);
+/*
+   "i" is the number of full rows to include in the average.
+   On the EOS D60, the top seven rows are zero, not black,
+   hence I do not include them in the denominator.
+ */
+  i = raw_height - height;
+  if (raw_width == 3152) i -= 7;
+  black = ((long long) black << 2) / (i * raw_width + left * height);
 }
 
 #ifdef LJPEG_DECODE
@@ -906,6 +925,11 @@ void parse (int offset, int length)
       while (fgetc(ifp));
       fread (name, 64, 1, ifp);
     }
+    if (type == 0x1031) {		/* Get the raw width and height */
+      fseek (ifp, aoff+2, SEEK_SET);
+      raw_width  = fget2(ifp);
+      raw_height = fget2(ifp);
+    }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
       init_tables (fget4(ifp));
@@ -1015,6 +1039,12 @@ int open_and_id(char *fname)
   } else if (!strcmp(name,"Canon EOS D30")) {
     height = 1448;
     width  = 2176;
+    colors = 3;
+    filters = 0x94949494;
+    read_crw = d30_read_crw;
+  } else if (!strcmp(name,"Canon EOS D60")) {
+    height = 2056;
+    width  = 3088;
     colors = 3;
     filters = 0x94949494;
     read_crw = d30_read_crw;
@@ -1299,7 +1329,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.81"
+    "\nCanon PowerShot Converter v2.85"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
