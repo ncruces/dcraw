@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.18 $
-   $Date: 2004/08/16 23:40:39 $
+   $Revision: 1.19 $
+   $Date: 2004/09/16 20:02:19 $
  */
 
 #include <stdio.h>
@@ -634,6 +634,12 @@ int identify(char *fname)
     strcpy (thumb_head, "\xff");
     thumb_offset++;
     thumb_length -= thumb_offset;
+  } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
+	     !memcmp (head+6,"Exif",4)) {
+    fseek (ifp, 4, SEEK_SET);
+    fseek (ifp, 4 + fget2(ifp), SEEK_SET);
+    if (fgetc(ifp) != 0xff)
+      parse_tiff_file (12);
   } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     toff = fget4(ifp);
