@@ -2,11 +2,12 @@
    Simple reference decompresser for Canon digital cameras.
    Outputs raw 16-bit CCD data, no header, native byte order.
 
-   $Revision: 1.8 $
-   $Date: 2002/08/15 17:22:53 $
+   $Revision: 1.9 $
+   $Date: 2002/11/11 19:07:32 $
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef unsigned char uchar;
@@ -15,7 +16,7 @@ typedef unsigned char uchar;
 
 FILE *ifp;
 short order;
-int height, width, table;
+int height, width, table, lowbits;
 char name[64];
 
 struct decode {
@@ -59,7 +60,7 @@ int fget4 (FILE *f)
 /*
    Parse the CIFF structure
  */
-parse (int offset, int length)
+void parse (int offset, int length)
 {
   int tboff, nrecs, i, type, len, roff, aoff, save;
 
@@ -94,10 +95,31 @@ parse (int offset, int length)
 }
 
 /*
+   Return 0 if the image starts with compressed data,
+   1 if it starts with uncompressed low-order bits.
+
+   In Canon compressed data, 0xff is always followed by 0x00.
+ */
+int canon_has_lowbits()
+{
+  uchar test[8192];
+  int ret=1, i;
+
+  fseek (ifp, 0, SEEK_SET);
+  fread (test, 1, 8192, ifp);
+  for (i=540; i < 8191; i++)
+    if (test[i] == 0xff) {
+      if (test[i+1]) return 1;
+      ret=0;
+    }
+  return ret;
+}
+
+/*
    Open a CRW file, identify which camera created it, and set
    global variables accordingly.  Returns nonzero if an error occurs.
  */
-open_and_id(char *fname)
+int open_and_id(char *fname)
 {
   char head[8];
   int hlen;
@@ -120,10 +142,10 @@ open_and_id(char *fname)
   table = -1;
   fseek (ifp, 0, SEEK_END);
   parse (hlen, ftell(ifp) - hlen);
-  fseek (ifp, hlen, SEEK_SET);
+  lowbits = canon_has_lowbits();
 
-  fprintf(stderr,"name = %s, width = %d, height = %d, table = %d\n",
-	name,width,height,table);
+  fprintf(stderr,"name = %s, width = %d, height = %d, table = %d, bpp = %d\n",
+	name, width, height, table, 10+lowbits*2);
   if (table < 0) {
     fprintf(stderr,"Cannot decompress %s!!\n",fname);
     return 1;
@@ -177,10 +199,10 @@ open_and_id(char *fname)
 	1111110		0x0b
 	1111111		0xff
  */
-int make_decoder(struct decode *dest, const uchar *source, int level)
+void make_decoder(struct decode *dest, const uchar *source, int level)
 {
   static struct decode *free;	/* Next unused node */
-  static leaf;			/* no. of leaves already added */
+  static int leaf;		/* no. of leaves already added */
   int i, next;
 
   if (level==0) {
@@ -203,7 +225,7 @@ int make_decoder(struct decode *dest, const uchar *source, int level)
     dest->leaf = source[16 + leaf++];
 }
 
-init_tables(unsigned table)
+void init_tables(unsigned table)
 {
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
@@ -310,10 +332,10 @@ unsigned long getbits(int nbits)
   return ret;
 }
 
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
   struct decode *decode, *dindex;
-  int i, j, leaf, len, sign, diff, diffbuf[64], r, save, nbits;
+  int i, j, leaf, len, sign, diff, diffbuf[64], r, save;
   int carry=0, column=0, base[2];
   unsigned short outbuf[64];
   uchar c;
@@ -327,8 +349,7 @@ main(int argc, char **argv)
 
   init_tables(table);
 
-  nbits = strncmp(name,"Canon EOS ",10) ? 10:12;
-  fseek (ifp, 540 + (nbits-10)*height*width/8, SEEK_SET);
+  fseek (ifp, 540 + lowbits*height*width/4, SEEK_SET);
   getbits(-1);			/* Prime the bit buffer */
 
   while (column < width * height) {
@@ -361,7 +382,7 @@ main(int argc, char **argv)
 	base[0] = base[1] = 512;
       outbuf[i] = ( base[i & 1] += diffbuf[i] );
     }
-    if (nbits == 12) {
+    if (lowbits) {
       save = ftell(ifp);
       fseek (ifp, (column-64)/4 + 26, SEEK_SET);
       for (i=j=0; j < 64/4; j++ ) {
@@ -373,4 +394,5 @@ main(int argc, char **argv)
     }
     fwrite(outbuf,2,64,stdout);
   }
+  return 0;
 }
