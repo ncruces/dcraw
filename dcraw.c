@@ -1,22 +1,21 @@
 /*
-   Canon PowerShot Converter
+   Raw Photo Decoder (formerly "Canon PowerShot Converter")
    Copyright 1997-2002 by Dave Coffin <dcoffin@shore.net>
 
-   A portable ANSI C program to convert raw CRW files from Canon
-   digital cameras into PPM or PNG format.
-
-   This is an entirely original work; no other copyrights apply.
-   Any similarity to Canon's code is only to the extent necessary
-   to decode image formats of Canon's design.
+   This is a portable ANSI C program to convert raw image files from
+   any digital camera into PPM or PNG format.  TIFF and CIFF parsing
+   are based upon public specifications, but no such documentation
+   is available for the raw sensor data, so writing this program has
+   been an immense effort.
 
    This code is freely licensed for all uses, commercial and
-   otherwise.  Comments and questions are welcome.
+   otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.72 $
-   $Date: 2002/10/27 23:55:19 $
+   $Revision: 1.73 $
+   $Date: 2002/11/09 05:31:58 $
 
-   The Canon EOS-1D digital camera compresses its data with
-   lossless JPEG.  To read EOS-1D images, you must also download:
+   The Canon EOS-1D and some Kodak cameras compress their raw data
+   with lossless JPEG.  To read such images, you must also download:
 
 	http://www.shore.net/~dcoffin/powershot/ljpeg_decode.tar.gz
  */
@@ -51,11 +50,12 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-int height, width, trim, colors, black, canon, rgb_max;
+int height, width, trim, colors, is_cmy, black, canon, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
-int nef_curve_offset, nef_data_compression, nef_data_offset, nef_rows_per_strip;
+int tiff_data_offset, tiff_data_compression;
+int nef_curve_offset;
 unsigned filters;
-char name[64];
+char make[64], model[64];
 ushort (*image)[4];
 void (*read_crw)();
 float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
@@ -131,7 +131,7 @@ struct decode {
 	2 R G R G R G
 	3 G B G B G B
 
-   The EOS-1D uses 0x61616161:
+   Some use 0x61616161:
 
 	  0 1 2 3 4 5
 	0 G R G R G R
@@ -139,7 +139,7 @@ struct decode {
 	2 G R G R G R
 	3 B G B G B G
 
-   The Nikon cameras use 0x16161616:
+   Some use 0x16161616:
 
 	  0 1 2 3 4 5
 	0 B G B G B G
@@ -511,125 +511,75 @@ void decompress(ushort *outbuf, int count)
   }
 }
 
-void pro90_read_crw()
-{
-  ushort pixel[1944*8];
-  int row, r, col;
-
-  decompress(0,540);
 /*
-   Read eight rows at a time.
-   Each row has 1896 image pixels and 48 black pixels.
+   Return 0 if the image starts with compressed data,
+   1 if it starts with uncompressed low-order bits.
+
+   In Canon compressed data, 0xff is always followed by 0x00.
  */
-  for (row=0; row < height; row += 8) {
-    decompress(pixel,243);
-    for (r=0; r < 8; r++) {
-      for (col=0; col < width; col++)
-	image[(row+r)*width+col][FC(row+r,col)] =
-		(pixel[(r*1944)+col] & 0x3ff) << 4;
-      for (col=width; col < 1944; col++)
-	black += pixel[(r*1944)+col] & 0x3ff;
+int canon_has_lowbits()
+{
+  uchar test[8192];
+  int ret=1, i;
+
+  fseek (ifp, 0, SEEK_SET);
+  fread (test, 1, 8192, ifp);
+  for (i=540; i < 8191; i++)
+    if (test[i] == 0xff) {
+      if (test[i+1]) return 1;
+      ret=0;
     }
-  }
-  black = ((INT64) black << 4) / ((1944 - width) * height);
+  return ret;
 }
 
-void g1_read_crw()
-{
-  ushort pixel[2144*2];
-  int row, r, col;
-
-  decompress(0,540);
-/*
-   Read two rows at a time.
-   The image has a black border, eight pixels wide on top,
-   two on the bottom, four on the left, and 52 on the right.
- */
-  for (row = -8; row < height+2; row += 2) {
-    decompress(pixel,67);
-    for (r=0; r < 2; r++)
-      for (col = -4; col < width+52; col++)
-	if ((unsigned) (row+r) < height && (unsigned) col < width)
-	  image[(row+r)*width+col][FC(row+r,col)] =
-		(pixel[(r*2144)+col+4] & 0x3ff) << 4;
-	  else
-	    black += pixel[(r*2144)+col+4] & 0x3ff;
-  }
-  black = ((INT64) black << 4) / (10 * 2144 + 56 * height);
-}
-
-void g2_read_crw()
-{
-  ushort pixel[2376*8];
-  int row, r, col;
-
-  decompress(0,540);
-/*
-   Read eight rows at a time.
-   The image has a black border, six pixels wide on top,
-   two on the bottom, 12 on the left, and 52 on the right.
- */
-  for (row = -6; row < height+2; row += 8) {
-    decompress(pixel,297);
-    for (r=0; r < 8; r++)
-      for (col = -12; col < width+52; col++)
-	if ((unsigned) (row+r) < height && (unsigned) col < width)
-	  image[(row+r)*width+col][FC(row+r,col)] =
-		(pixel[(r*2376)+col+12] & 0x3ff) << 4;
-	  else
-	    black += pixel[(r*2376)+col+12] & 0x3ff;
-  }
-  black = ((INT64) black << 4) / (8 * 2376 + 64 * height);
-}
-
-/*
-   The "PowerShot" cameras provide 10 bits per pixel in one compressed
-   chunk.  The "EOS" cameras provide 12 bits per pixel:  first the two
-   low bits of every pixel, not compressed, followed by the top ten bits
-   compressed as in the PowerShot cameras.
- */
-void d30_read_crw()
+void canon_compressed_read_crw()
 {
   ushort *pixel, *prow;
-  int i, row, r, col, save;
+  int lowbits, shift, i, row, r, col, save;
   unsigned top=0, left=0, irow, icol;
   uchar c;
 
 /* Set the width of the black borders */
   switch (raw_width) {
+    case 2144:  top = 8;  left =  4;  break;	/* G1 */
     case 2224:  top = 6;  left = 48;  break;	/* EOS D30 */
+    case 2376:  top = 6;  left = 12;  break;	/* G2 or G3 */
     case 3152:  top =12;  left = 64;  break;	/* EOS D60 */
   }
-  pixel = calloc (raw_width*4, sizeof *pixel);
+  pixel = calloc (raw_width*8, sizeof *pixel);
   if (!pixel) {
-    perror("d30_read_crw() calloc failed");
+    perror("canon_compressed_read_crw() calloc failed");
     exit(1);
   }
-  decompress(0, 540 + raw_height*raw_width/4);
-  for (row=0; row < raw_height; row+=4) {
-    decompress(pixel, raw_width/16);		/* Get four rows */
-    save = ftell(ifp);				/* Don't lose our place */
-    fseek (ifp, 26 + row*raw_width/4, SEEK_SET);/* Add the low bits */
-    for (prow=pixel, i=0; i < raw_width; i++) {
-      c = fgetc(ifp);
-      for (r=0; r < 8; r+=2)
-	*prow++ = (*prow << 2) + ((c >> r) & 3);
+  lowbits = canon_has_lowbits();
+  shift = 4 - lowbits*2;
+  decompress(0, 540 + lowbits*raw_height*raw_width/4);
+  for (row=0; row < raw_height; row+=8) {
+    decompress(pixel, raw_width/8);		/* Get eight rows */
+    if (lowbits) {
+      save = ftell(ifp);			/* Don't lose our place */
+      fseek (ifp, 26 + row*raw_width/4, SEEK_SET);
+      for (prow=pixel, i=0; i < raw_width*2; i++) {
+	c = fgetc(ifp);
+	for (r=0; r < 8; r+=2)
+	  *prow++ = (*prow << 2) + ((c >> r) & 3);
+      }
+      fseek (ifp, save, SEEK_SET);
     }
-    fseek (ifp, save, SEEK_SET);
-    for (r=0; r < 4; r++)
+    for (r=0; r < 8; r++)
       for (col=0; col < raw_width; col++) {
 	irow = row+r-top;
 	icol = col-left;
 	if (irow >= height) continue;
 	if (icol < width)
 	  image[irow*width+icol][FC(irow,icol)] =
-		(pixel[r*raw_width+col] & 0xfff) << 2;
+		pixel[r*raw_width+col] << shift;
 	else
-	    black += pixel[r*raw_width+col] & 0xfff;
+	    black += pixel[r*raw_width+col];
       }
   }
   free (pixel);
-  black = ((INT64) black << 2) / (left * height);
+  black = ((INT64) black << shift) / ((raw_width - width) * height);
 }
 
 #ifdef LJPEG_DECODE
@@ -646,13 +596,17 @@ int ReadJpegData (char *buffer, int numBytes)
    Notice that one row of the JPEG data is two rows for us.
    Canon did this so that the predictors could work against
    like colors.  Quite clever!
+
+   Kodak didn't think of that.  8-/
  */
 void PmPutRow(ushort **buf, int numComp, int numCol, int row)
 {
   register int r, col;
+  int trick=1;
 
-  row *= 2;
-  for (r = row; r < row + 2; r++)
+  if (make[0] == 'C') trick=2;		/* Canon */
+  row *= trick;
+  for (r = row; r < row+trick; r++)
     for (col=0; col < width; ) {
       image[r*width+col++][FC(r,col)] = buf[0][0] << 2;
       image[r*width+col++][FC(r,col)] = buf[0][1] << 2;
@@ -660,11 +614,14 @@ void PmPutRow(ushort **buf, int numComp, int numCol, int row)
     }
 }
 
-void eos1d_read_crw()
+void lossless_jpeg_read_crw()
 {
   DecompressInfo dcInfo;
 
-  fseek (ifp, 288912, SEEK_SET);
+  if (!strcmp(model,"EOS-1D"))
+    fseek (ifp, 288912, SEEK_SET);
+  else
+    fseek (ifp, tiff_data_offset, SEEK_SET);
 
   MEMSET(&dcInfo, 0, sizeof(dcInfo));
   ReadFileHeader (&dcInfo);
@@ -675,6 +632,8 @@ void eos1d_read_crw()
   FreeArray2D (mcuROW1);
   FreeArray2D (mcuROW2);
 }
+#else
+void lossless_jpeg_read_crw() { }
 #endif /* LJPEG_DECODE */
 
 ushort fget2 (FILE *f);
@@ -692,16 +651,14 @@ void nikon_compressed_read_crw()
   struct decode *dindex;
   register int diff;
 
-  if (!strcmp(name,"NIKON D1X"))
+  if (!strcmp(model,"D1X"))
     waste = 4;
-  if (!strcmp(name,"NIKON D100"))
+  if (!strcmp(model,"D100"))
     width = 3034;
 
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
 
-  if (nef_curve_offset == 0)
-    nef_curve_offset = strcmp(name,"NIKON D100") ? 3488:5974;
   fseek (ifp, nef_curve_offset, SEEK_SET);
   for (i=0; i < 4; i++)
     vpred[i] = fget2(ifp);
@@ -714,8 +671,7 @@ void nikon_compressed_read_crw()
   for (i=0; i < csize; i++)
     curve[i] = fget2(ifp);
 
-  fseek (ifp, nef_data_offset, SEEK_SET);
-  fseek (ifp, fget4(ifp), SEEK_SET);
+  fseek (ifp, tiff_data_offset, SEEK_SET);
   getbits(-1);
 
   for (row=0; row < height; row++)
@@ -752,10 +708,9 @@ int nikon_is_compressed()
   uchar test[256];
   int i;
 
-  if (strcmp(name,"NIKON D100"))
-    return nef_data_compression == 0x8799;
-  fseek (ifp, nef_data_offset, SEEK_SET);
-  fseek (ifp, fget4(ifp), SEEK_SET);
+  if (strcmp(model,"D100"))
+    return tiff_data_compression == 34713;
+  fseek (ifp, tiff_data_offset, SEEK_SET);
   fread (test, 1, 256, ifp);
   for (i=15; i < 256; i+=16)
     if (test[i]) return 1;
@@ -771,23 +726,19 @@ void nikon_read_crw()
     nikon_compressed_read_crw();
     return;
   }
-  if (!strcmp(name,"NIKON D1X"))
+  if (!strcmp(model,"D1X"))
     waste = 4;
-  if (!strcmp(name,"NIKON D100")) {
+  if (!strcmp(model,"D100")) {
     waste = 3;
     skip16 = 1;
   }
 
-  if (nef_rows_per_strip == 0) return;
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  getbits(-1);
   for (irow=0; irow < height; irow++) {
     row = irow;
-    if (name[0] == 'E')
+    if (model[0] == 'E')
       row = irow * 2 % height + irow / (height/2);
-    if (irow % nef_rows_per_strip == 0) {
-      fseek (ifp, nef_data_offset + irow/nef_rows_per_strip*4, SEEK_SET);
-      fseek (ifp, fget4(ifp), SEEK_SET);
-      getbits(-1);
-    }
     for (col=0; col < width+waste; col++) {
       i = getbits(12);
       if (col < width)
@@ -814,6 +765,31 @@ void olympus_read_crw()
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = ntohs(pixel[col]) >> 2;
   }
+  free (pixel);
+}
+
+void kodak_easy_read_crw()
+{
+  uchar *pixel;
+  int row, col, margin;
+
+  if ((margin = (raw_width - width)/2))
+    black = 0;
+  pixel = calloc (raw_width, sizeof *pixel);
+  if (!pixel) {
+    perror("kodak_easy_read_crw() calloc failed");
+    exit(1);
+  }
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (pixel, 1, raw_width, ifp);
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = (ushort) pixel[col+margin] << 6;
+    if (margin == 2)
+      black += pixel[0] + pixel[1] + pixel[raw_width-2] + pixel[raw_width-1];
+  }
+  if (margin)
+    black = ((INT64) black << 6) / (4 * height);
   free (pixel);
 }
 
@@ -1053,9 +1029,9 @@ int fget4 (FILE *f)
     return a + (b << 8) + (c << 16) + (d << 24);
 }
 
-void nef_parse_subifd()
+void tiff_parse_subifd()
 {
-  int entries, tag, type, len, val;
+  int entries, tag, type, len, val, save;
 
   entries = fget2(ifp);
   while (entries--) {
@@ -1076,18 +1052,21 @@ void nef_parse_subifd()
       case 0x102:		/* Bits per sample */
 	break;
       case 0x103:		/* Compression */
-	nef_data_compression = val;
+	tiff_data_compression = val;
 	break;
       case 0x111:		/* StripOffset */
 	if (len == 1)
-	  nef_data_offset = ftell(ifp)-4;
-	else
-	  nef_data_offset = val;
+	  tiff_data_offset = val;
+	else {
+	  save = ftell(ifp);
+	  fseek (ifp, val, SEEK_SET);
+	  tiff_data_offset = fget4(ifp);
+	  fseek (ifp, save, SEEK_SET);
+	}
 	break;
       case 0x115:		/* SamplesPerRow */
 	break;
       case 0x116:		/* RowsPerStrip */
-	nef_rows_per_strip = val;
 	break;
       case 0x117:		/* StripByteCounts */
 	break;
@@ -1101,7 +1080,7 @@ void nef_parse_subifd()
 
 void nef_parse_makernote()
 {
-  int base=0, offset=0, entries, tag, type, len, val, save;
+  int base=0, offset=0, entries, tag, type, len, val;
   short sorder;
   char buf[10];
 
@@ -1126,7 +1105,8 @@ void nef_parse_makernote()
     type = fget2(ifp);
     len  = fget4(ifp);
     val  = fget4(ifp);
-    save = ftell(ifp);
+    if (tag == 0x8c)
+      nef_curve_offset = base+val + 2112;
     if (tag == 0x96)
       nef_curve_offset = base+val + 2;
   }
@@ -1153,16 +1133,15 @@ void nef_parse_exif()
 }
 
 /*
-   Parse a TIFF file looking for camera name and decompress offsets.
+   Parse a TIFF file looking for camera model and decompress offsets.
  */
 void parse_tiff()
 {
   int doff, entries, tag, type, len, val, save;
 
+  tiff_data_offset = 0;
+  tiff_data_compression = 0;
   nef_curve_offset = 0;
-  nef_data_compression = 0;
-  nef_data_offset = 0;
-  nef_rows_per_strip = 0;
   fseek (ifp, 2, SEEK_SET);	/* open_and_id() already got byte order */
   val = fget2(ifp);		/* Should be 42 for standard TIFF */
   while ((doff = fget4(ifp))) {
@@ -1176,15 +1155,26 @@ void parse_tiff()
       save = ftell(ifp);
       fseek (ifp, val, SEEK_SET);
       switch (tag) {
+	case 271:			/* Make tag */
+	  fread (make, 64, 1, ifp);
+	  if (len > 63) len=63;
+	  make[len]=0;
+	  break;
 	case 272:			/* Model tag */
-	  fread (name, 64, 1, ifp);
+	  fread (model, 64, 1, ifp);
+	  if (len > 63) len=63;
+	  model[len]=0;
 	  break;
 	case 330:			/* SubIFD tag */
-	  if (len == 2) {		/* Get the _second_ sub-image */
-	    fget4(ifp);
-	    fseek (ifp, fget4(ifp), SEEK_SET);
-	  }
-	  nef_parse_subifd();
+	  if (len > 1)
+	    while (len--) {
+	      fseek (ifp, val, SEEK_SET);
+	      fseek (ifp, fget4(ifp), SEEK_SET);
+	      tiff_parse_subifd();
+	      val += 4;
+	    }
+	  else
+	    tiff_parse_subifd();
 	  break;
 	case 0x8769:			/* Nikon EXIF tag */
 	  nef_parse_exif();
@@ -1197,7 +1187,7 @@ void parse_tiff()
 
 /*
    Parse the CIFF structure looking for two pieces of information:
-   The camera name, and the decode table number.
+   The camera model, and the decode table number.
  */
 void parse_ciff(int offset, int length)
 {
@@ -1213,10 +1203,11 @@ void parse_ciff(int offset, int length)
     roff = fget4(ifp);
     aoff = offset + roff;
     save = ftell(ifp);
-    if (type == 0x080a) {		/* Get the camera name */
+    if (type == 0x080a) {		/* Get the camera make and model */
       fseek (ifp, aoff, SEEK_SET);
-      while (fgetc(ifp));
-      fread (name, 64, 1, ifp);
+      fread (make, 64, 1, ifp);
+      fseek (ifp, aoff+strlen(make)+1, SEEK_SET);
+      fread (model, 64, 1, ifp);
     }
     if (type == 0x1031) {		/* Get the raw width and height */
       fseek (ifp, aoff+2, SEEK_SET);
@@ -1249,6 +1240,7 @@ int open_and_id(char *fname)
   rgb_mul[2] = 1.261;
   rgb_max = 0x4000;
   colors = 4;
+  is_cmy = 0;
   canon = 1;
 
   ifp = fopen(fname,"rb");
@@ -1256,7 +1248,7 @@ int open_and_id(char *fname)
     perror(fname);
     return 1;
   }
-  name[0] = 0;
+  model[0] = 0;
   order = fget2(ifp);
   if (order == 0x4949 || order == 0x4d4d) {
     hlen = fget4(ifp);
@@ -1268,96 +1260,106 @@ int open_and_id(char *fname)
     } else
       parse_tiff();
   }
-  c = name + strlen(name);	/* Remove trailing spaces */
+  /* Remove excess wordage */
+  if (!strncmp(make,"NIKON",5) || !strncmp(make,"Canon",5))
+    make[5] = 0;
+  if (!strncmp(make,"OLYMPUS",7))
+    make[7] = 0;
+  if (!strncmp(make,"KODAK",5))
+    model[16] = 0;
+  if (!strncmp(model,"Canon",5) || !strncmp(model,"NIKON",5))
+    memmove (model, model+6, 64-6);
+
+  /* Remove trailing spaces */
+  c = make + strlen(make);
   while (*--c == ' ') *c = 0;
-  if (name[0] == 0) {
-    fprintf(stderr,"%s has an unknown format.\n",fname);
+  c = model + strlen(model);
+  while (*--c == ' ') *c = 0;
+  if (model[0] == 0) {
+    fprintf (stderr, "%s: unsupported file format.\n", fname);
     return 1;
   }
-  if (!strcmp(name,"Canon PowerShot 600")) {
+  if (!strcmp(model,"PowerShot 600")) {
     height = 613;
     width  = 854;
     filters = 0xe1e4e1e4;
     read_crw = ps600_read_crw;
     rgb_mul[0] = 1.667;
     rgb_mul[2] = 1.667;
-  } else if (!strcmp(name,"Canon PowerShot A5")) {
+  } else if (!strcmp(model,"PowerShot A5")) {
     height = 776;
     width  = 960;
     filters = 0x1e4e1e4e;
     read_crw = a5_read_crw;
     rgb_mul[0] = 1.111;
     rgb_mul[2] = 0.978;
-  } else if (!strcmp(name,"Canon PowerShot A50")) {
+  } else if (!strcmp(model,"PowerShot A50")) {
     height =  968;
     width  = 1290;
     filters = 0x1b4e4b1e;
     read_crw = a50_read_crw;
     rgb_mul[0] = 1.316;
     rgb_mul[2] = 0.776;
-  } else if (!strcmp(name,"Canon PowerShot Pro70")) {
+  } else if (!strcmp(model,"PowerShot Pro70")) {
     height = 1024;
     width  = 1552;
     filters = 0x1e4b4e1b;
     read_crw = pro70_read_crw;
-  } else if (!strcmp(name,"Canon PowerShot Pro90 IS")) {
+  } else if (!strcmp(model,"PowerShot Pro90 IS")) {
     height = 1416;
     width  = 1896;
     filters = 0xb4b4b4b4;
-    read_crw = pro90_read_crw;
-  } else if (!strcmp(name,"Canon PowerShot G1")) {
+    read_crw = canon_compressed_read_crw;
+  } else if (!strcmp(model,"PowerShot G1")) {
     height = 1550;
     width  = 2088;
     filters = 0xb4b4b4b4;
-    read_crw = g1_read_crw;
+    read_crw = canon_compressed_read_crw;
     rgb_mul[0] = 1.469;
     rgb_mul[2] = 1.327;
-  } else if (!strcmp(name,"Canon PowerShot S30")) {
+  } else if (!strcmp(model,"PowerShot S30")) {
     height = 1550;
     width  = 2088;
     colors = 3;
     filters = 0x94949494;
-    read_crw = g1_read_crw;
+    read_crw = canon_compressed_read_crw;
     rgb_mul[0] = 1.785;
     rgb_mul[2] = 1.266;
-  } else if (!strcmp(name,"Canon PowerShot G2") ||
-	     !strcmp(name,"Canon PowerShot S40")) {
+  } else if (!strcmp(model,"PowerShot G2")  ||
+	     !strcmp(model,"PowerShot G3")  ||
+	     !strcmp(model,"PowerShot S40") ||
+	     !strcmp(model,"PowerShot S45")) {
     height = 1720;
     width  = 2312;
     colors = 3;
     filters = 0x94949494;
-    read_crw = g2_read_crw;
+    read_crw = canon_compressed_read_crw;
     rgb_mul[0] = 1.966;
     rgb_mul[2] = 1.208;
-  } else if (!strcmp(name,"Canon EOS D30")) {
+  } else if (!strcmp(model,"EOS D30")) {
     height = 1448;
     width  = 2176;
     colors = 3;
     filters = 0x94949494;
-    read_crw = d30_read_crw;
-  } else if (!strcmp(name,"Canon EOS D60")) {
+    read_crw = canon_compressed_read_crw;
+  } else if (!strcmp(model,"EOS D60")) {
     height = 2056;
     width  = 3088;
     colors = 3;
     filters = 0x94949494;
-    read_crw = d30_read_crw;
+    read_crw = canon_compressed_read_crw;
     rgb_mul[0] = 2.242;
     rgb_mul[2] = 1.245;
     rgb_max = 16000;
-  } else if (!strcmp(name,"Canon EOS-1D")) {
-#ifdef LJPEG_DECODE
+  } else if (!strcmp(model,"EOS-1D")) {
     height = 1662;
     width  = 2496;
     colors = 3;
     filters = 0x61616161;
-    read_crw = eos1d_read_crw;
+    read_crw = lossless_jpeg_read_crw;
     rgb_mul[0] = 1.976;
     rgb_mul[2] = 1.282;
-#else
-    fprintf(stderr,"crw.c was compiled without EOS-1D support.\n");
-    return 1;
-#endif
-  } else if (!strcmp(name,"NIKON D1")) {
+  } else if (!strcmp(model,"D1")) {
     height = 1324;
     width  = 2012;
     colors = 3;
@@ -1366,7 +1368,7 @@ int open_and_id(char *fname)
     read_crw = nikon_read_crw;
     rgb_mul[0] = 0.838;
     rgb_mul[2] = 1.095;
-  } else if (!strcmp(name,"NIKON D1H")) {
+  } else if (!strcmp(model,"D1H")) {
     height = 1324;
     width  = 2012;
     colors = 3;
@@ -1375,7 +1377,7 @@ int open_and_id(char *fname)
     read_crw = nikon_read_crw;
     rgb_mul[0] = 1.347;
     rgb_mul[2] = 3.279;
-  } else if (!strcmp(name,"NIKON D1X")) {
+  } else if (!strcmp(model,"D1X")) {
     height = 1324;
     width  = 4024;
     colors = 3;
@@ -1384,7 +1386,7 @@ int open_and_id(char *fname)
     read_crw = nikon_read_crw;
     rgb_mul[0] = 1.910;
     rgb_mul[2] = 1.220;
-  } else if (!strcmp(name,"NIKON D100")) {
+  } else if (!strcmp(model,"D100")) {
     height = 2024;
     width  = 3037;
     colors = 3;
@@ -1393,7 +1395,7 @@ int open_and_id(char *fname)
     read_crw = nikon_read_crw;
     rgb_mul[0] = 2.374;
     rgb_mul[2] = 1.677;
-  } else if (!strcmp(name,"E5000") || !strcmp(name,"E5700")) {
+  } else if (!strcmp(model,"E5000") || !strcmp(model,"E5700")) {
     height = 1924;
     width  = 2576;
     canon = 0;
@@ -1401,7 +1403,7 @@ int open_and_id(char *fname)
     read_crw = nikon_read_crw;
     rgb_mul[0] = 2.126;
     rgb_mul[2] = 1.197;
-  } else if (!strcmp(name,"E-10")) {
+  } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
     colors = 3;
@@ -1409,7 +1411,7 @@ int open_and_id(char *fname)
     read_crw = olympus_read_crw;
     rgb_mul[0] = 1.43;
     rgb_mul[2] = 1.77;
-  } else if (!strncmp(name,"E-20",4)) {
+  } else if (!strncmp(model,"E-20",4)) {
     height = 1924;
     width  = 2576;
     colors = 3;
@@ -1417,10 +1419,84 @@ int open_and_id(char *fname)
     read_crw = olympus_read_crw;
     rgb_mul[0] = 1.43;
     rgb_mul[2] = 1.77;
+  } else if (!strcasecmp(make,"KODAK")) {
+    height = raw_height;
+    width  = raw_width;
+    colors = 3;
+    filters = 0x61616161;
+    rgb_mul[0] = 1;
+    rgb_mul[2] = 1;
+    black = 400;
+    if (!strcmp(model,"DCS315C")) {
+      rgb_mul[0] = 0.973;
+      rgb_mul[2] = 0.987;
+      black = 0;
+    } else if (!strcmp(model,"DCS330C")) {
+      rgb_mul[0] = 0.996;
+      rgb_mul[2] = 1.279;
+      black = 0;
+    } else if (!strcmp(model,"DCS420")) {
+      rgb_mul[0] = 1.21;
+      rgb_mul[2] = 1.63;
+      width -= 4;
+    } else if (!strcmp(model,"DCS460")) {
+      rgb_mul[0] = 1.46;
+      rgb_mul[2] = 1.84;
+      width -= 4;
+    } else if (!strcmp(model,"DCS460A")) {
+      colors = 1;
+      filters = 0;
+      width -= 4;
+    } else if (!strcmp(model,"EOSDCS3B")) {
+      rgb_mul[0] = 1.43;
+      rgb_mul[2] = 2.16;
+      width -= 4;
+    } else if (!strcmp(model,"EOSDCS1")) {
+      rgb_mul[0] = 1.28;
+      rgb_mul[2] = 2.00;
+      width -= 4;
+    } else if (!strcmp(model,"DCS520C")) {
+      rgb_mul[0] = 1.00;
+      rgb_mul[2] = 1.20;
+    } else if (!strcmp(model,"DCS560C")) {
+      rgb_mul[0] = 0.985;
+      rgb_mul[2] = 1.15;
+    } else if (!strcmp(model,"DCS620C")) {
+      rgb_mul[0] = 1.00;
+      rgb_mul[2] = 1.20;
+    } else if (!strcmp(model,"DCS620X")) {
+      rgb_mul[0] = 1.12;
+      rgb_mul[2] = 1.07;
+      is_cmy = 1;
+    } else if (!strcmp(model,"DCS660C")) {
+      rgb_mul[0] = 1.05;
+      rgb_mul[2] = 1.17;
+    } else if (!strcmp(model,"DCS660M")) {
+      colors = 1;
+      filters = 0;
+    }
+    switch (tiff_data_compression) {
+      case 0:				/* No compression */
+      case 1:
+	read_crw = kodak_easy_read_crw;  break;
+      case 7:				/* Lossless JPEG */
+	read_crw = lossless_jpeg_read_crw;  break;
+      default:
+	fprintf (stderr, "%s: %s %s uses unsupported compression method %d.\n",
+		fname, make, model, tiff_data_compression);
+	return 1;
+    }
   } else {
-    fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
+    fprintf (stderr, "%s: %s %s is not yet supported.\n",fname, make, model);
     return 1;
   }
+#ifndef LJPEG_DECODE
+  if (read_crw == lossless_jpeg_read_crw) {
+    fprintf (stderr, "%s: %s %s requires lossless JPEG decoder.\n",
+	fname, make, model);
+    return 1;
+  }
+#endif
   rgb_mul[0] *= red_scale;	/* Apply user-selected color balance */
   rgb_mul[2] *= blue_scale;
   if (colors == 4) make_coeff();
@@ -1479,9 +1555,14 @@ void make_coeff()
 void get_rgb(float rgb[4], ushort image[4])
 {
   int r, g;
+  float cmy[4];
 
   memset (rgb, 0, 4 * sizeof (float));
-  if (colors == 3)
+  if (colors == 1) {
+    for (r=0; r < 3; r++)		/* RGB from grayscale */
+      rgb[r] = image[0];
+    rgb[3] = 3 * rgb[0]*rgb[0];
+  } else if (colors == 3)
     for (r=0; r < 3; r++) {		/* RGB from RGB */
       rgb[r] = image[r] * rgb_mul[r];
       if (rgb[r] > rgb_max)
@@ -1495,6 +1576,13 @@ void get_rgb(float rgb[4], ushort image[4])
       if (rgb[r] < 0) rgb[r] = 0;
       rgb[3] += rgb[r]*rgb[r];
     }
+  if (is_cmy) {
+    memcpy (cmy, rgb, sizeof cmy);
+    rgb[0] = cmy[0] + cmy[1] - cmy[2];
+    rgb[1] = cmy[1] + cmy[2] - cmy[0];
+    rgb[2] = cmy[2] + cmy[0] - cmy[1];
+    rgb[3] = rgb[0]*rgb[0] + rgb[1]*rgb[1] + rgb[2]*rgb[2];
+  }
 }
 
 /*
@@ -1527,7 +1615,7 @@ void write_ppm(FILE *ofp)
   max = val << 6;
   max2 = max * max;
 
-  fprintf(ofp,"P6\n%d %d\n255\n",width-trim*2,height-trim*2);
+  fprintf (ofp, "P6\n%d %d\n255\n", width-trim*2, height-trim*2);
 
   ppm = calloc(width-trim*2,3);
   if (!ppm) {
@@ -1693,10 +1781,10 @@ int main(int argc, char **argv)
 
   if (argc == 1)
   {
-    fprintf(stderr,
-    "\nCanon PowerShot Converter v3.18"
+    fprintf (stderr,
+    "\nRaw Photo Decoder v3.40"
 #ifdef LJPEG_DECODE
-    " with EOS-1D support"
+    " with Lossless JPEG support"
 #endif
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
@@ -1752,7 +1840,7 @@ int main(int argc, char **argv)
 	break;
 #endif
       default:
-	fprintf(stderr,"Unknown option \"%s\"\n",argv[arg]);
+	fprintf (stderr, "Unknown option \"%s\"\n", argv[arg]);
 	exit(1);
     }
 
@@ -1760,6 +1848,7 @@ int main(int argc, char **argv)
 
   for ( ; arg < argc; arg++)
   {
+    black = 0;
     if (open_and_id(argv[arg])) {
       if (ifp) fclose(ifp);
       continue;
@@ -1769,14 +1858,16 @@ int main(int argc, char **argv)
       perror("image calloc failed");
       exit(1);
     }
-    black = 0;
-    fprintf (stderr, "Loading %s image from %s...\n",name,argv[arg]);
+    fprintf (stderr, "Loading %s %s image from %s...\n",
+	make, model, argv[arg]);
     (*read_crw)();
     fclose(ifp);
     if (black) {
-      fprintf (stderr, "Subtracting thermal noise (%d)...\n",black);
+      fprintf (stderr, "Subtracting thermal noise (%d)...\n", black);
       subtract_black();
     }
+    trim = 0;
+    if (colors == 1) goto nointerp;
     dillon_ok = dillon;
     for (i=8; i < 32; i+=8)
       if ((filters >> i & 0xff) != (filters & 0xff))
@@ -1796,6 +1887,7 @@ int main(int argc, char **argv)
       }
       trim = 1;
     }
+nointerp:
     ofp = stdout;
     strcpy (data, "standard output");
     if (write_to_files) {
@@ -1806,7 +1898,7 @@ int main(int argc, char **argv)
 	continue;
       }
     }
-    fprintf (stderr, "Writing data to %s...\n",data);
+    fprintf (stderr, "Writing data to %s...\n", data);
     (*write_fun)(ofp);
     if (write_to_files)
       fclose(ofp);
