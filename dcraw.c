@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.175 $
-   $Date: 2004/02/24 04:56:12 $
+   $Revision: 1.176 $
+   $Date: 2004/03/01 15:17:47 $
  */
 
 #define _GNU_SOURCE
@@ -816,7 +816,7 @@ void ixpress_load_raw()
   }
 }
 
-void pentax_optio_s4_load_raw()
+void pentax_optio_load_raw()
 {
   int row, col;
 
@@ -2321,6 +2321,7 @@ int identify()
     {  3217760, "Casio",    "QV-3*00EX" },
     {  6218368, "Casio",    "QV-5700" },
     {  7684000, "Casio",    "QV-4000" },
+    {  4841984, "Pentax",   "Optio S" },
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
 
@@ -2687,10 +2688,16 @@ coolpix:
     load_raw = be_low_12_load_raw;
     pre_mul[0] = 1.76;
     pre_mul[1] = 1.07;
+  } else if (!strcmp(model,"Optio S")) {
+    height = 1544;
+    width  = 2068;
+    load_raw = pentax_optio_load_raw;
+    pre_mul[0] = 1.506;
+    pre_mul[2] = 1.152;
   } else if (!strcmp(model,"Optio S4")) {
     height = 1737;
     width  = 2324;
-    load_raw = pentax_optio_s4_load_raw;
+    load_raw = pentax_optio_load_raw;
     pre_mul[0] = 1.308;
     pre_mul[2] = 1.275;
   } else if (!strcmp(make,"Phase One")) {
@@ -3173,7 +3180,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.57"
+    "\nRaw Photo Decoder v5.58"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
