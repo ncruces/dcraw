@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.136 $
-   $Date: 2003/09/23 00:38:14 $
+   $Revision: 1.137 $
+   $Date: 2003/10/01 21:59:51 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -870,13 +870,24 @@ void rollei_load_raw()
   }
 }
 
-void minolta_load_raw()
+void packed_12_load_raw()
+{
+  int row, col;
+
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  getbits(-1);
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = getbits(12) << 2;
+}
+
+void unpacked_12_load_raw()
 {
   ushort *pixel;
   int row, col;
 
   pixel = calloc (width, sizeof *pixel);
-  merror (pixel, "minolta_load_raw()");
+  merror (pixel, "unpacked_12_load_raw()");
   fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, width, ifp);
@@ -2490,9 +2501,11 @@ coolpix:
     height = raw_height;
     width  = raw_width;
     filters = 0x94949494;
-    load_raw = minolta_load_raw;
-    pre_mul[0] = 1;
-    pre_mul[2] = 1;
+    load_raw = unpacked_12_load_raw;
+    if (!strcmp(model,"DiMAGE A1"))
+      load_raw = packed_12_load_raw;
+    pre_mul[0] = 1.57;
+    pre_mul[2] = 1.42;
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
@@ -2887,7 +2900,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.02"
+    "\nRaw Photo Decoder v5.03"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
