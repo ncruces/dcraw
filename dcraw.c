@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.231 $
-   $Date: 2005/01/25 02:29:44 $
+   $Revision: 1.232 $
+   $Date: 2005/01/25 17:31:10 $
  */
 
 #define _GNU_SOURCE
@@ -3023,7 +3023,7 @@ nucore:
   filters = 0x94949494;
   black = is_cmy = is_foveon = use_coeff = 0;
   xmag = ymag = 1;
-  rgb_max = 0x4000;
+  rgb_max = 0x3fff;
 
 /*  We'll try to decode anything from Canon or Nikon. */
 
