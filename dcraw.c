@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.204 $
-   $Date: 2004/09/14 00:35:12 $
+   $Revision: 1.205 $
+   $Date: 2004/09/16 20:29:15 $
  */
 
 #define _GNU_SOURCE
@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 /*
    By defining NO_JPEG, you lose only the ability to
    decode compressed .KDC files from the Kodak DC120.
@@ -63,7 +64,8 @@ typedef unsigned short ushort;
 FILE *ifp;
 short order;
 char *ifname, make[64], model[64], model2[64];
-int data_offset, curve_offset, curve_length, timestamp;
+time_t timestamp;
+int data_offset, curve_offset, curve_length;
 int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, colors, black, rgb_max;
@@ -2251,7 +2253,25 @@ void nef_parse_makernote()
   order = sorder;
 }
 
-void nef_parse_exif()
+/*
+   Since the TIFF DateTime string has no timezone information,
+   assume that the camera's clock was set to Universal Time.
+ */
+void get_timestamp()
+{
+  struct tm t;
+  time_t ts;
+
+  if (fscanf (ifp, "%d:%d:%d %d:%d:%d", &t.tm_year, &t.tm_mon,
+	&t.tm_mday, &t.tm_hour, &t.tm_min, &t.tm_sec) != 6)
+    return;
+  t.tm_year -= 1900;
+  setenv ("TZ", "", 1);		/* Remove this to assume local time */
+  if ((ts = mktime(&t)) > 0)
+    timestamp = ts;
+}
+
+void nef_parse_exif(int base)
 {
   int entries, tag, type, len, val, save;
 
@@ -2262,12 +2282,13 @@ void nef_parse_exif()
     len  = fget4(ifp);
     val  = fget4(ifp);
     save = ftell(ifp);
+    fseek (ifp, val+base, SEEK_SET);
+    if (tag == 0x9003 || tag == 0x9004)
+      get_timestamp();
     if (tag == 0x927c &&
-	(!strncmp(make,"NIKON",5) || !strncmp(make,"OLYMPUS",7))) {
-      fseek (ifp, val, SEEK_SET);
+	(!strncmp(make,"NIKON",5) || !strncmp(make,"OLYMPUS",7)))
       nef_parse_makernote();
-      fseek (ifp, save, SEEK_SET);
-    }
+    fseek (ifp, save, SEEK_SET);
   }
 }
 
@@ -2335,6 +2356,9 @@ void parse_tiff(int base)
 	  if (!strncmp(software,"Adobe",5))
 	    make[0] = 0;
 	  break;
+	case 0x132:			/* DateTime tag */
+	  get_timestamp();
+	  break;
 	case 0x144:
 	  strcpy (make, "Leaf");
 	  raw_width  = wide;
@@ -2358,7 +2382,7 @@ void parse_tiff(int base)
 	    tiff_parse_subifd(base);
 	  break;
 	case 0x8769:			/* Nikon EXIF tag */
-	  nef_parse_exif();
+	  nef_parse_exif(base);
 	  break;
       }
       fseek (ifp, save, SEEK_SET);
@@ -2493,6 +2517,8 @@ common:
       fseek (ifp, aoff, SEEK_SET);
       timestamp = fget4(ifp);
     }
+    if (type == 0x580e)
+      timestamp = len;
     if (type == 0x1810) {		/* Get the rotation */
       fseek (ifp, aoff+12, SEEK_SET);
       switch (fget4(ifp)) {
@@ -2517,6 +2543,8 @@ void parse_rollei()
 {
   char line[128], *val;
   int tx=0, ty=0;
+  struct tm t;
+  time_t ts;
 
   fseek (ifp, 0, SEEK_SET);
   do {
@@ -2525,6 +2553,10 @@ void parse_rollei()
       *val++ = 0;
     else
       val = line + strlen(line);
+    if (!strcmp(line,"DAT"))
+      sscanf (val, "%d.%d.%d", &t.tm_mday, &t.tm_mon, &t.tm_year);
+    if (!strcmp(line,"TIM"))
+      sscanf (val, "%d:%d:%d", &t.tm_hour, &t.tm_min, &t.tm_sec);
     if (!strcmp(line,"HDR"))
       data_offset = atoi(val);
     if (!strcmp(line,"X  "))
@@ -2536,6 +2568,10 @@ void parse_rollei()
     if (!strcmp(line,"TY "))
       ty = atoi(val);
   } while (strncmp(line,"EOHD",4));
+  t.tm_year -= 1900;
+  setenv ("TZ", "", 1);
+  if ((ts = mktime(&t)) > 0)
+    timestamp = ts;
   data_offset += tx * ty * 2;
   strcpy (make, "Rollei");
   strcpy (model,"d530flex");
@@ -2567,6 +2603,8 @@ void parse_foveon()
       strcpy (make, np);
     if (!strcmp(bp,"CAMMODEL"))
       strcpy (model, np);
+    if (!strcmp(bp,"TIME"))
+      timestamp = atoi(np);
   }
   fseek (ifp, 248, SEEK_SET);
   raw_width  = fget4(ifp);
@@ -2702,6 +2740,8 @@ int identify()
     {  4841984, "Pentax",   "Optio S" },
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
+  static const char *corp[] =
+    { "Canon", "NIKON", "Kodak", "PENTAX", "Minolta" };
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
@@ -2797,26 +2837,18 @@ nucore:
 	strcpy (model, table[i].model);
       }
 
-  /* Remove excess wordage */
-  if (!strncmp(make,"NIKON",5) || !strncmp(make,"Canon",5))
-    make[5] = 0;
-  if (!strncmp(make,"PENTAX",6))
-    make[6] = 0;
-  if (strstr(make,"Minolta"))
-    strcpy (make, "Minolta");
-  if (!strncmp(make,"KODAK",5))
+  for (i=0; i < sizeof corp / sizeof *corp; i++)
+    if (strstr (make, corp[i]))		/* Simplify company names */
+	strcpy (make, corp[i]);
+  if (!strncmp (make,"KODAK",5))
     make[16] = model[16] = 0;
-  if (!strcmp(make,"Eastman Kodak Company"))
-    strcpy (make, "Kodak");
-  i = strlen(make);
-  if (!strncmp(model,make,i++))
-    memmove (model, model+i, 64-i);
-
-  /* Remove trailing spaces */
-  c = make + strlen(make);
+  c = make + strlen(make);		/* Remove trailing spaces */
   while (*--c == ' ') *c = 0;
   c = model + strlen(model);
   while (*--c == ' ') *c = 0;
+  i = strlen(make);			/* Remove make from model */
+  if (!strncmp (model, make, i++))
+    memmove (model, model+i, 64-i);
 
   if (make[0] == 0) {
     fprintf (stderr, "%s: unsupported file format.\n", ifname);
@@ -3121,20 +3153,25 @@ coolpix:
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
     rgb_max = 14000;
+  } else if (!strcmp(model,"Digital Camera KD-510Z")) {
+    data_offset = 4032;
+    fseek (ifp, 2032, SEEK_SET);
+    goto konica_510z;
   } else if (!strcmp(make,"Minolta")) {
     load_raw = be_low_12_load_raw;
     if (!strncmp(model,"DiMAGE A",8))
       load_raw = packed_12_load_raw;
     else if (!strncmp(model,"DiMAGE G",8)) {
+      data_offset = 4016;
+      fseek (ifp, 1936, SEEK_SET);
+konica_510z:
       load_raw = be_low_10_load_raw;
       height = 1956;
       width  = 2607;
       raw_width = 2624;
       filters = 0x61616161;
-      data_offset = 4016;
       rgb_max = 15856;
       order = 0x4d4d;
-      fseek (ifp, 1936, SEEK_SET);
       camera_red   = fget2(ifp);
       camera_blue  = fget2(ifp);
       camera_red  /= fget2(ifp);
@@ -3803,7 +3840,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.00"
+    "\nRaw Photo Decoder \"dcraw\" v6.02"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
