@@ -1,6 +1,6 @@
 /*
    Raw Photo Decoder (formerly "Canon PowerShot Converter")
-   Copyright 1997-2002 by Dave Coffin <dcoffin@shore.net>
+   Copyright 1997-2003 by Dave Coffin <dcoffin@shore.net>
 
    This is a portable ANSI C program to convert raw image files from
    any digital camera into PPM or PNG format.  TIFF and CIFF parsing
@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.89 $
-   $Date: 2002/12/31 23:23:33 $
+   $Revision: 1.90 $
+   $Date: 2003/01/02 23:24:00 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -802,6 +802,21 @@ void olympus_read_crw()
       image[row*width+col][FC(row,col)] = ntohs(pixel[col]) >> 2;
   }
   free (pixel);
+}
+
+void olympus2_read_crw()
+{
+  int irow, row, col;
+
+  for (irow=0; irow < height; irow++) {
+    row = irow * 2 % height + irow / (height/2);
+    if (row < 2) {
+      fseek (ifp, 15360 + row*(width*height*3/4 + 184), SEEK_SET);
+      getbits(-1);
+    }
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = getbits(12);
+  }
 }
 
 void kodak_easy_read_crw()
@@ -1676,6 +1691,13 @@ int identify(char *fname)
     read_crw = olympus_read_crw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
+  } else if (!strcmp(model,"C5050Z")) {
+    height = 1926;
+    width  = 2576;
+    filters = 0x16161616;
+    read_crw = olympus2_read_crw;
+    pre_mul[0] = 1.533;
+    pre_mul[2] = 1.880;
   } else if (!strcasecmp(make,"KODAK")) {
     height = raw_height;
     width  = raw_width;
@@ -1768,8 +1790,8 @@ int identify(char *fname)
     width  = 2271;
     filters = 0;
     read_crw = foveon_read_crw;
-    pre_mul[0] = 1.006;
-    pre_mul[2] = 1.147;
+    pre_mul[0] = 1.159;
+    pre_mul[1] = 1.006;
   } else {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",fname, make, model);
     return 1;
@@ -2098,7 +2120,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.30"
+    "\nRaw Photo Decoder v4.32"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
