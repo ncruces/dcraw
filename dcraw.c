@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.109 $
-   $Date: 2003/04/25 00:46:29 $
+   $Revision: 1.110 $
+   $Date: 2003/04/25 17:48:05 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2515,17 +2515,16 @@ int main(int argc, char **argv)
     "\nValid options:"
     "\n-i        Identify the first file and exit"
     "\n-c        Write to standard output"
-    "\n-f        Interpolate RGB as four colors"
-    "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
-    "\n-b <num>  Set brightness  (%5.3f by default)"
+    "\n-f        Interpolate RGBG as four colors"
+    "\n-g <num>  Set gamma      (0.8 by default, only for 24-bit output)"
+    "\n-b <num>  Set brightness (1.0 by default)"
     "\n-w        Use camera white balance settings if possible"
-    "\n-r <num>  Set red  scaling (daylight = 1.0)"
-    "\n-l <num>  Set blue scaling (daylight = 1.0)"
+    "\n-r <num>  Set red  multiplier (daylight = 1.0)"
+    "\n-l <num>  Set blue multiplier (daylight = 1.0)"
     "\n-2        Write 24-bit PPM (default)"
     "\n-3        Write 48-bit PSD (Adobe Photoshop)"
     "\n-4        Write 48-bit PPM"
-    "\n\n",
-      argv[0], gamma_val, bright);
+    "\n\n", argv[0]);
     exit(1);
   }
 
