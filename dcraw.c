@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.88 $
-   $Date: 2002/12/19 16:33:15 $
+   $Revision: 1.89 $
+   $Date: 2002/12/31 23:23:33 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -868,6 +868,73 @@ void kodak_compressed_read_crw()
     }
 }
 
+void foveon_decoder(struct decode *dest, unsigned huff[1024], unsigned code)
+{
+  static struct decode *free;
+  int i, len;
+
+  free++;
+  if (code) {
+    for (i=0; i < 1024; i++)
+      if (huff[i] == code) {
+	dest->leaf = i;
+	return;
+      }
+  } else
+    free = dest + 1;
+
+  if ((len = code >> 27) > 26) return;
+  code = (len+1) << 27 | (code & 0x3ffffff) << 1;
+
+  dest->branch[0] = free;
+  foveon_decoder (free, huff, code);
+  dest->branch[1] = free;
+  foveon_decoder (free, huff, code+1);
+}
+
+void foveon_read_crw()
+{
+  struct decode decode[2048], *dindex;
+  short table[1024], pred[3];
+  unsigned huff[1024], bitbuf=0, top=0, left=0;
+  int row, col, bit=-1, c, i;
+
+/* Set the width of the black borders */
+  switch (raw_width) {
+    case 2304:  top = 7;  left = 17;  break;    /* Sigma SD9 */
+  }
+  fseek (ifp, 260, SEEK_SET);
+  for (i=0; i < 1024; i++)
+    table[i] = fget2(ifp);
+  for (i=0; i < 1024; i++)
+    huff[i] = fget4(ifp);
+
+  memset (decode, 0, sizeof decode);
+  foveon_decoder (decode,  huff, 0);
+
+  for (row=0; row < raw_height; row++) {
+    memset (pred, 0, sizeof pred);
+    if (!bit) fget4(ifp);
+    for (col=bit=0; col < raw_width; col++) {
+      for (c=0; c < 3; c++) {
+	for (dindex=decode; dindex->branch[0]; ) {
+	  if ((bit = (bit-1) & 31) == 31)
+	    for (i=0; i < 4; i++)
+	      bitbuf = (bitbuf << 8) + fgetc(ifp);
+	  dindex = dindex->branch[bitbuf >> bit & 1];
+	}
+	i = dindex->leaf;
+	pred[c] += table[i];
+      }
+      if ((unsigned) row-top  >= height ||
+	  (unsigned) col-left >= width ) continue;
+      for (c=0; c < 3; c++)
+	if (pred[c] > 0)
+	  image[(row-top)*width+(col-left)][c] = pred[c];
+    }
+  }
+}
+
 void scale_colors()
 {
   int row, col, c, val;
@@ -882,22 +949,23 @@ void scale_colors()
 #endif
   rgb_max -= black;
   for (row=0; row < height; row++)
-    for (col=0; col < width; col++) {
-      c = FC(row,col);
-      val = image[row*width+col][c] - black;
+    for (col=0; col < width; col++)
+      for (c=0; c < colors; c++)
+	if ((val = image[row*width+col][c])) {
+	  val -= black;
 #ifdef STATS
-      if ((unsigned) row-186 < 10 && (unsigned) col-465 < 104) {
-	if (min[c] > val) min[c] = val;
-	if (max[c] < val) max[c] = val;
-	sum[c] += val;
-	count[c]++;
-      }
+	  if ((unsigned) row-225 < 192 && (unsigned) col-288 < 256) {
+	    if (min[c] > val) min[c] = val;
+	    if (max[c] < val) max[c] = val;
+	    sum[c] += val;
+	    count[c]++;
+	  }
 #endif
-      val *= pre_mul[c];
-      if (val < 0) val = 0;
-      if (val > rgb_max) val = rgb_max;
-      image[row*width+col][c] = val;
-    }
+	  val *= pre_mul[c];
+	  if (val < 0) val = 0;
+	  if (val > rgb_max) val = rgb_max;
+	  image[row*width+col][c] = val;
+	}
 #ifdef STATS
   for (c=0; c < colors; c++)
     fprintf (stderr, "%6d%6d %f\n", min[c], max[c], sum[c]/count[c]);
@@ -1336,6 +1404,42 @@ void parse_ciff(int offset, int length)
   }
 }
 
+void parse_foveon()
+{
+  char *buf, *bp, *np;
+  int off1, off2, len, i;
+
+  order = 0x4949;			/* Little-endian */
+  fseek (ifp, -4, SEEK_END);
+  off2 = fget4(ifp);
+  fseek (ifp, off2, SEEK_SET);
+  while (fget4(ifp) != 0x464d4143)	/* Search for "CAMF" */
+    if (feof(ifp)) return;
+  off1 = fget4(ifp);
+  fseek (ifp, off1+8, SEEK_SET);
+  off1 += (fget4(ifp)+3) * 8;
+  len = (off2 - off1)/2;
+  fseek (ifp, off1, SEEK_SET);
+  buf = malloc (len);
+  if (!buf) {
+    perror("parse_foveon() malloc failed");
+    exit(1);
+  }
+  for (i=0; i < len; i++)		/* Convert Unicode to ASCII */
+    buf[i] = fget2(ifp);
+  for (bp=buf; bp < buf+len; bp=np) {
+    np = bp + strlen(bp) + 1;
+    if (!strcmp(bp,"CAMMANUF"))
+      strcpy (make, np);
+    if (!strcmp(bp,"CAMMODEL"))
+      strcpy (model, np);
+  }
+  fseek (ifp, 248, SEEK_SET);
+  raw_width  = fget4(ifp);
+  raw_height = fget4(ifp);
+  free (buf);
+}
+
 void make_coeff();
 
 /*
@@ -1377,7 +1481,8 @@ int identify(char *fname)
       fseek (ifp, 24, SEEK_SET);
       raw_height = fget2(ifp);
       raw_width  = fget2(ifp);
-    }
+    } else if (magic == 0x464f5662)	/* "FOVb" */
+      parse_foveon();
   }
   /* Remove excess wordage */
   if (!strncmp(make,"NIKON",5) || !strncmp(make,"Canon",5))
@@ -1386,7 +1491,8 @@ int identify(char *fname)
     make[7] = 0;
   if (!strncmp(make,"KODAK",5))
     make[16] = model[16] = 0;
-  if (!strncmp(model,"Canon",5) || !strncmp(model,"NIKON",5))
+  if (!strncmp(model,"Canon",5) || !strncmp(model,"NIKON",5) ||
+      !strncmp(model,"SIGMA",5))
     memmove (model, model+6, 64-6);
 
   /* Remove trailing spaces */
@@ -1405,9 +1511,9 @@ int identify(char *fname)
     colors = 4;
     filters = 0xe1e4e1e4;
     read_crw = ps600_read_crw;
-    pre_mul[0] = 1.377;
-    pre_mul[1] = 1.428;
-    pre_mul[2] = 1.010;
+    pre_mul[0] = 1.388;
+    pre_mul[1] = 1.489;
+    pre_mul[2] = 1.051;
   } else if (!strcmp(model,"PowerShot A5")) {
     height = 776;
     width  = 960;
@@ -1657,6 +1763,13 @@ int identify(char *fname)
 		fname, make, model, tiff_data_compression);
 	return 1;
     }
+  } else if (!strcmp(model,"SD9")) {
+    height = 1514;
+    width  = 2271;
+    filters = 0;
+    read_crw = foveon_read_crw;
+    pre_mul[0] = 1.006;
+    pre_mul[2] = 1.147;
   } else {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",fname, make, model);
     return 1;
@@ -1985,7 +2098,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.26"
+    "\nRaw Photo Decoder v4.30"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
