@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.14 $
-   $Date: 2004/05/01 04:08:26 $
+   $Revision: 1.15 $
+   $Date: 2004/05/11 04:38:40 $
  */
 
 #include <stdio.h>
@@ -130,6 +130,8 @@ void nef_parse_makernote()
     val = fget2(ifp);		/* should be 42 decimal */
     offset = fget4(ifp);
     fseek (ifp, offset-8, SEEK_CUR);
+  } else if(!strcmp (buf,"OLYMP")) { /* starts with "OLYMP\0\1\0" ? */
+    fseek (ifp, -2, SEEK_CUR); /* The count seems to be 8 bytes in */
   } else
     fseek (ifp, -10, SEEK_CUR);
 
@@ -173,7 +175,7 @@ void nef_parse_exif(int base)
     count= fget4(ifp);
     tiff_dump (base, tag, type, count, 1);
     if (tag == 0x927c)
-      if (!strncmp(make,"NIKON",5))
+      if (!strncmp(make,"NIKON",5) || !strncmp(make,"OLYMPUS",7))
 	nef_parse_makernote();
       else if (strstr(make,"Minolta"))
 	mrw_parse_makernote(base);
