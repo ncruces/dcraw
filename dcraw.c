@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.48 $
-   $Date: 2002/04/02 13:44:26 $
+   $Revision: 1.49 $
+   $Date: 2002/04/04 01:44:38 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -22,13 +22,14 @@
  */
 
 #include <math.h>
-#ifndef NO_PNG
-#include <png.h>
-#endif
-#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <netinet/in.h>
+
+#ifndef NO_PNG
+#include <png.h>
+#endif
 
 #ifdef LJPEG_DECODE
 #include "jpeg.h"
@@ -130,7 +131,7 @@ struct decode {
 	2 G R G R G R
 	3 B G B G B G
 
-   The Nikon D1X uses 0x16161616:
+   The Nikon cameras use 0x16161616:
 
 	  0 1 2 3 4 5
 	0 B G B G B G
@@ -660,6 +661,7 @@ ushort fget2 (FILE *f);
 
 void nikon_d1x_read_crw()
 {
+  int waste=0;
   static const uchar nikon_tree[] = {
     0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
     5,4,3,6,2,7,1,0,8,9,11,10,12
@@ -670,18 +672,20 @@ void nikon_d1x_read_crw()
   register int diff;
 
 /* Read an uncompressed image */
-  fseek (ifp, nef_data_offset+76, SEEK_SET);
+  if (!strcmp(name,"NIKON D1X"))
+    waste = 4;
+  fseek (ifp, nef_data_offset+58, SEEK_SET);
   if (fget2(ifp) != 0x8799) {
-    fseek (ifp, nef_data_offset+160, SEEK_SET);
+    fseek (ifp, nef_data_offset+142, SEEK_SET);
     fseek (ifp, fget4(ifp)+8, SEEK_SET);
     getbits(-1);
 
-    for (row=0; row < 1324; row++)
-      for (col=0; col < 4028; col++) {
-	diff = getbits(12);
-	if (col < width)
-	  image[row*width+col][FC(row,col)] = diff << 2;
-      }
+    for (row=0; row < height; row++) {
+      for (col=0; col < width; col++)
+	image[row*width+col][FC(row,col)] = getbits(12) << 2;
+      for (col=0; col < waste; col++)
+	getbits(12);
+    }
     return;
   }
 
@@ -701,12 +705,12 @@ void nikon_d1x_read_crw()
   for (i=0; i < csize; i++)
     curve[i] = fget2(ifp);
 
-  fseek (ifp, nef_data_offset+100, SEEK_SET);
+  fseek (ifp, nef_data_offset+82, SEEK_SET);
   fseek (ifp, fget4(ifp), SEEK_SET);
   getbits(-1);
 
-  for (row=0; row < 1324; row++)
-    for (col=0; col < 4028; col++) {
+  for (row=0; row < height; row++)
+    for (col=0; col < width+waste; col++) {
 
       for (dindex=first_decode; dindex->branch[0]; )
 	dindex = dindex->branch[getbits(1)];
@@ -867,11 +871,11 @@ void parse_tiff()
       val  = fget4(ifp);
       save = ftell(ifp);
       switch (tag) {
-	case 0x110:
+	case 272:			/* Model tag */
 	  fseek (ifp, val, SEEK_SET);
 	  fread (name, 64, 1, ifp);
 	  break;
-	case 0x8825:
+	case 330:			/* SubIFD tag */
 	  nef_data_offset = val;
       }
       fseek (ifp, save, SEEK_SET);
@@ -1027,6 +1031,15 @@ int open_and_id(char *fname)
     fprintf(stderr,"crw.c was compiled without EOS-1D support.\n",fname);
     return 1;
 #endif
+  } else if (!strcmp(name,"NIKON D1 ")) {
+    height = 1324;
+    width  = 2012;
+    colors = 3;
+    canon = 0;
+    filters = 0x16161616;
+    read_crw = nikon_d1x_read_crw;
+    rgb_mul[0] = 0.838;
+    rgb_mul[2] = 1.095;
   } else if (!strcmp(name,"NIKON D1X")) {
     height = 1324;
     width  = 4024;
@@ -1285,7 +1298,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.75"
+    "\nCanon PowerShot Converter v2.80"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
