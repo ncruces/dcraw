@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.149 $
-   $Date: 2003/11/14 15:53:47 $
+   $Revision: 1.150 $
+   $Date: 2003/11/14 23:42:33 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -26,6 +26,7 @@
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -3083,14 +3084,14 @@ void write_ppm16(FILE *ofp)
 int main(int argc, char **argv)
 {
   char data[256], *cp;
-  int arg, id, identify_only=0, write_to_files=1, minuso=0;
+  int arg, id, identify_only=0, write_to_stdout=0, minuso=0;
   const char *write_ext = ".ppm";
   FILE *ofp;
 
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.16"
+    "\nRaw Photo Decoder v5.17"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -3115,15 +3116,13 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-/* Parse out the options */
-
   for (arg=1; argv[arg][0] == '-'; arg++)
     switch (argv[arg][1])
     {
       case 'i':
 	identify_only = 1;  break;
       case 'c':
-	write_to_files = 0;  break;
+	write_to_stdout = 1;  break;
       case 'o':
 	minuso = ++arg;  break;
       case 'f':
@@ -3159,7 +3158,18 @@ int main(int argc, char **argv)
 	exit(1);
     }
 
-/* Process the named files  */
+  if (write_to_stdout) {
+    if (isatty(1)) {
+      fprintf (stderr, "Will not write an image to the terminal!\n");
+      exit(1);
+    }
+#ifdef WIN32
+    if (setmode(1,O_BINARY) < 0) {
+      perror ("setmode()");
+      exit(1);
+    }
+#endif
+  }
 
   for ( ; arg < argc; arg++)
   {
@@ -3202,9 +3212,10 @@ int main(int argc, char **argv)
     }
     fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
-    ofp = stdout;
-    strcpy (data, "standard output");
-    if (write_to_files) {
+    if (write_to_stdout) {
+      strcpy (data, "standard output");
+      ofp = stdout;
+    } else {
       strcpy (data, argv[arg]);
       if ((cp = strrchr (data, '.'))) *cp = 0;
       strcat (data, write_ext);
@@ -3218,7 +3229,7 @@ int main(int argc, char **argv)
     }
     fprintf (stderr, "Writing data to %s...\n", data);
     (*write_fun)(ofp);
-    if (write_to_files)
+    if (ofp != stdout)
       fclose(ofp);
 
     free (image);
