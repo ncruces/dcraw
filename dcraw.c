@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.228 $
-   $Date: 2005/01/19 08:50:44 $
+   $Revision: 1.229 $
+   $Date: 2005/01/21 06:48:13 $
  */
 
 #define _GNU_SOURCE
@@ -3240,11 +3240,12 @@ coolpix:
     filters = 0x16161616;
     pre_mul[0] = 1.700;
     pre_mul[2] = 1.344;
-  } else if (!strcmp(model,"E8700") ||
+  } else if (!strcmp(model,"E8400") ||
+	     !strcmp(model,"E8700") ||
 	     !strcmp(model,"E8800")) {
     filters = 0x16161616;
     pre_mul[0] = 2.131;
-    pre_mul[2] = 1.300;
+    pre_mul[2] = 1.400;
   } else if (!strcmp(model,"R-D1")) {
     tiff_data_compression = 34713;
     load_raw = nikon_load_raw;
@@ -3984,7 +3985,7 @@ void CLASS write_ppm (FILE *ofp)
   if (fuji_width) i /= 2;
   for (val=0x2000, total=0; --val; )
     if ((total += histogram[val]) > i) break;
-  white = (val << 4) / bright;
+  white = (val << 3) / bright;
 
   fprintf (ofp, "P6\n%d %d\n255\n",
 	xmag*(width-trim*2), ymag*(height-trim*2));
@@ -3993,7 +3994,7 @@ void CLASS write_ppm (FILE *ofp)
   merror (ppm, "write_ppm()");
   for (i=0; i < 0x10000; i++) {
     r = i / white;
-    scale[i] = (r <= 0.018 ? r*4.5 : pow(r,0.45)*1.099-0.099) * 256 / i;
+    scale[i] = (r <= 0.018 ? r*4.5 : pow(r,0.45)*1.099-0.099) * 221.7025 / i;
   }
   for (row=trim; row < height-trim; row++) {
     for (col=trim; col < width-trim; col++) {
@@ -4103,7 +4104,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.30"
+    "\nRaw Photo Decoder \"dcraw\" v6.31"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
