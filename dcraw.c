@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.177 $
-   $Date: 2004/03/05 17:25:30 $
+   $Revision: 1.178 $
+   $Date: 2004/03/07 02:06:59 $
  */
 
 #define _GNU_SOURCE
@@ -59,6 +59,7 @@ int data_offset, nef_curve_offset, timestamp;
 int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, colors, black, rgb_max;
+int iheight, iwidth, shrink;
 int is_canon, is_cmy, is_foveon, use_coeff, trim, ymag;
 int zero_after_ff;
 unsigned filters;
@@ -88,6 +89,10 @@ struct decode {
  */
 #define FC(row,col) \
 	(filters >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
+
+#define BAYER(row,col) \
+	image[((row) >> shrink)*iwidth + ((col) >> shrink)][FC(row,col)]
+
 /*
    PowerShot 600 uses 0xe1e4e1e4:
 
@@ -187,7 +192,7 @@ void canon_600_load_raw()
       pix[7] = (dp[8] << 2) + (dp[9] >> 6    );
     }
     for (col=0; col < width; col++)
-      image[orow*width+col][FC(orow,col)] = pixel[col] << 4;
+      BAYER(orow,col) = pixel[col] << 4;
     for (col=width; col < 896; col++)
       black += pixel[col];
     if ((orow+=2) > height)
@@ -216,7 +221,7 @@ void canon_a5_load_raw()
       pix[7] = (dp[9] << 8) + (dp[8]     );
     }
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
+      BAYER(row,col) = (pixel[col] & 0x3ff) << 4;
     for (col=width; col < raw_width; col++)
       black += pixel[col] & 0x3ff;
   }
@@ -478,8 +483,7 @@ void canon_compressed_load_raw()
       for (col=0; col < raw_width; col++) {
 	icol = col - left_margin;
 	if (icol < width)
-	  image[irow*width+icol][FC(irow,icol)] =
-		pixel[r*raw_width+col] << shift;
+	  BAYER(irow,icol) = pixel[r*raw_width+col] << shift;
 	else
 	  bblack += pixel[r*raw_width+col];
       }
@@ -509,9 +513,9 @@ void lossless_jpeg_load_raw()
   if (fget2(ifp) != 0xffd8) return;
   do {
     tag = fget2(ifp);
-    len = fget2(ifp);
+    len = fget2(ifp) - 2;
     if (tag <= 0xff00 || len > 255) return;
-    fread (data, 1, len-2, ifp);
+    fread (data, 1, len, ifp);
     switch (tag) {
       case 0xffc3:
 	jhigh = (data[1] << 8) + data[2];
@@ -549,7 +553,7 @@ void lossless_jpeg_load_raw()
       if ((unsigned) (irow = row-top_margin) >= height)
 	continue;
       if ((unsigned) (icol = col-left_margin) < width)
-	image[irow*width+icol][FC(irow,icol)] = diff << 2;
+	BAYER(irow,icol) = diff << 2;
       else
 	bblack += diff;
     }
@@ -601,7 +605,7 @@ void nikon_compressed_load_raw()
       diff = hpred[col & 1];
       if (diff < 0) diff = 0;
       if (diff >= csize) diff = csize-1;
-      image[row*width+col-left_margin][FC(row,col)] = curve[diff] << 2;
+      BAYER(row,col-left_margin) = curve[diff] << 2;
     }
   free (curve);
 }
@@ -624,7 +628,7 @@ void nikon_load_raw()
     for (col=0; col < raw_width; col++) {
       i = getbits(12);
       if ((unsigned) (col-left_margin) < width)
-	image[row*width+col-left_margin][FC(row,col)] = i << 2;
+	BAYER(row,col-left_margin) = i << 2;
       if (tiff_data_compression == 34713 && (col % 10) == 9)
 	getbits(8);
     }
@@ -694,7 +698,7 @@ void nikon_e2100_load_raw()
       pix[7] = (dp[ 8] >> 2) + (dp[9] << 6);
     }
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
+      BAYER(row,col) = (pixel[col] & 0x3ff) << 4;
   }
 }
 
@@ -706,7 +710,7 @@ void nikon_e950_load_raw()
   for (irow=0; irow < height; irow++) {
     row = irow * 2 % height;
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = getbits(10) << 4;
+      BAYER(row,col) = getbits(10) << 4;
     for (col=28; col--; )
       getbits(8);
   }
@@ -726,7 +730,7 @@ void fuji_s2_load_raw()
     for (col=0; col < 2880; col++) {
       r = row + ((col+1) >> 1);
       c = 2143 - row + (col >> 1);
-      image[r*width+c][FC(r,c)] = ntohs(pixel[col]) << 2;
+      BAYER(r,c) = ntohs(pixel[col]) << 2;
     }
   }
 }
@@ -743,7 +747,7 @@ void fuji_common_load_raw (int ncol, int icol, int nrow)
     for (col=0; col <= icol; col++) {
       r = icol - col + (row >> 1);
       c = col + ((row+1) >> 1);
-      image[r*width+c][FC(r,c)] = pixel[col] << 2;
+      BAYER(r,c) = pixel[col] << 2;
     }
   }
 }
@@ -781,7 +785,7 @@ void fuji_f700_load_raw()
 	val = pixel[col+1488] << 4;	/* use the secondary.       */
       if (val > 0xffff)
 	val = 0xffff;
-      image[r*width+c][FC(r,c)] = val;
+      BAYER(r,c) = val;
     }
   }
 }
@@ -806,7 +810,7 @@ void rollei_load_raw()
       row = todo[i] / raw_width - top_margin;
       col = todo[i] % raw_width - left_margin;
       if (row < height && col < width)
-	image[row*width+col][FC(row,col)] = (todo[i+1] & 0x3ff) << 4;
+	BAYER(row,col) = (todo[i+1] & 0x3ff) << 4;
     }
   }
 }
@@ -830,7 +834,7 @@ void phase_one_load_raw()
       pixel[col+1] = (a & 0xaaaa) | (b & 0x5555);
     }
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = pixel[col+left_margin];
+      BAYER(row,col) = pixel[col+left_margin];
   }
 }
 
@@ -845,7 +849,7 @@ void ixpress_load_raw()
     if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
       swab (pixel, pixel, 4090*2);
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = pixel[width-1-col];
+      BAYER(row,col) = pixel[width-1-col];
   }
 }
 
@@ -856,7 +860,7 @@ void pentax_optio_load_raw()
   getbits(-1);
   for (row=0; row < height; row++) {
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = getbits(12) << 2;
+      BAYER(row,col) = getbits(12) << 2;
     for (col=0; col < 17; col++)
       getbits(16);
   }
@@ -869,7 +873,7 @@ void packed_12_load_raw()
   getbits(-1);
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = getbits(12) << 2;
+      BAYER(row,col) = getbits(12) << 2;
 }
 
 void unpacked_load_raw (int order, int rsh)
@@ -884,7 +888,7 @@ void unpacked_load_raw (int order, int rsh)
     if (order != ntohs(0x55aa))
       swab (pixel, pixel, width*2);
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = pixel[col] << 8 >> (8+rsh);
+      BAYER(row,col) = pixel[col] << 8 >> (8+rsh);
   }
   free (pixel);
 }
@@ -920,7 +924,7 @@ void olympus_cseries_load_raw()
       getbits(-1);
     }
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = getbits(12) << 2;
+      BAYER(row,col) = getbits(12) << 2;
   }
 }
 
@@ -934,7 +938,7 @@ void eight_bit_load_raw()
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = pixel[col] << 6;
+      BAYER(row,col) = pixel[col] << 6;
   }
   free (pixel);
 }
@@ -954,7 +958,7 @@ void casio_qv5700_load_raw()
       pix[3] = (dp[3] << 8) + (dp[4]     );
     }
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
+      BAYER(row,col) = (pixel[col] & 0x3ff) << 4;
   }
 }
 
@@ -972,7 +976,7 @@ void nucore_load_raw()
     else
       row = irow;
     for (dp=data, col=0; col < width; col++, dp+=2)
-      image[row*width+col][FC(row,col)] = (dp[0] << 2) + (dp[1] << 10);
+      BAYER(row,col) = (dp[0] << 2) + (dp[1] << 10);
   }
   free (data);
 }
@@ -991,7 +995,7 @@ void kodak_easy_load_raw()
     for (col=0; col < raw_width; col++) {
       icol = col - left_margin;
       if (icol < width)
-	image[row*width+icol][FC(row,icol)] = (ushort) pixel[col] << 6;
+	BAYER(row,icol) = (ushort) pixel[col] << 6;
       else
 	black += pixel[col];
     }
@@ -1060,7 +1064,7 @@ void kodak_compressed_load_raw()
 	pred[col & 1] += diff;
 	diff = pred[col & 1];
       }
-      image[row*width+col][FC(row,col)] = diff << 2;
+      BAYER(row,col) = diff << 2;
     }
 }
 
@@ -1154,7 +1158,7 @@ void sony_load_raw()
     sony_decrypt ((void *) pixel, raw_width/2, !row, key);
     for (col=0; col < 3343; col++)
       if ((icol = col-left_margin) < width)
-	image[row*width+icol][FC(row,icol)] = ntohs(pixel[col]);
+	BAYER(row,icol) = ntohs(pixel[col]);
       else
 	bblack += ntohs(pixel[col]);
   }
@@ -1508,6 +1512,7 @@ void bad_pixels()
   char *fname, *cp, line[128];
   int len, time, row, col, r, c, rad, tot, n, fixed=0;
 
+  if (!filters) return;
   for (len=16 ; ; len *= 2) {
     fname = malloc (len);
     if (!fname) return;
@@ -1538,10 +1543,10 @@ void bad_pixels()
 	for (c = col-rad; c <= col+rad; c++)
 	  if ((unsigned) r < height && (unsigned) c < width &&
 		(r != row || c != col) && FC(r,c) == FC(row,col)) {
-	    tot += image[r*width+c][FC(r,c)];
+	    tot += BAYER(r,c);
 	    n++;
 	  }
-    image[row*width+col][FC(row,col)] = tot/n;
+    BAYER(row,col) = tot/n;
     if (verbose) {
       if (!fixed++)
 	fprintf (stderr, "Fixed bad pixels at:");
@@ -3226,7 +3231,7 @@ void write_ppm16(FILE *ofp)
 
 int main(int argc, char **argv)
 {
-  int arg, status=0, identify_only=0, write_to_stdout=0;
+  int arg, status=0, identify_only=0, write_to_stdout=0, half_size=0;
   char opt, *ofname, *cp;
   const char *write_ext = ".ppm";
   FILE *ofp = stdout;
@@ -3234,7 +3239,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.60"
+    "\nRaw Photo Decoder v5.62"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -3244,6 +3249,7 @@ int main(int argc, char **argv)
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-q        Quick, low-quality color interpolation"
+    "\n-h        Half-size color image (3x faster than -q)"
     "\n-g <num>  Set gamma      (0.6 by default, only for 24-bpp output)"
     "\n-b <num>  Set brightness (1.0 by default)"
     "\n-a        Use automatic white balance"
@@ -3274,6 +3280,7 @@ int main(int argc, char **argv)
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
       case 'v':  verbose           = 1;  break;
+      case 'h':  half_size         = 1;
       case 'f':  four_color_rgb    = 1;  break;
       case 'd':  document_mode     = 1;  break;
       case 'q':  quick_interpolate = 1;  break;
@@ -3331,21 +3338,27 @@ int main(int argc, char **argv)
       fclose(ifp);
       continue;
     }
-    image = calloc (height * width, sizeof *image);
+    shrink = half_size && filters;
+    iheight = (height + shrink) >> shrink;
+    iwidth  = (width  + shrink) >> shrink;
+    image = calloc (iheight * iwidth, sizeof *image);
     merror (image, "main()");
     if (verbose)
       fprintf (stderr,
 	"Loading %s %s image from %s...\n", make, model, ifname);
     (*load_raw)();
     fclose(ifp);
+    bad_pixels();
+    height = iheight;
+    width  = iwidth;
     if (is_foveon) {
       if (verbose)
 	fprintf (stderr, "Foveon interpolation...\n");
       foveon_interpolate();
     } else {
-      bad_pixels();
       scale_colors();
     }
+    if (shrink) filters = 0;
     trim = 0;
     if (filters && !document_mode) {
       trim = 1;
