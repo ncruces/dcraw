@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.229 $
-   $Date: 2005/01/21 06:48:13 $
+   $Revision: 1.230 $
+   $Date: 2005/01/24 05:43:59 $
  */
 
 #define _GNU_SOURCE
@@ -87,6 +87,11 @@ int histogram[0x2000];
 void write_ppm(FILE *);
 void (*write_fun)(FILE *) = write_ppm;
 jmp_buf failure;
+
+#ifdef USE_LCMS
+#include <lcms.h>
+int profile_offset, profile_length;
+#endif
 
 struct decode {
   struct decode *branch[2];
@@ -2707,6 +2712,34 @@ void CLASS parse_rollei()
   strcpy (model,"d530flex");
 }
 
+void CLASS parse_mos (int offset)
+{
+  uchar data[40];
+  int skip, from, i, neut[4];
+
+  fseek (ifp, offset, SEEK_SET);
+  while (1) {
+    fread (data, 1, 8, ifp);
+    if (strcmp(data,"PKTS")) break;
+    fread (data, 1, 40, ifp);
+    skip = fget4(ifp);
+    from = ftell(ifp);
+#ifdef USE_LCMS
+    if (!strcmp(data,"icc_camera_profile")) {
+      profile_length = skip;
+      profile_offset = from;
+    }
+#endif
+    if (!strcmp(data,"NeutObj_neutrals"))
+      for (i=0; i < 4; i++) {
+	fscanf (ifp, "%d", neut+i);
+	if (i) pre_mul[i-1] = (float) neut[0] / neut[i];
+      }
+    parse_mos (from);
+    fseek (ifp, skip+from, SEEK_SET);
+  }
+}
+
 void CLASS parse_foveon()
 {
   char *buf, *bp, *np;
@@ -2866,8 +2899,12 @@ int CLASS identify()
   make[0] = model[0] = model2[0] = 0;
   memset (white, 0, sizeof white);
   camera_red = camera_blue = timestamp = 0;
+  pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
   data_offset = curve_offset = tiff_data_compression = 0;
   zero_after_ff = 0;
+#ifdef USE_LCMS
+  profile_length = 0;
+#endif
 
   order = fget2(ifp);
   hlen = fget4(ifp);
@@ -2941,6 +2978,8 @@ nucore:
 	strcpy (make,  table[i].make );
 	strcpy (model, table[i].model);
       }
+  parse_mos(8);
+  parse_mos(3472);
 
   for (i=0; i < sizeof corp / sizeof *corp; i++)
     if (strstr (make, corp[i]))		/* Simplify company names */
@@ -2970,7 +3009,6 @@ nucore:
   colors = 3;
   filters = 0x94949494;
   black = is_cmy = is_foveon = use_coeff = 0;
-  pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
   xmag = ymag = 1;
   rgb_max = 0x4000;
 
@@ -3452,16 +3490,11 @@ konica_400z:
   } else if (!strcmp(make,"Leaf")) {
     if (height > width)
       filters = 0x16161616;
-    load_raw = all_16_load_raw;
-    pre_mul[0] = 1.1629;
-    pre_mul[2] = 1.3556;
+    load_raw = low_12_load_raw;
     strcpy (model, "Valeo");
     if (raw_width == 2060) {
       filters = 0;
       load_raw = leaf_load_raw;
-      pre_mul[0] = 2.103;
-      pre_mul[1] = 1.256;
-      pre_mul[2] = 1.0;
       strcpy (model, "Volare");
     }
     rgb_max = 0xffff;
@@ -3829,6 +3862,47 @@ konica_400z:
   return 0;
 }
 
+#ifdef USE_LCMS
+void CLASS apply_profile (char *pfname)
+{
+  int shift=0, size, i;
+  char *prof;
+  cmsHPROFILE hInProfile=NULL, hOutProfile;
+  cmsHTRANSFORM hTransform;
+
+  if (pfname)
+    hInProfile = cmsOpenProfileFromFile (pfname, "r");
+  else if (profile_length) {
+    prof = malloc (profile_length);
+    merror (prof, "apply_profile()");
+    fseek (ifp, profile_offset, SEEK_SET);
+    fread (prof, 1, profile_length, ifp);
+    hInProfile = cmsOpenProfileFromMem (prof, profile_length);
+    free (prof);
+  }
+  if (!hInProfile) return;
+  if (verbose)
+    fprintf (stderr, "Applying color profile...\n");
+
+  while (rgb_max << shift < 0x8000) shift++;
+  size = width * height * 4;
+  if (shift)
+    for (i=0; i < size; i++)
+      image[0][i] <<= 2;
+  rgb_max = 0xffff;
+  use_coeff = is_cmy = 0;
+
+  hOutProfile = cmsCreate_sRGBProfile();
+  hTransform = cmsCreateTransform (hInProfile, TYPE_RGBA_16,
+	hOutProfile, TYPE_RGBA_16, INTENT_PERCEPTUAL, 0);
+  cmsDoTransform (hTransform, image, image, width*height);
+
+  cmsDeleteTransform (hTransform);
+  cmsCloseProfile (hInProfile);
+  cmsCloseProfile (hOutProfile);
+}
+#endif
+
 /*
    Convert the entire image to RGB colorspace and build a histogram.
  */
@@ -4100,27 +4174,33 @@ int CLASS main (int argc, char **argv)
   char opt, *ofname, *cp;
   const char *write_ext = ".ppm";
   FILE *ofp = stdout;
+#ifdef USE_LCMS
+  char *profile = NULL;
+#endif
 
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.31"
+    "\nRaw Photo Decoder \"dcraw\" v6.32"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
     "\n-i        Identify files but don't decode them"
     "\n-c        Write to standard output"
     "\n-v        Print verbose messages while decoding"
-    "\n-f        Interpolate RGBG as four colors"
+    "\n-a        Use automatic white balance"
+    "\n-w        Use camera white balance, if possible"
+    "\n-r <num>  Set red  multiplier (default = 1.0)"
+    "\n-l <num>  Set blue multiplier (default = 1.0)"
+    "\n-b <num>  Set brightness      (default = 1.0)"
+#ifdef USE_LCMS
+    "\n-p <file> Apply color profile from file"
+#endif
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-q        Quick, low-quality color interpolation"
     "\n-h        Half-size color image (3x faster than -q)"
+    "\n-f        Interpolate RGGB as four colors"
     "\n-s        Use secondary pixels (Fuji Super CCD SR only)"
-    "\n-b <num>  Set brightness (1.0 by default)"
-    "\n-a        Use automatic white balance"
-    "\n-w        Use camera white balance, if possible"
-    "\n-r <num>  Set red  multiplier (daylight = 1.0)"
-    "\n-l <num>  Set blue multiplier (daylight = 1.0)"
     "\n-t [0-7]  Flip image (0 = none, 3 = 180, 5 = 90CCW, 6 = 90CW)"
     "\n-2        Write  8-bit PPM with 0.45 gamma (default)"
     "\n-3        Write 16-bit linear PSD (Adobe Photoshop)"
@@ -4142,7 +4222,9 @@ int CLASS main (int argc, char **argv)
       case 'r':  red_scale   = atof(argv[arg++]);  break;
       case 'l':  blue_scale  = atof(argv[arg++]);  break;
       case 't':  user_flip   = atoi(argv[arg++]);  break;
-
+#ifdef USE_LCMS
+      case 'p':  profile     =      argv[arg++] ;  break;
+#endif
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
       case 'v':  verbose           = 1;  break;
@@ -4214,7 +4296,6 @@ int CLASS main (int argc, char **argv)
       fprintf (stderr,
 	"Loading %s %s image from %s...\n", make, model, ifname);
     (*load_raw)();
-    fclose(ifp);
     bad_pixels();
     height = iheight;
     width  = iwidth;
@@ -4234,6 +4315,9 @@ int CLASS main (int argc, char **argv)
 	  quick_interpolate ? "Bilinear":"VNG");
       vng_interpolate();
     }
+#ifdef USE_LCMS
+    apply_profile (profile);
+#endif
     if (verbose)
       fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
@@ -4246,6 +4330,7 @@ int CLASS main (int argc, char **argv)
 	  flip & 1 ? 'H':'0', flip & 2 ? 'V':'0', flip & 4 ? 'T':'0');
       flip_image();
     }
+    fclose(ifp);
     ofname = malloc (strlen(ifname) + 16);
     merror (ofname, "main()");
     if (write_to_stdout)
