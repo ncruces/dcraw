@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.53 $
-   $Date: 2002/04/26 03:29:48 $
+   $Revision: 1.54 $
+   $Date: 2002/05/02 19:44:17 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -44,7 +44,7 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-int height, width, colors, black, canon;
+int height, width, colors, black, canon, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
 int nef_data_offset;
 unsigned filters;
@@ -758,6 +758,7 @@ void subtract_black()
       *img++ -= black;
     else
       *img++ = 0;
+  rgb_max -= black;
 }
 
 /*
@@ -951,6 +952,7 @@ int open_and_id(char *fname)
   rgb_mul[0] = 1.592;
   rgb_mul[1] = 1.0;
   rgb_mul[2] = 1.261;
+  rgb_max = 0x4000 * bright;
   colors = 4;
   canon = 1;
 
@@ -1044,6 +1046,7 @@ int open_and_id(char *fname)
     read_crw = d30_read_crw;
     rgb_mul[0] = 2.242;
     rgb_mul[2] = 1.245;
+    rgb_max = 16000 * bright;
   } else if (!strcmp(name,"Canon EOS-1D")) {
 #ifdef LJPEG_DECODE
     height = 1662;
@@ -1107,9 +1110,11 @@ void get_rgb(float rgb[4], ushort image[4])
 
   memset (rgb, 0, 4 * sizeof (float));
   for (r=0; r < 3; r++)	{
-    if (colors == 3)
+    if (colors == 3) {
       rgb[r] = image[r] * rgb_mul[r];
-    else {
+      if (rgb[r] > rgb_max)
+	  rgb[r] = rgb_max;
+    } else {
       for (g=0; g < 4; g++)
 	rgb[r] += image[g] * coeff[r][g];
       if (rgb[r] < 0) rgb[r]=0;
@@ -1142,10 +1147,10 @@ void write_ppm(FILE *ofp)
       histogram[val]++;
     }
 /*
-   Set the maximum magnitude to the 98th percentile
+   Set the white point to the 99.66th percentile
  */
   for (val=0x1000, total=0; --val; )
-    if ((total+=histogram[val]) > (int)(width*height*0.06)) break;
+    if ((total+=histogram[val]) > (int)(width*height*0.01)) break;
   max = val << 6;
   max2 = max * max;
 
@@ -1157,7 +1162,7 @@ void write_ppm(FILE *ofp)
     exit(1);
   }
   expo = (gamma_val-1)/2;		/* Pull these out of the loop */
-  mul = bright * 362 / max;
+  mul = bright * 442 / max;
 
   for (y=1; y < height-1; y++)
   {
@@ -1165,7 +1170,8 @@ void write_ppm(FILE *ofp)
     {
       get_rgb(rgb,image[y*width+x]);
 /* In some math libraries, pow(0,expo) doesn't return zero */
-      scale = rgb[3] ? mul * pow(rgb[3]/max2,expo) : 0;
+      scale = 0;
+      if (rgb[3]) scale = mul * pow(rgb[3]/max2,expo);
 
       for (c=0; c < 3; c++)
       {
@@ -1197,7 +1203,7 @@ void write_psd(FILE *ofp)
     0,0,0,0,			/* layer/mask info */
     0,0				/* no compression */
   };
-  int hw[2], psize, y, x, c, val, max=0xffff;
+  int hw[2], psize, y, x, c, val;
   float rgb[4];
   ushort *buffer, *pred;
 
@@ -1214,11 +1220,6 @@ void write_psd(FILE *ofp)
   }
   pred = buffer;
 
-  if (colors == 3)
-    max = 0x4000 * bright;
-  if (max > 0xffff)
-    max = 0xffff;
-
   for (y=1; y < height-1; y++)
   {
     for (x=1; x < width-1; x++)
@@ -1226,7 +1227,7 @@ void write_psd(FILE *ofp)
       get_rgb(rgb, image[y * width + x]);
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
-	if (val > max) val = max;
+	if (val > 0xffff) val=0xffff;
 	pred[c*psize] = htons(val);
       }
       pred++;
@@ -1245,7 +1246,7 @@ void write_png(FILE *ofp)
   png_structp png_ptr;
   png_infop info_ptr;
   ushort (*png)[3];
-  int y, x, c, val, max=0xffff;
+  int y, x, c, val;
   float rgb[4];
 
   png_ptr = png_create_write_struct
@@ -1279,17 +1280,12 @@ void write_png(FILE *ofp)
     exit(1);
   }
 
-  if (colors == 3)
-    max = 0x4000 * bright;
-  if (max > 0xffff)
-    max = 0xffff;
-
   for (y=1; y < height-1; y++) {
     for (x=1; x < width-1; x++) {
       get_rgb(rgb, image[y*width+x]);
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
-	if (val > max) val = max;
+	if (val > 0xffff) val=0xffff;
 	png[x-1][c] = val;
       }
     }
@@ -1325,7 +1321,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.88"
+    "\nCanon PowerShot Converter v2.90"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
