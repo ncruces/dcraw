@@ -12,11 +12,13 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.29 $
-   $Date: 2001/10/15 04:28:53 $
+   $Revision: 1.30 $
+   $Date: 2001/10/19 20:14:37 $
 */
 
 #include <math.h>
+#include <png.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -933,6 +935,68 @@ write_ppm(FILE *ofp)
   free (ppm);
 }
 
+
+/*
+   Write the rgb[] array to a PNG file
+ */
+write_png(FILE *ofp)
+{
+  png_structp png_ptr;
+  png_infop info_ptr;
+  ushort (*png)[3];
+  float rgb[4], val;
+  int y, x, c, max=0xffff;
+
+  png_ptr = png_create_write_struct
+       (PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+  if (!png_ptr) return;
+  info_ptr = png_create_info_struct(png_ptr);
+  if (!info_ptr) {
+    png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
+    return;
+  }
+  if (setjmp(png_ptr->jmpbuf)) {
+    png_destroy_write_struct(&png_ptr, &info_ptr);
+    return;
+  }
+  png_init_io (png_ptr, ofp);
+  png_set_IHDR (png_ptr, info_ptr, width-2, height-2,
+       16, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+       PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+
+/* Comment out this line if you want compression */
+  png_set_compression_level(png_ptr, 0);
+
+  png_write_info(png_ptr, info_ptr);
+
+  if (htons(0xaa55) != 0xaa55)
+    png_set_swap(png_ptr);
+
+  png = calloc(width-2,6);
+  if (!png) {
+    perror("png calloc failed");
+    exit(1);
+  }
+
+  if (colors == 3)
+    max = rgb_mul[1] * 0x4000;
+
+  for (y=1; y < height-1; y++) {
+    for (x=1; x < width-1; x++) {
+      get_rgb(rgb, image[y*width+x]);
+      for (c=0; c < 3; c++) {
+	val = rgb[c];
+	if (val > max) val = max;
+	png[x-1][c] = val;
+      }
+    }
+    png_write_row(png_ptr, (png_bytep) png);
+  }
+  free (png);
+  png_write_end(png_ptr, NULL);
+  png_destroy_write_struct(&png_ptr, &info_ptr);
+}
+
 /*
    Creates a new filename with a different extension
  */
@@ -949,19 +1013,21 @@ exten(char *new, const char *old, const char *ext)
 main(int argc, char **argv)
 {
   char data[256];
-  int i, arg, write_to_files=1, row;
+  int i, arg, write_to_files=1, format_png=0, row;
   FILE *ofp;
 
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.10"
+    "\nCanon PowerShot Converter v2.20"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
-    "\n-c        Write PPM to standard output"
+    "\n-c        Write to standard output"
     "\n-g <num>  Set gamma value (%5.3f by default)"
-    "\n-b <num>  Set brightness  (%5.3f by default)\n\n",
+    "\n-b <num>  Set brightness  (%5.3f by default)"
+    "\n-2        Write 24-bit PPM (default)"
+    "\n-4        Write 48-bit PNG (-g and -b ignored)\n\n",
       argv[0], gamma_val, bright);
     exit(1);
   }
@@ -977,6 +1043,10 @@ main(int argc, char **argv)
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
 	bright = atof(argv[++arg]);  break;
+      case '2':
+	format_png=0;  break;
+      case '4':
+	format_png=1;  break;
       default:
 	fprintf(stderr,"Unknown option \"%s\"\n",argv[arg]);
 	exit(1);
@@ -1003,18 +1073,24 @@ main(int argc, char **argv)
     second_interpolate();
     fclose(ifp);
 
-    fprintf (stderr, "Writing RGB output...\n");
+    ofp = stdout;
     if (write_to_files) {
-      exten(data, argv[arg],".ppm");
+      exten(data, argv[arg], format_png ? ".png":".ppm");
       ofp = fopen(data,"wb");
       if (!ofp) {
 	perror(data);
 	continue;
       }
+    }
+    if (format_png) {
+      fprintf (stderr, "Writing PNG output...\n");
+      write_png(ofp);
+    } else {
+      fprintf (stderr, "Writing PPM output...\n");
       write_ppm(ofp);
+    }
+    if (write_to_files)
       fclose(ofp);
-    } else
-      write_ppm(stdout);
     free (image);
   }
 }
