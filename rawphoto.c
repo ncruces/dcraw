@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.6 $
-   $Date: 2003/10/04 19:17:37 $
+   $Revision: 1.7 $
+   $Date: 2003/10/30 19:15:41 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -30,7 +30,7 @@
 #include <libgimp/gimpui.h>
 #include <libgimp/gimpintl.h>
 
-#define PLUG_IN_VERSION  "1.0.4 - 4 October 2003"
+#define PLUG_IN_VERSION  "1.0.5 - 30 October 2003"
 
 static void query(void);
 static void run(gchar *name,
@@ -123,7 +123,7 @@ static void run (gchar *name,
    Is the file really a raw photo?  If not, try loading it
    as a regular JPEG or TIFF.
  */
-  sprintf (command, "dcraw -i %s\n", fname);
+  sprintf (command, "dcraw -i \"%s\"\n",fname);
   fputs (command, stderr);
   stat = system (command);
   g_free (command);
@@ -173,7 +173,7 @@ static gint32 load_image (gchar *filename)
   command = g_malloc (strlen(filename)+100);
   if (!command) return -1;
   sprintf (command,
-	"dcraw -c%s%s%s%s -g %0.2f -b %0.2f -r %0.2f -l %0.2f %s\n",
+	"dcraw -c%s%s%s%s -g %0.2f -b %0.2f -r %0.2f -l %0.2f \"%s\"\n",
 	cfg.check_val[0] ? " -f":"",
 	cfg.check_val[1] ? " -w":"",
 	cfg.check_val[2] ? " -d":"",
