@@ -5,6 +5,7 @@
 */
 
 #include <stdio.h>
+#include <string.h>
 
 typedef unsigned char uchar;
 /* typedef unsigned short ushort; */
@@ -69,6 +70,11 @@ open_and_id(char *fname)
   width  = model[4730] + (model[4731]<<8);
   height = model[4732] + (model[4733]<<8);
   table  = model[4762];
+  if (!strcmp(model,"Canon PowerShot G2")) {
+    width  = model[4742] + (model[4743]<<8);
+    height = model[4744] + (model[4745]<<8);
+    table  = model[4774];
+  }
   fprintf(stderr,"model = %s, width = %d, height = %d, table = %d\n",
 	model,width,height,table);
   return 0;
