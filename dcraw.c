@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.58 $
-   $Date: 2002/05/23 16:26:47 $
+   $Revision: 1.59 $
+   $Date: 2002/05/28 17:18:51 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -585,7 +585,7 @@ void d30_read_crw()
 {
   ushort *pixel, *prow;
   int i, row, r, col, save;
-  unsigned top, left, irow, icol;
+  unsigned top=0, left=0, irow, icol;
   uchar c;
 
 /* Set the width of the black borders */
@@ -671,6 +671,7 @@ void eos1d_read_crw()
 #endif /* LJPEG_DECODE */
 
 ushort fget2 (FILE *f);
+int    fget4 (FILE *f);
 
 void nikon_d1x_read_crw()
 {
@@ -875,7 +876,7 @@ void parse_tiff()
 
   fseek (ifp, 2, SEEK_SET);	/* open_and_id() already got byte order */
   if (fget2(ifp) != 42) return;
-  while (doff = fget4(ifp)) {
+  while ((doff = fget4(ifp))) {
     fseek (ifp, doff, SEEK_SET);
     entries = fget2(ifp);
     while (entries--) {
@@ -1054,7 +1055,7 @@ int open_and_id(char *fname)
     rgb_mul[0] = 1.976;
     rgb_mul[2] = 1.282;
 #else
-    fprintf(stderr,"crw.c was compiled without EOS-1D support.\n",fname);
+    fprintf(stderr,"crw.c was compiled without EOS-1D support.\n");
     return 1;
 #endif
   } else if (!strcmp(name,"NIKON D1 ")) {
@@ -1169,12 +1170,11 @@ void get_rgb(float rgb[4], ushort image[4])
  */
 void write_ppm(FILE *ofp)
 {
-  int y, x, i;
+  int y, x;
   register unsigned c, val;
   uchar (*ppm)[3];
   float rgb[4], max, max2, expo, mul, scale;
   int total, histogram[0x1000];
-  char p6head[32];
 
 /*
    Build a histogram of magnitudes using 4096 bins of 64 values each.
