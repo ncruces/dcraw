@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.230 $
-   $Date: 2005/01/24 05:43:59 $
+   $Revision: 1.231 $
+   $Date: 2005/01/25 02:29:44 $
  */
 
 #define _GNU_SOURCE
@@ -790,6 +790,21 @@ int CLASS nikon_e2100()
 }
 
 /*
+   Separates a Pentax Optio 33WR from a Nikon E3700.
+ */
+int CLASS pentax_optio33()
+{
+  int i;
+  char tail[952];
+
+  fseek (ifp, -sizeof tail, SEEK_END);
+  fread (tail, 1, sizeof tail, ifp);
+  for (i=0; i < sizeof tail; i++)
+    if (!tail[i]) return 0;
+  return 1;
+}
+
+/*
    Separates a Minolta DiMAGE Z2 from a Nikon E4300.
  */
 int CLASS minolta_z2()
@@ -1136,10 +1151,7 @@ void CLASS nucore_load_raw()
   merror (pixel, "nucore_load_raw()");
   for (irow=0; irow < height; irow++) {
     read_shorts (pixel, width);
-    if (model[0] == 'B' && width == 2598)
-      row = height - 1 - irow/2 - height/2 * (irow & 1);
-    else
-      row = irow;
+    row = irow/2 + height/2 * (irow & 1);
     for (col=0; col < width; col++)
       BAYER(row,col) = pixel[col] << 2;
   }
@@ -2943,6 +2955,7 @@ int CLASS identify()
     fseek (ifp, 38, SEEK_SET);
     if (fget4(ifp) == 2834 && fget4(ifp) == 2834) {
       strcpy (model, "BMQ");
+      flip = 3;
       goto nucore;
     }
   } else if (!memcmp (head,"BR",2)) {
@@ -3253,6 +3266,14 @@ nucore:
     load_raw = nikon_e2100_load_raw;
     pre_mul[0] = 1.818;
     pre_mul[2] = 1.618;
+    if (pentax_optio33()) {
+      strcpy (make, "Pentax");
+      strcpy (model,"Optio 33WR");
+      flip = 1;
+      filters = 0x16161616;
+      pre_mul[0] = 1.331;
+      pre_mul[2] = 1.820;
+    }
   } else if (!strcmp(model,"E4300")) {
     height = 1710;
     width  = 2288;
@@ -3823,7 +3844,12 @@ konica_400z:
     pre_mul[1] = 1.069;
   } else if (!strcmp(make,"Nucore")) {
     filters = 0x61616161;
-    load_raw = nucore_load_raw;
+    load_raw = low_12_load_raw;
+    if (width == 2598) {
+      filters = 0x16161616;
+      load_raw = nucore_load_raw;
+      flip = 2;
+    }
   }
   if (!load_raw || !height) {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",
@@ -3990,6 +4016,7 @@ void CLASS fuji_rotate()
   width  = wide;
   height = high;
   image  = img;
+  fuji_width = 0;
 }
 
 void CLASS flip_image()
@@ -4181,7 +4208,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.32"
+    "\nRaw Photo Decoder \"dcraw\" v6.33"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -4318,10 +4345,10 @@ int CLASS main (int argc, char **argv)
 #ifdef USE_LCMS
     apply_profile (profile);
 #endif
+    fuji_rotate();
     if (verbose)
       fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
-    fuji_rotate();
     if (user_flip >= 0)
       flip = user_flip;
     if (flip) {
