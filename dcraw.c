@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.18 $
-   $Date: 2000/05/05 04:21:40 $
+   $Revision: 1.19 $
+   $Date: 2000/05/05 13:48:25 $
 */
 
 #include <fcntl.h>
@@ -124,6 +124,7 @@ void read_crw(int row, int fd)
       pix[7] = (dp[8] << 2) + (dp[9] >> 6    );
     }
 
+    memset(gmcy[orow], 0, W*4*sizeof (ushort));	/* Set row to zero */
 /*
    Copy 854 pixels into the gmcy[] array.  The other 42 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
@@ -177,6 +178,8 @@ void read_crw(int row, int fd)
     pix[6] = (dp[6] << 6) + (dp[9] >> 2);
     pix[7] = (dp[9] << 8) + (dp[8]     );
   }
+
+  memset(gmcy[row], 0, W*4*sizeof (ushort));	/* Set row to zero */
 /*
    Copy 960 pixels into the gmcy[] array.  The other 32 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
@@ -230,6 +233,8 @@ void read_crw(int row, int fd)
     pix[6] = (dp[6] << 6) + (dp[9] >> 2);
     pix[7] = (dp[9] << 8) + (dp[8]     );
   }
+
+  memset(gmcy[row], 0, W*4*sizeof (ushort));	/* Set row to zero */
 /*
    Copy 1290 pixels into the gmcy[] array.  The other 30 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
@@ -252,7 +257,7 @@ void read_crw(int row, int fd)
 first_interpolate(int y)
 {
   int x, sy, sx, c;
-  uchar shift[]={ 2,1,2, 1,16,1, 2,1,2 }, *sp;
+  static const uchar shift[]={ 2,1,2, 1,16,1, 2,1,2 }, *sp;
 
   for (x=1; x < W-1; x++)
   {
@@ -326,7 +331,7 @@ second_interpolate(int y)
 {
   int x, c, sy, sx, sc;
   ushort this[4];
-  static const uchar shift[]={ 2,1,2, 1,0,1, 2,1,2 }, *sp;
+  static const uchar shift[]={ 2,1,2, 1,  1, 2,1,2 }, *sp;
   float rgb[4];
   unsigned val;
 
@@ -339,11 +344,12 @@ second_interpolate(int y)
   memcpy(&gmcy[y-1][0],&gmcy[y][1],sizeof this);
   for (x=2; x < W-2; x++)
   {
-    memset(this,0,sizeof this);
     c=filter(y,x);
     sp=shift;
+    memset(this,0,sizeof this);
+    this[c]=gmcy[y][x][c];
     for (sy=y-1; sy < y+2; sy++)	/* 28% of run-time is this loop */
-      for (sx=x-1; sx < x+2; sx++)
+      for (sx=x-1; sx < x+2; sx = sx+1+(sy==y))
       {
 	sc=filter(sy,sx);
 	this[sc] +=
