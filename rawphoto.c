@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.10 $
-   $Date: 2003/12/24 03:29:49 $
+   $Revision: 1.11 $
+   $Date: 2004/02/21 04:57:34 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -30,16 +30,12 @@
 #include <libgimp/gimpui.h>
 #include <libgimp/gimpintl.h>
 
-#if GIMP_CHECK_VERSION(1,3,0)
-#define GimpRunModeType GimpRunMode
-#endif
-
-#define PLUG_IN_VERSION  "1.0.8 - 23 December 2003"
+#define PLUG_IN_VERSION  "1.1.0 - 20 February 2004"
 
 static void query(void);
-static void run(gchar *name,
+static void run(const gchar *name,
 		gint nparams,
-		GimpParam *param,
+		const GimpParam *param,
 		gint *nreturn_vals,
 		GimpParam **return_vals);
 
@@ -100,14 +96,14 @@ static void query (void)
     "bay,bmq,crw,cs1,dcr,fff,jpg,mrw,nef,orf,pef,raf,raw,rdc,srf,tif,x3f", "");
 }
 
-static void run (gchar *name,
+static void run (const gchar *name,
 		gint nparams,
-		GimpParam *param,
+		const GimpParam *param,
 		gint *nreturn_vals,
 		GimpParam **return_vals)
 {
   static GimpParam values[2];
-  GimpRunModeType run_mode;
+  GimpRunMode run_mode;
   GimpPDBStatusType status;
   gint32 image_id = -1;
   gchar *command, *fname;
@@ -240,15 +236,6 @@ static gint32 load_image (gchar *filename)
   return image;
 }
 
-/* this is set to true after OK click in any dialog */
-gboolean result = FALSE;
-
-static void callback_ok (GtkWidget * widget, gpointer data)
-{
-  result = TRUE;
-  gtk_widget_destroy (GTK_WIDGET (data));
-}
-
 gint load_dialog (gchar * name)
 {
   GtkWidget *dialog;
@@ -265,14 +252,13 @@ gint load_dialog (gchar * name)
   gimp_ui_init ("rawphoto", TRUE);
 
   dialog = gimp_dialog_new (_("Raw Photo Loader 1.0"), "rawphoto",
-			gimp_standard_help_func, "",
-			GTK_WIN_POS_MOUSE,
-			FALSE, TRUE, FALSE,
-			_("OK"), callback_ok, NULL, NULL, NULL, TRUE,
-			FALSE, _("Cancel"), gtk_widget_destroy, NULL,
-			1, NULL, FALSE, TRUE, NULL);
-  gtk_signal_connect
-	(GTK_OBJECT(dialog), "destroy", GTK_SIGNAL_FUNC(gtk_main_quit), NULL);
+			NULL, 0,
+			gimp_standard_help_func, "rawphoto",
+
+			GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+			GTK_STOCK_OK,     GTK_RESPONSE_OK,
+
+			NULL);
 
   table = gtk_table_new (9, 2, FALSE);
   gtk_container_set_border_width (GTK_CONTAINER(table), 6);
@@ -312,8 +298,7 @@ gint load_dialog (gchar * name)
 
   gtk_widget_show (dialog);
 
-  gtk_main();
-  gdk_flush();
-
-  return result;
+  i = gimp_dialog_run (GIMP_DIALOG (dialog));
+  gtk_widget_destroy (dialog);
+  return i == GTK_RESPONSE_OK;
 }
