@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.216 $
-   $Date: 2004/11/22 02:34:41 $
+   $Revision: 1.217 $
+   $Date: 2004/11/28 02:27:04 $
  */
 
 #define _GNU_SOURCE
@@ -1021,6 +1021,11 @@ void CLASS le_high_12_load_raw()	/* "le" = "little-endian" */
   unpacked_load_raw (0xaa55, 2);
 }
 
+void CLASS le_low_12_load_raw()
+{
+  unpacked_load_raw (0xaa55,-2);
+}
+
 void CLASS olympus_cseries_load_raw()
 {
   int irow, row, col;
@@ -1481,7 +1486,7 @@ void CLASS sony_load_raw()
 {
   uchar head[40];
   ushort pixel[3360];
-  unsigned i, key, row, col, icol;
+  unsigned i, key, row, col;
   INT64 bblack=0;
 
   fseek (ifp, 200896, SEEK_SET);
@@ -1493,17 +1498,17 @@ void CLASS sony_load_raw()
   sony_decrypt ((void *) head, 10, 1, key);
   for (i=26; i-- > 22; )
     key = key << 8 | head[i];
-  fseek (ifp, 862144, SEEK_SET);
+  fseek (ifp, data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, raw_width, ifp);
     sony_decrypt ((void *) pixel, raw_width/2, !row, key);
-    for (col=0; col < 3343; col++)
-      if ((icol = col-left_margin) < width)
-	BAYER(row,icol) = ntohs(pixel[col]);
-      else
-	bblack += ntohs(pixel[col]);
+    for (col=9; col < left_margin; col++)
+      bblack += ntohs(pixel[col]);
+    for (col=0; col < width; col++)
+      BAYER(row,col) = ntohs(pixel[col+left_margin]);
   }
-  black = bblack / ((3343 - width) * height);
+  if (bblack)
+    black = bblack / ((left_margin-9) * height);
 }
 
 void CLASS sony_rgbe_coeff()
@@ -2188,7 +2193,7 @@ void CLASS tiff_parse_subifd (int base)
 	  data_offset = val;
 	else {
 	  save = ftell(ifp);
-	  fseek (ifp, val+base, SEEK_SET);
+	  fseek (ifp, base+val, SEEK_SET);
 	  data_offset = fget4(ifp);
 	  fseek (ifp, save, SEEK_SET);
 	}
@@ -2206,7 +2211,7 @@ void CLASS tiff_parse_subifd (int base)
   }
 }
 
-void CLASS nef_parse_makernote()
+void CLASS parse_makernote()
 {
   int base=0, offset=0, entries, tag, type, len, val, save;
   short sorder;
@@ -2224,8 +2229,13 @@ void CLASS nef_parse_makernote()
     val = fget2(ifp);		/* should be 42 decimal */
     offset = fget4(ifp);
     fseek (ifp, offset-8, SEEK_CUR);
+  } else if (!strncmp (buf,"FUJIFILM",8)) {
+    order = 0x4949;
+    fseek (ifp,  2, SEEK_CUR);
   } else if (!strcmp (buf,"OLYMP"))
     fseek (ifp, -2, SEEK_CUR);
+  else if (!strcmp (buf,"AOC"))
+    fseek (ifp, -4, SEEK_CUR);
   else
     fseek (ifp, -10, SEEK_CUR);
 
@@ -2234,12 +2244,12 @@ void CLASS nef_parse_makernote()
     tag  = fget2(ifp);
     type = fget2(ifp);
     len  = fget4(ifp);
-    if (type == 3) {            /* short int */
+    if (type == 3 && len < 3) {
       val = fget2(ifp);  fget2(ifp);
     } else
       val = fget4(ifp);
     save = ftell(ifp);
-    if (tag == 0xc) {
+    if (tag == 0xc && len == 4) {
       fseek (ifp, base+val, SEEK_SET);
       camera_red  = fget4(ifp);
       camera_red /= fget4(ifp);
@@ -2269,7 +2279,14 @@ void CLASS nef_parse_makernote()
 	camera_blue/= fget2(ifp);
       }
     }
-    if (tag == 0x1017)		/* Olympus */
+    if (tag == 0x201 && len == 4) {	/* Pentax */
+      fseek (ifp, base+val, SEEK_SET);
+      camera_red  = fget2(ifp);
+      camera_red /= fget2(ifp);
+      camera_blue = fget2(ifp);
+      camera_blue/= fget2(ifp);
+    }
+    if (tag == 0x1017)			/* Olympus */
       camera_red  = val / 256.0;
     if (tag == 0x1018)
       camera_blue = val / 256.0;
@@ -2297,7 +2314,7 @@ void CLASS get_timestamp()
     timestamp = ts;
 }
 
-void CLASS nef_parse_exif (int base)
+void CLASS parse_exif (int base)
 {
   int entries, tag, type, len, val, save;
 
@@ -2308,12 +2325,15 @@ void CLASS nef_parse_exif (int base)
     len  = fget4(ifp);
     val  = fget4(ifp);
     save = ftell(ifp);
-    fseek (ifp, val+base, SEEK_SET);
+    fseek (ifp, base+val, SEEK_SET);
     if (tag == 0x9003 || tag == 0x9004)
       get_timestamp();
-    if (tag == 0x927c &&
-	(!strncmp(make,"NIKON",5) || !strncmp(make,"OLYMPUS",7)))
-      nef_parse_makernote();
+    if (tag == 0x927c) {
+      if (!strncmp(make,"SONY",4))
+	data_offset = base+val+len;
+      else
+	parse_makernote();
+    }
     fseek (ifp, save, SEEK_SET);
   }
 }
@@ -2343,7 +2363,7 @@ void CLASS parse_tiff (int base)
       } else
 	val = fget4(ifp);
       save = ftell(ifp);
-      fseek (ifp, val+base, SEEK_SET);
+      fseek (ifp, base+val, SEEK_SET);
       switch (tag) {
 	case 0x11:
 	  camera_red  = val / 256.0;
@@ -2399,7 +2419,7 @@ void CLASS parse_tiff (int base)
 	      len = 2;
 	  if (len > 1)
 	    while (len--) {
-	      fseek (ifp, val+base, SEEK_SET);
+	      fseek (ifp, base+val, SEEK_SET);
 	      fseek (ifp, fget4(ifp)+base, SEEK_SET);
 	      tiff_parse_subifd(base);
 	      val += 4;
@@ -2407,8 +2427,8 @@ void CLASS parse_tiff (int base)
 	  else
 	    tiff_parse_subifd(base);
 	  break;
-	case 0x8769:			/* Nikon EXIF tag */
-	  nef_parse_exif(base);
+	case 0x8769:			/* EXIF tag */
+	  parse_exif (base);
 	  break;
       }
       fseek (ifp, save, SEEK_SET);
@@ -2420,12 +2440,45 @@ void CLASS parse_tiff (int base)
     raw_height = - (-high & -2);
     data_offset = offset;
   }
+  if (!strncmp(make,"SONY",4)) {
+    raw_width = wide;
+    raw_height = high;
+  }
   if (!strcmp(make,"Canon") && strcmp(model,"EOS D2000C"))
     data_offset = cr2_offset;
 
   if (make[0] == 0 && wide == 680 && high == 680) {
     strcpy (make, "Imacon");
     strcpy (model,"Ixpress");
+  }
+}
+
+void CLASS parse_minolta()
+{
+  int save, tag, len;
+
+  fseek (ifp, 4, SEEK_SET);
+  data_offset = fget4(ifp) + 8;
+  while ((save=ftell(ifp)) < data_offset) {
+    tag = fget4(ifp);
+    len = fget4(ifp);
+    switch (tag) {
+      case 0x505244:				/* PRD */
+	fseek (ifp, 8, SEEK_CUR);
+	raw_height = fget2(ifp);
+	raw_width  = fget2(ifp);
+	break;
+      case 0x574247:				/* WBG */
+	fget4(ifp);
+	camera_red  = fget2(ifp);
+	camera_red /= fget2(ifp);
+	camera_blue = fget2(ifp);
+	camera_blue = fget2(ifp) / camera_blue;
+	break;
+      case 0x545457:				/* TTW */
+	parse_tiff (ftell(ifp));
+    }
+    fseek (ifp, save+len+8, SEEK_SET);
   }
 }
 
@@ -2547,11 +2600,7 @@ common:
       timestamp = len;
     if (type == 0x1810) {		/* Get the rotation */
       fseek (ifp, aoff+12, SEEK_SET);
-      switch (fget4(ifp)) {
-	case 270:  flip = 5;  break;
-	case 180:  flip = 3;  break;
-	case  90:  flip = 6;
-      }
+      flip = fget4(ifp);
     }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
@@ -2636,6 +2685,8 @@ void CLASS parse_foveon()
   fseek (ifp, 248, SEEK_SET);
   raw_width  = fget4(ifp);
   raw_height = fget4(ifp);
+  fseek (ifp, 36, SEEK_SET);
+  flip = fget4(ifp);
   free (buf);
 }
 
@@ -2802,21 +2853,9 @@ int CLASS identify()
       if (!strncmp(make,"NIKON",5) && raw_width == 0)
 	make[0] = 0;
     }
-  } else if (!memcmp (head,"\0MRM",4)) {
-    parse_tiff(48);
-    fseek (ifp, 4, SEEK_SET);
-    data_offset = fget4(ifp) + 8;
-    fseek (ifp, 24, SEEK_SET);
-    raw_height = fget2(ifp);
-    raw_width  = fget2(ifp);
-    fseek (ifp, 12, SEEK_SET);			/* PRD */
-    fseek (ifp, fget4(ifp) +  4, SEEK_CUR);	/* TTW */
-    fseek (ifp, fget4(ifp) + 12, SEEK_CUR);	/* WBG */
-    camera_red  = fget2(ifp);
-    camera_red /= fget2(ifp);
-    camera_blue = fget2(ifp);
-    camera_blue = fget2(ifp) / camera_blue;
-  } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
+  } else if (!memcmp (head,"\0MRM",4))
+    parse_minolta();
+    else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
 	     !memcmp (head+6,"Exif",4)) {
     fseek (ifp, 4, SEEK_SET);
     fseek (ifp, 4 + fget2(ifp), SEEK_SET);
@@ -3181,6 +3220,16 @@ coolpix:
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
     rgb_max = 0xf800;
+  } else if (!strcmp(model,"FinePix S5100") ||
+	     !strcmp(model,"FinePix S5500")) {
+    height = 1735;
+    width  = 2304;
+    data_offset += width*10;
+    filters = 0x49494949;
+    load_raw = le_low_12_load_raw;
+    pre_mul[0] = 1.755;
+    pre_mul[2] = 1.542;
+    rgb_max = 0xffff;
   } else if (!strcmp(model,"FinePix S7000")) {
     pre_mul[0] = 1.62;
     pre_mul[2] = 1.38;
@@ -3220,6 +3269,9 @@ fuji_s7000:
     if (!strncmp(model,"DiMAGE A",8)) {
       load_raw = packed_12_load_raw;
       rgb_max = model[8] == '1' ? 15916:16380;
+    } else if (!strncmp(model,"DYNAX",5)) {
+      load_raw = packed_12_load_raw;
+      rgb_max = 16364;
     } else if (!strncmp(model,"DiMAGE G",8)) {
       if (model[8] == '4') {
 	data_offset = 5056;
@@ -3378,9 +3430,7 @@ konica_400z:
     pre_mul[0] = 1.366;
     pre_mul[2] = 1.251;
   } else if (!strcmp(model,"DSC-F828")) {
-    height = 2460;
     width = 3288;
-    raw_width = 3360;
     left_margin = 5;
     load_raw = sony_load_raw;
     sony_rgbe_coeff();
@@ -3389,6 +3439,13 @@ konica_400z:
     pre_mul[0] = 1.512;
     pre_mul[1] = 1.020;
     pre_mul[2] = 1.405;
+    black = 491;
+  } else if (!strcmp(model,"DSC-V3")) {
+    width = 3109;
+    left_margin = 59;
+    load_raw = sony_load_raw;
+    pre_mul[0] = 2.014;
+    pre_mul[2] = 1.744;
   } else if (!strcasecmp(make,"KODAK")) {
     filters = 0x61616161;
     if (!strcmp(model,"NC2000F")) {
@@ -3737,6 +3794,11 @@ void CLASS flip_image()
   int size, base, dest, next, row, col, temp;
   INT64 *img, hold;
 
+  switch ((flip+3600) % 360) {
+    case 270:  flip = 5;  break;
+    case 180:  flip = 3;  break;
+    case  90:  flip = 6;
+  }
   img = (INT64 *) image;
   size = height * width;
   flag = calloc ((size+31) >> 5, sizeof *flag);
@@ -3790,7 +3852,8 @@ void CLASS write_ppm (FILE *ofp)
 /*
    Set the white point to the 99th percentile
  */
-  i = width * height * (strcmp(make,"FUJIFILM") ? 0.01 : 0.005);
+  i = width * height * 0.01;
+  if (!strcmp(make,"FUJIFILM") && abs(width-height) < 2) i /= 2;
   for (val=0x2000, total=0; --val; )
     if ((total += histogram[val]) > i) break;
   max = val << 4;
@@ -3913,7 +3976,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.12"
+    "\nRaw Photo Decoder \"dcraw\" v6.15"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
