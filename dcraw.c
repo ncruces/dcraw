@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.245 $
-   $Date: 2005/03/28 04:56:02 $
+   $Revision: 1.246 $
+   $Date: 2005/03/28 19:32:13 $
  */
 
 #define _GNU_SOURCE
@@ -3358,7 +3358,7 @@ void CLASS adobe_coeff()
 	{ 6827,-1878,-732,-8429,16012,2564,-704,592,7145 } },
     { "FUJIFILM FinePix E550",
 	{ 11044,-3888,-1120,-7248,15168,2208,-1531,2277,8069 } },
-    { "FUJIFILM FinePix F700",
+    { "FUJIFILM FinePix F7",
 	{ 10004,-3219,-1201,-7036,15047,2107,-1863,2565,7736 } },
     { "FUJIFILM FinePix S20Pro",
 	{ 10004,-3219,-1201,-7036,15047,2107,-1863,2565,7736 } },
@@ -3978,7 +3978,7 @@ dimage_z2:
     load_raw = unpacked_load_raw;
     maximum = 0xffff;
   } else if (!strcmp(model,"FinePix E550") ||
-	     !strcmp(model,"FinePix F810") ||
+	    !strncmp(model,"FinePix F8",10) ||
 	     !strcmp(model,"FinePix S7000")) {
     height = 3587;
     width  = 3588;
@@ -3986,7 +3986,7 @@ dimage_z2:
     filters = 0x49494949;
     load_raw = fuji_s7000_load_raw;
     maximum = 0x3e00;
-  } else if (!strcmp(model,"FinePix F700") ||
+  } else if (!strncmp(model,"FinePix F7",10) ||
 	     !strcmp(model,"FinePix S20Pro")) {
     height = 2523;
     width  = 2524;
