@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.248 $
-   $Date: 2005/03/31 19:42:59 $
+   $Revision: 1.249 $
+   $Date: 2005/04/05 07:21:29 $
  */
 
 #define _GNU_SOURCE
@@ -117,6 +117,7 @@ struct decode {
 #define CLASS
 
 #define FORC3 for (c=0; c < 3; c++)
+#define FORC4 for (c=0; c < 4; c++)
 #define FORCC for (c=0; c < colors; c++)
 
 /*
@@ -2486,7 +2487,7 @@ double getrat()
 
 void CLASS parse_makernote()
 {
-  unsigned base=0, offset=0, entries, tag, type, len, save;
+  unsigned base=0, offset=0, entries, tag, type, len, save, c;
   static const int size[] = { 1,1,1,2,4,8,1,1,2,4,8,4,8 };
   short sorder;
   char buf[10];
@@ -2545,17 +2546,13 @@ void CLASS parse_makernote()
     if (tag == 0x97) {
       if (!strcmp(model,"NIKON D100 ")) {
 	fseek (ifp, 72, SEEK_CUR);
-	camera_red  = get2() / 256.0;
-	camera_blue = get2() / 256.0;
+	FORC4 cam_mul[(c >> 1) | ((c & 1) << 1)] = get2();
       } else if (!strcmp(model,"NIKON D2H")) {
 	fseek (ifp, 10, SEEK_CUR);
 	goto get2_rggb;
       } else if (!strcmp(model,"NIKON D70")) {
 	fseek (ifp, 20, SEEK_CUR);
-	camera_red  = get2();
-	camera_red /= get2();
-	camera_blue = get2();
-	camera_blue/= get2();
+	FORC4 cam_mul[c] = get2();
       }
     }
     if (tag == 0xe0 && len == 17) {
@@ -2565,12 +2562,8 @@ void CLASS parse_makernote()
     }
     if (tag == 0x200 && len == 4)
       black = (get2()+get2()+get2()+get2())/4;
-    if (tag == 0x201 && len == 4) {
-      camera_red  = get2();
-      camera_red /= get2();
-      camera_blue = get2();
-      camera_blue = get2() / camera_blue;
-    }
+    if (tag == 0x201 && len == 4)
+      goto get2_rggb;
     if (tag == 0x401 && len == 4) {
       black = (get4()+get4()+get4()+get4())/4;
     }
@@ -2596,10 +2589,7 @@ get2_256:
     if (tag == 0x4001) {
       fseek (ifp, strstr(model,"EOS-1D") ? 68:50, SEEK_CUR);
 get2_rggb:
-      camera_red  = get2();
-      camera_red /= get2();
-      camera_blue = get2();
-      camera_blue = get2() / camera_blue;
+      FORC4 cam_mul[c ^ (c >> 1)] = get2();
     }
     fseek (ifp, save+4, SEEK_SET);
   }
@@ -2921,7 +2911,7 @@ void CLASS parse_tiff (int base)
 
 void CLASS parse_minolta()
 {
-  int save, tag, len, offset, high=0, wide=0;
+  int save, tag, len, offset, high=0, wide=0, i, c;
 
   fseek (ifp, 4, SEEK_SET);
   offset = get4() + 8;
@@ -2936,10 +2926,8 @@ void CLASS parse_minolta()
 	break;
       case 0x574247:				/* WBG */
 	get4();
-	camera_red  = get2();
-	camera_red /= get2();
-	camera_blue = get2();
-	camera_blue = get2() / camera_blue;
+	i = strstr(model,"A200") ? 3:0;
+	FORC4 cam_mul[c ^ (c >> 1) ^ i] = get2();
 	break;
       case 0x545457:				/* TTW */
 	parse_tiff (ftell(ifp));
@@ -3037,6 +3025,7 @@ void CLASS parse_ciff (int offset, int length)
   ushort key[] = { 0x410, 0x45f3 };
 
   if (strcmp(model,"Canon PowerShot G6") &&
+      strcmp(model,"Canon PowerShot S60") &&
       strcmp(model,"Canon PowerShot S70") &&
       strcmp(model,"Canon PowerShot Pro1"))
     key[0] = key[1] = 0;
@@ -3085,6 +3074,7 @@ common:
 	camera_blue  = get2() ^ key[0];
 	camera_blue /= get2() ^ key[1];
       } else if (!strcmp(model,"Canon PowerShot G6") ||
+		 !strcmp(model,"Canon PowerShot S60") ||
 		 !strcmp(model,"Canon PowerShot S70")) {
 	fseek (ifp, aoff+96 + remap_s70[wbi]*8, SEEK_SET);
 	goto common;
@@ -3202,6 +3192,23 @@ void CLASS parse_mos (int offset)
     }
     parse_mos (from);
     fseek (ifp, skip+from, SEEK_SET);
+  }
+}
+
+void CLASS parse_fuji (int offset)
+{
+  int entries, tag, len, save, c;
+
+  fseek (ifp, offset, SEEK_SET);
+  entries = get4();
+  if (entries > 60) return;
+  while (entries--) {
+    tag = get2();
+    len = get2();
+    save = ftell(ifp);
+    if (tag == 0x2ff0)
+      FORC4 cam_mul[c ^ 1] = get2();
+    fseek (ifp, save+len, SEEK_SET);
   }
 }
 
@@ -3508,8 +3515,8 @@ void CLASS simple_coeff (int index)
  */
 int CLASS identify()
 {
-  char head[32], *c;
-  unsigned hlen, fsize, i;
+  char head[32], *cp;
+  unsigned hlen, fsize, i, c;
   static const struct {
     int fsize;
     char make[12], model[15], withjpeg;
@@ -3542,7 +3549,6 @@ int CLASS identify()
   static const char *corp[] =
     { "Canon", "NIKON", "EPSON", "Kodak", "OLYMPUS", "PENTAX",
       "MINOLTA", "Minolta", "Konica", "CASIO" };
-  float tmp;
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
@@ -3571,9 +3577,9 @@ int CLASS identify()
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  if ((c = memmem (head, 32, "MMMMRawT", 8))) {
+  if ((cp = memmem (head, 32, "MMMMRawT", 8))) {
     strcpy (make, "Phase One");
-    data_offset = c - head;
+    data_offset = cp - head;
     fseek (ifp, data_offset + 8, SEEK_SET);
     fseek (ifp, get4() + 136, SEEK_CUR);
     raw_width = get4();
@@ -3623,14 +3629,13 @@ nucore:
     strcpy (make, "Contax");
     strcpy (model,"N Digital");
     fseek (ifp, 60, SEEK_SET);
-    camera_red  = get4();
-    camera_red /= get4();
-    camera_blue = get4();
-    camera_blue = get4() / camera_blue;
+    FORC4 cam_mul[c ^ (c >> 1)] = get4();
   } else if (!strcmp (head, "PXN")) {
     strcpy (make, "Logitech");
     strcpy (model,"Fotoman Pixtura");
   } else if (!memcmp (head,"FUJIFILM",8)) {
+    fseek (ifp, 92, SEEK_SET);
+    parse_fuji (get4());
     fseek (ifp, 84, SEEK_SET);
     parse_tiff (get4()+12);
     fseek (ifp, 100, SEEK_SET);
@@ -3656,10 +3661,10 @@ nucore:
 	strcpy (make, corp[i]);
   if (!strncmp (make,"KODAK",5))
     make[16] = model[16] = 0;
-  c = make + strlen(make);		/* Remove trailing spaces */
-  while (*--c == ' ') *c = 0;
-  c = model + strlen(model);
-  while (*--c == ' ') *c = 0;
+  cp = make + strlen(make);		/* Remove trailing spaces */
+  while (*--cp == ' ') *cp = 0;
+  cp = model + strlen(model);
+  while (*--cp == ' ') *cp = 0;
   i = strlen(make);			/* Remove make from model */
   if (!strncmp (model, make, i++))
     memmove (model, model+i, 64-i);
@@ -4001,12 +4006,8 @@ dimage_z2:
     load_raw = unpacked_load_raw;
     maximum = 0xf7d;
     if (!strncmp(model,"DiMAGE A",8)) {
-      if (!strcmp(model,"DiMAGE A200")) {
+      if (!strcmp(model,"DiMAGE A200"))
 	filters = 0x49494949;
-	tmp = camera_red;
-	camera_red  = 1 / camera_blue;
-	camera_blue = 1 / tmp;
-      }
       load_raw = packed_12_load_raw;
       maximum = model[8] == '1' ? 0xf8b : 0xfff;
     } else if (!strncmp(model,"ALPHA",5) ||
@@ -4040,10 +4041,7 @@ konica_400z:
       load_raw = unpacked_load_raw;
       maximum = 0x3df;
       order = 0x4d4d;
-      camera_red   = get2();
-      camera_blue  = get2();
-      camera_red  /= get2();
-      camera_blue /= get2();
+      FORC4 cam_mul[(c >> 1) | ((c & 1) << 1)] = get2();
     }
     if (pre_mul[0] == 1 && pre_mul[2] == 1) {
       pre_mul[0] = 1.42;
@@ -4735,7 +4733,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.10"
+    "\nRaw Photo Decoder \"dcraw\" v7.12"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
