@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.112 $
-   $Date: 2003/05/28 14:10:08 $
+   $Revision: 1.113 $
+   $Date: 2003/05/29 22:34:18 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -870,6 +870,25 @@ void casio_qv5700_load_raw()
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
   }
+}
+
+void nucore_load_raw()
+{
+  uchar *data, *dp;
+  int row, col;
+
+  data = calloc (width, 2);
+  if (!data) {
+    perror("nucore_load_raw() calloc failed");
+    exit(1);
+  }
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (data, 2, width, ifp);
+    for (dp=data, col=0; col < width; col++, dp+=2)
+      image[row*width+col][FC(row,col)] = (dp[0] << 2) + (dp[1] << 10);
+  }
+  free (data);
 }
 
 void kodak_easy_load_raw()
@@ -1975,6 +1994,20 @@ int identify(char *fname)
     fseek (ifp, 24, SEEK_SET);
     raw_height = fget2(ifp);
     raw_width  = fget2(ifp);
+  } else if (magic >> 16 == 0x424d) {	/* "BM" */
+    tiff_data_offset = 0x1000;
+    strcpy (model,"BMQ");
+    goto nucore;
+  } else if (magic >> 16 == 0x4252) {	/* "BR" */
+    strcpy (model, "RAW");
+nucore:
+    strcpy (make, "Nucore");
+    order = 0x4949;
+    fseek (ifp, 10, SEEK_SET);
+    tiff_data_offset += fget4(ifp);
+    fget4(ifp);
+    raw_width  = fget4(ifp);
+    raw_height = fget4(ifp);
   } else if (magic == 0x46554a49)	/* "FUJI" */
     parse_tiff(120);
   else if (magic == 0x464f5662)		/* "FOVb" */
@@ -2373,6 +2406,11 @@ coolpix:
     width  = 2576;
     filters = 0x94949494;
     load_raw = casio_qv5700_load_raw;
+  } else if (!strcmp(make,"Nucore")) {
+    height = raw_height;
+    width = raw_width;
+    filters = 0x61616161;
+    load_raw = nucore_load_raw;
   } else {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",fname, make, model);
     return 1;
@@ -2597,7 +2635,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.70"
+    "\nRaw Photo Decoder v4.71"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
