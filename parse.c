@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.17 $
-   $Date: 2004/07/12 21:22:46 $
+   $Revision: 1.18 $
+   $Date: 2004/08/16 23:40:39 $
  */
 
 #include <stdio.h>
@@ -39,6 +39,11 @@ short order;
 char make[128], model[128], model2[128], thumb_head[128];
 int width, height, offset, bps;
 int thumb_offset, thumb_length, thumb_layers;
+
+struct decode {
+  struct decode *branch[2];
+  int leaf;
+} first_decode[640], *free_decode;
 
 /*
    Get a 2-byte integer, making no assumptions about CPU byte order.
@@ -407,7 +412,7 @@ void rollei_decode (FILE *tfp)
   int row, col;
 
   fseek (ifp, thumb_offset, SEEK_SET);
-  fprintf (tfp, "P6 %d %d 255\n", width, height);
+  fprintf (tfp, "P6\n%d %d\n255\n", width, height);
   for (row=0; row < height; row++)
     for (col=0; col < width; col++) {
       fread (&data, 2, 1, ifp);
@@ -421,7 +426,7 @@ void rollei_decode (FILE *tfp)
 void parse_foveon()
 {
   char *buf, *bp, *np;
-  int off1, off2, len, i, wide, high;
+  int off1, off2, len, i;
 
   order = 0x4949;			/* Little-endian */
   fseek (ifp, -4, SEEK_END);
@@ -456,13 +461,76 @@ void parse_foveon()
   fseek (ifp, off2, SEEK_SET);
   while (fget4(ifp) != 0x47414d49)	/* Search for "IMAG" */
     if (feof(ifp)) return;
-  fseek (ifp, fget4(ifp)+16, SEEK_SET);
-  wide = fget4(ifp);			/* Should crop to this width */
-  high = fget4(ifp);
-  wide = fget4(ifp) / 3;		/* Includes one garbage column */
-  sprintf (thumb_head, "P6 %d %d 255\n", wide, high);
-  thumb_offset = ftell(ifp);
-  thumb_length = wide * high * 3;
+  thumb_offset = fget4(ifp);
+  thumb_length = 1;
+}
+
+void foveon_tree (unsigned huff[1024], unsigned code)
+{
+  struct decode *cur;
+  int i, len;
+
+  cur = free_decode++;
+  if (code) {
+    for (i=0; i < 1024; i++)
+      if (huff[i] == code) {
+	cur->leaf = i;
+	return;
+      }
+  }
+  if ((len = code >> 27) > 26) return;
+  code = (len+1) << 27 | (code & 0x3ffffff) << 1;
+
+  cur->branch[0] = free_decode;
+  foveon_tree (huff, code);
+  cur->branch[1] = free_decode;
+  foveon_tree (huff, code+1);
+}
+
+void foveon_decode (FILE *tfp)
+{
+  int bwide, row, col, bit=-1, c, i;
+  char *buf;
+  struct decode *dindex;
+  short pred[3];
+  unsigned huff[1024], bitbuf=0;
+
+  fseek (ifp, thumb_offset+16, SEEK_SET);
+  width  = fget4(ifp);
+  height = fget4(ifp);
+  bwide  = fget4(ifp);
+  fprintf (tfp, "P6\n%d %d\n255\n", width, height);
+  if (bwide > 0) {
+    buf = malloc(bwide);
+    for (row=0; row < height; row++) {
+      fread  (buf, 1, bwide, ifp);
+      fwrite (buf, 3, width, tfp);
+    }
+    free (buf);
+    return;
+  }
+  for (i=0; i < 256; i++)
+    huff[i] = fget4(ifp);
+  memset (first_decode, 0, sizeof first_decode);
+  free_decode = first_decode;
+  foveon_tree (huff, 0);
+
+  for (row=0; row < height; row++) {
+    memset (pred, 0, sizeof pred);
+    if (!bit) fget4(ifp);
+    for (col=bit=0; col < width; col++) {
+      for (c=0; c < 3; c++) {
+	for (dindex=first_decode; dindex->branch[0]; ) {
+	  if ((bit = (bit-1) & 31) == 31)
+	    for (i=0; i < 4; i++)
+	      bitbuf = (bitbuf << 8) + fgetc(ifp);
+	  dindex = dindex->branch[bitbuf >> bit & 1];
+	}
+	pred[c] += dindex->leaf;
+	fputc (pred[c], tfp);
+      }
+    }
+  }
 }
 
 void kodak_yuv_decode (FILE *tfp)
@@ -476,7 +544,7 @@ void kodak_yuv_decode (FILE *tfp)
   fseek (ifp, thumb_offset, SEEK_SET);
   width = (width+1) & -2;
   height = (height+1) & -2;
-  fprintf (tfp, "P6 %d %d 65535\n", width, height);
+  fprintf (tfp, "P6\n%d %d\n65535\n", width, height);
   out = malloc (width * 12);
   if (!out) {
     fprintf (stderr, "kodak_yuv_decode() malloc failed!\n");
@@ -614,6 +682,10 @@ int identify(char *fname)
   }
   if (!strcmp(make,"Rollei")) {
     rollei_decode (tfp);
+    goto done;
+  }
+  if (!strcmp(make,"SIGMA")) {
+    foveon_decode (tfp);
     goto done;
   }
   thumb = (char *) malloc(thumb_length);
