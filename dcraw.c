@@ -1,14 +1,14 @@
 /*
-   CRW to PPM converter Version 0.85
+   Canon PowerShot 600 Converter v0.86
 
-   by Dave Coffin (dcoffin at shore dot net)  8/30/97
+   by Dave Coffin (dcoffin at shore dot net)
 
    No rights reserved.  Do what you want with this code,
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.10 $
-   $Date: 1999/04/12 19:36:36 $
+   $Revision: 1.11 $
+   $Date: 1999/04/12 22:57:06 $
 */
 
 #include <ctype.h>
@@ -29,6 +29,7 @@
 /* Default values, which may be modified on the command line */
 
 float gamma_val=0.8, bright=1.0;
+int write_to_files=1;
 
 /* DOS likes to trash binary files!! */
 
@@ -38,9 +39,7 @@ float gamma_val=0.8, bright=1.0;
 
 #define WFLAGS O_WRONLY | O_CREAT | O_TRUNC | O_BINARY
 
-int write_to_files=1;
-
-typedef unsigned char  uchar;
+typedef unsigned char uchar;
 
 /* This 4MB array holds the GMCY values for each pixel */
 
@@ -49,7 +48,7 @@ typedef unsigned char  uchar;
 ushort gmcy[H][W][4];
 
 /* Creates a new filename with a different extension */
-exten(char *new, char *old, char *ext)
+exten(char *new, const char *old, const char *ext)
 {
   char *cp;
 
@@ -75,10 +74,9 @@ exten(char *new, char *old, char *ext)
 
 /*
    Load CCD pixel values into the gmcy[] array.  Unknown colors
-(such as cyan under a magenta filter) must be set to zero.
+   (such as cyan under a magenta filter) must be set to zero.
 */
-
-read_crw(char *fname)
+read_crw(const char *fname)
 {
   uchar  data[1120], *dp;
   ushort pixel[896], *pix;
@@ -94,7 +92,7 @@ read_crw(char *fname)
   read (fd, data, 26);
   if (memcmp(data,"MM",2) || memcmp(data+6,"HEAPCCDR",8))
   {
-    fprintf(stderr,"%s is not a CRW file.\n",fname);
+    fprintf(stderr,"%s is not a Canon PowerShot 600 file.\n",fname);
     return 0;
   }
 
@@ -103,17 +101,14 @@ read_crw(char *fname)
 #endif
 
 /*
-    Immediately after the 26-byte header come the data rows.  First
-the even rows 0..612, then the odd rows 1..611.  Each row is 896
-pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
+   Immediately after the 26-byte header come the data rows.  First
+   the even rows 0..612, then the odd rows 1..611.  Each row is 896
+   pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
 */
 
   for (irow=orow=0; irow < H; irow++)
   {
-/* Read one packed row */
     read (fd, data, 1120);
-
-/* Unpack the pixels */
     for (dp=data, pix=pixel; dp < data+1120; dp+=10, pix+=8)
     {
       pix[0] = (dp[0] << 2) + (dp[1] >> 6    );
@@ -128,24 +123,24 @@ pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
 
 /*
    Copy 854 pixels into the gmcy[] array.  The other 42 pixels
-are blank.  Left-shift by 4 for extra precision in upcoming
-calculations.
+   are blank.  Left-shift by 4 for extra precision in upcoming
+   calculations.
 */
-    memset(gmcy[orow], 0, W * 8);	/* Set row to zero */
+    memset(gmcy[orow], 0, W*8);		/* Set row to zero */
     for (col=0; col < W; col++)
       gmcy[orow][col][filter(orow,col)] = pixel[col] << 4;
 
-    if ((orow+=2) > H)        /* Once we've read all the even rows, */
-      orow = 1;                 /* read the odd rows. */
+    if ((orow+=2) > H)	      /* Once we've read all the even rows, */
+      orow = 1;			/* read the odd rows. */
   }
   close(fd);
-  return 1;                     /* Success */
+  return 1;			/* Success */
 }
 
 /*
    When this function is called, we only have one GMCY
-value for each pixel.  Do linear interpolation to get
-the other three.
+   value for each pixel.  Do linear interpolation to get
+   the other three.
 */
 
 first_interpolate()
@@ -174,8 +169,8 @@ first_interpolate()
 
 /*
    We now have all four GMCY values for each pixel.  Smooth
-the color balance to avoid artifacts.  This function may be
-called more than once.
+   the color balance to avoid artifacts.  This function may
+   be called more than once.
 */
 
 second_interpolate()
@@ -204,8 +199,8 @@ second_interpolate()
 	{
 	  sc=filter(sy,sx);
 	  this_row[x][sc] +=
-	   ( (unsigned long) gmcy[sy][sx][sc] << 16)
-	    / gmcy[sy][sx][c] * gmcy[y][x][c] >> (16 + *sp++);
+	   ( (unsigned long) gmcy[sy][sx][sc] << 16) /
+	      gmcy[sy][sx][c] * gmcy[y][x][c] >> (16 + *sp++);
 	}
     }
     if (y > 2) memcpy(gmcy[y-1]+2,last_row+2,(W-4)*8);
@@ -219,7 +214,7 @@ second_interpolate()
    Convert a GMCY quadruplet to an RGB triplet.
 
    The following table shows how the four CCD pixel types respond
-to the three primary colors, on a scale of 0-100.
+   to the three primary colors, on a scale of 0-100.
 
      RGB--->   red    green    blue
     GMCY-v
@@ -313,7 +308,7 @@ write_ppm(char *fname)
    Second pass:  Scale RGB and write to PPM file
 */
 
-  expo = (gamma_val-1)/2;			/* Pull these out of the loop */
+  expo = (gamma_val-1)/2;		/* Pull these out of the loop */
   mult = bright * 362 / max;
   for (y=0; y < 4; y++)
     ymul[y] = pow(ymul[y],gamma_val);
@@ -333,7 +328,7 @@ write_ppm(char *fname)
 	ppm[x][c]=val;
       }
     }
-    write (fd, ppm+1, (W-2) * 3);
+    write (fd, ppm+1, (W-2)*3);
   }
   if (write_to_files) close(fd);
 
@@ -350,11 +345,11 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCRW to PPM converter by Dave Coffin (dcoffin@shore.net)"
-    "\nVersion 0.85, last modified 8/30/97\n"
-    "\nUsage:  %s [options] file1.crw file2.crw ...\n"
+    "\nCanon PowerShot 600 Converter v0.86"
+    "\nby Dave Coffin (dcoffin@shore.net)"
+    "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
-    "\n-c        Write to standard output"
+    "\n-c        Write PPM to standard output"
     "\n-g <num>  Set gamma value (%5.3f by default)"
     "\n-b <num>  Set brightness  (%5.3f by default)\n\n",
       argv[0], gamma_val, bright);
