@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.183 $
-   $Date: 2004/04/22 01:01:56 $
+   $Revision: 1.184 $
+   $Date: 2004/04/22 16:53:47 $
  */
 
 #define _GNU_SOURCE
@@ -2845,6 +2845,10 @@ nucore:
     left_margin = 64;
     pre_mul[0] = 2.242;
     pre_mul[2] = 1.245;
+    if (!strcmp(model,"EOS Kiss Digital")) {
+      pre_mul[0] = 1.882;
+      pre_mul[2] = 1.094;
+    }
     rgb_max = 16000;
   } else if (is_canon && raw_width == 3344) {
     height = 2472;
