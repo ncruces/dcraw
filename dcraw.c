@@ -3,7 +3,7 @@
    Copyright (c)1997-2001 by Dave Coffin <dcoffin@shore.net>
 
    A portable ANSI C program to convert raw CRW files from Canon
-   digital cameras into PPM format.
+   digital cameras into PPM or PNG format.
 
    This is an entirely original work; no other copyrights apply.
    Any similarity to Canon's code is only to the extent necessary
@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.32 $
-   $Date: 2001/10/23 13:45:51 $
+   $Revision: 1.33 $
+   $Date: 2001/10/24 17:56:06 $
 */
 
 #include <math.h>
@@ -31,9 +31,9 @@ typedef unsigned short ushort;
 FILE *ifp;
 short order;
 int height, width, colors;
+unsigned filters;
 char name[64];
 ushort (*image)[4];
-int (*filter)(int,int);
 void (*read_crw)();
 float gamma_val=0.8, bright=1.0;
 float ymul[4];
@@ -46,6 +46,14 @@ struct decode {
 } first_decode[32], second_decode[512];
 
 /*
+   In order to inline this calculation, I make the risky
+   assumption that all filter patterns can be described
+   by a repeating pattern of eight rows and two columns
+ */
+#define FC(row,col) \
+	(filters >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
+
+/*
    Filter pattern of the PowerShot 600:
 
 	  0 1 2 3 4 5
@@ -54,11 +62,6 @@ struct decode {
 	2 M G M G M G		 G  M  C  Y
 	3 C Y C Y C Y
  */
-ps600_filter(int row, int col)
-{
-  return (0xe1e4 >> ((((row) << 1 & 6) + ((col) & 1)) << 1) & 3);
-}
-
 void ps600_read_crw()
 {
   uchar  data[1120], *dp;
@@ -90,7 +93,7 @@ void ps600_read_crw()
    calculations.
  */
     for (col=0; col < width; col++)
-      image[orow*width+col][(*filter)(orow,col)] = pixel[col] << 4;
+      image[orow*width+col][FC(orow,col)] = pixel[col] << 4;
 
     if ((orow+=2) > height)	/* Once we've read all the even rows, */
       orow = 1;			/* read the odd rows. */
@@ -106,11 +109,6 @@ void ps600_read_crw()
 	2 C Y C Y C Y		 G  M  C  Y
 	3 M G M G M G
  */
-a5_filter(int row, int col)
-{
-  return (0x1e4e >> ((((row) << 1 & 6) + ((col) & 1)) << 1) & 3);
-}
-
 void a5_read_crw()
 {
   uchar  data[1240], *dp;
@@ -139,7 +137,7 @@ void a5_read_crw()
    calculations.
  */
     for (col=0; col < width; col++)
-      image[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
   }
 }
 
@@ -156,11 +154,6 @@ void a5_read_crw()
 	6 Y C Y C Y C
 	7 M G M G M G
  */
-a50_filter(int row, int col)
-{
-  return (0x1b4e4b1e >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3);
-}
-
 void a50_read_crw()
 {
   uchar  data[1650], *dp;
@@ -189,7 +182,7 @@ void a50_read_crw()
    calculations.
  */
     for (col=0; col < width; col++)
-      image[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
   }
 }
 
@@ -206,11 +199,6 @@ void a50_read_crw()
 	6 C Y C Y C Y
 	7 M G M G M G
  */
-pro70_filter(int row, int col)
-{
-  return (0x1e4b4e1b >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3);
-}
-
 void pro70_read_crw()
 {
   uchar  data[1940], *dp;
@@ -238,7 +226,7 @@ void pro70_read_crw()
    extra precision in upcoming calculations.
  */
     for (col=0; col < width; col++)
-      image[row*width+col][(*filter)(row,col)] = (pixel[col] & 0x3ff) << 4;
+      image[row*width+col][FC(row,col)] = (pixel[col] & 0x3ff) << 4;
   }
 }
 
@@ -470,11 +458,6 @@ decompress(ushort *outbuf, int width, int count)
 	0 G M G M G M		 0  1  2  3
 	1 Y C Y C Y C		 G  M  C  Y
  */
-pro90_filter(int row, int col)
-{
-  return (0xb4 >> ((((row) << 1 & 2) + ((col) & 1)) << 1) & 3);
-}
-
 void pro90_read_crw()
 {
   ushort pixel[1944*8];
@@ -486,7 +469,7 @@ void pro90_read_crw()
     decompress(pixel,1944,243);
     for (r=0; r < 8; r++)
       for (col=0; col < width; col++)
-	image[(row+r)*width+col][(*filter)(row+r,col)] =
+	image[(row+r)*width+col][FC(row+r,col)] =
 		(pixel[(r*1944)+col] & 0x3ff) << 4;
   }
 }
@@ -505,7 +488,7 @@ void g1_read_crw()
     if (row < 0) continue;
     for (r=0; r < 2; r++)
       for (col=0; col < width; col++)
-	image[(row+r)*width+col][(*filter)(row+r,col)] =
+	image[(row+r)*width+col][FC(row+r,col)] =
 		(pixel[(r*2144)+col+4] & 0x3ff) << 4;
   }
 }
@@ -519,11 +502,6 @@ void g1_read_crw()
 	2 R G R G R G
 	3 G B G B G B
  */
-rgb_filter(row,col)
-{
-  return (((row) & 1) + ((col) & 1));
-}
-
 void g2_read_crw()
 {
   ushort pixel[2376*8], *prow, (*imrow)[4];
@@ -542,7 +520,7 @@ void g2_read_crw()
       imrow = image + orow*width;
       prow = pixel + r*2376 + 12;
       for (col=0; col < width; col++)
-	imrow[col][(*filter)(orow,col)] = (prow[col] & 0x3ff) << 4;
+	imrow[col][FC(orow,col)] = (prow[col] & 0x3ff) << 4;
     }
   }
 }
@@ -579,7 +557,7 @@ void d30_read_crw()
       imrow = image + orow*width;
       prow = pixel + r*2224 + 48;
       for (col=0; col < width; col++)
-	imrow[col][(*filter)(orow,col)] = (prow[col] & 0xfff) << 2;
+	imrow[col][FC(orow,col)] = (prow[col] & 0xfff) << 2;
     }
   }
 }
@@ -597,11 +575,11 @@ first_interpolate()
 
   for (row=1; row < height-1; row++)
     for (col=1; col < width-1; col++) {
-      cc = (*filter)(row,col);
+      cc = FC(row,col);
       memset (avg, 0, sizeof avg);
       for (y = row-1; y < row+2; y++)
 	for (x = col-1; x < col+2; x++)
-	  if ((c = (*filter)(y,x)) != cc) {
+	  if ((c = FC(y,x)) != cc) {
 	    val = image[y*width+x][c];
 	    avg[c] += val;
 	    avg[c+4]++;
@@ -637,11 +615,11 @@ second_interpolate()
   }
   for (row=2; row < height-2; row++) {
     for (col=2; col < width-2; col++) {
-      cc = (*filter)(row,col);
+      cc = FC(row,col);
       memset (avg, 0, sizeof avg);
       for (y = row-1; y < row+2; y++)
 	for (x = col-1; x < col+2; x++)
-	  if ((c = (*filter)(y,x)) != cc && image[y*width+x][cc]) {
+	  if ((c = FC(y,x)) != cc && image[y*width+x][cc]) {
 	    val = ((unsigned long) image[y*width+x][c] << 16) /
 		image[y*width+x][cc] * image[row*width+col][cc] >> 16;
 	    avg[c] += val;
@@ -744,7 +722,9 @@ open_and_id(char *fname)
   int hlen, i, r, g;
 
   for (i=0; i < 4; i++) ymul[i]=1.0;
-  for (i=0; i < 3; i++) rgb_mul[i]=1.0;
+  rgb_mul[0] = 1.592;
+  rgb_mul[1] = 1.0;
+  rgb_mul[2] = 1.261;
   colors = 4;
 
   ifp = fopen(fname,"rb");
@@ -769,67 +749,57 @@ open_and_id(char *fname)
   if (!strcmp(name,"Canon PowerShot 600")) {
     height = 613;
     width  = 854;
-    rgb_mul[1] = 0.6;
-    rgb_mul[2] = 1.0;
+    filters = 0xe1e4e1e4;
+    read_crw = ps600_read_crw;
+    rgb_mul[0] = 1.667;
+    rgb_mul[2] = 1.667;
     ymul[0] = 0.9866;
     ymul[2] = 1.0125;
-    filter   = ps600_filter;
-    read_crw = ps600_read_crw;
   } else if (!strcmp(name,"Canon PowerShot A5")) {
     height = 776;
     width  = 960;
-    rgb_mul[1] = 0.90;
-    rgb_mul[2] = 0.88;
+    filters = 0x1e4e1e4e;
+    read_crw = a5_read_crw;
+    rgb_mul[0] = 1.111;
+    rgb_mul[2] = 0.978;
     ymul[0] = 1.0005;
     ymul[1] = 1.0056;
     ymul[2] = 0.9980;
     ymul[3] = 0.9959;
-    filter   = a5_filter;
-    read_crw = a5_read_crw;
   } else if (!strcmp(name,"Canon PowerShot A50")) {
     height =  968;
     width  = 1290;
-    rgb_mul[1] = 0.76;
-    rgb_mul[2] = 0.59;
-    filter   = a50_filter;
+    filters = 0x1b4e4b1e;
     read_crw = a50_read_crw;
+    rgb_mul[0] = 1.316;
+    rgb_mul[2] = 0.776;
   } else if (!strcmp(name,"Canon PowerShot Pro70")) {
     height = 1024;
     width  = 1552;
-    rgb_mul[1] = 0.628;
-    rgb_mul[2] = 0.792;
-    filter   = pro70_filter;
+    filters = 0x1e4b4e1b;
     read_crw = pro70_read_crw;
   } else if (!strcmp(name,"Canon PowerShot Pro90 IS")) {
     height = 1416;
     width  = 1896;
-    rgb_mul[1] = 0.628;
-    rgb_mul[2] = 0.792;
-    filter   = pro90_filter;
+    filters = 0xb4b4b4b4;
     read_crw = pro90_read_crw;
   } else if (!strcmp(name,"Canon PowerShot G1")) {
     height = 1550;
     width  = 2088;
-    rgb_mul[1] = 0.628;
-    rgb_mul[2] = 0.792;
-    filter   = pro90_filter;
+    filters = 0xb4b4b4b4;
     read_crw = g1_read_crw;
   } else if (!strcmp(name,"Canon PowerShot G2") ||
 	     !strcmp(name,"Canon PowerShot S40")) {
     height = 1720;
     width  = 2312;
     colors = 3;
-    rgb_mul[1] = 0.628;
-    rgb_mul[2] = 0.792;
-    filter   = rgb_filter;
+    filters = 0x94949494;
     read_crw = g2_read_crw;
   } else if (!strcmp(name,"Canon EOS D30")) {
     height = 1448;
     width  = 2176;
     colors = 3;
-    rgb_mul[1] = 0.628;
-    rgb_mul[2] = 0.792;
-    filter   = rgb_filter;
+    filters = 0x94949494;
     read_crw = d30_read_crw;
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
@@ -884,27 +854,27 @@ write_ppm(FILE *ofp)
   uchar (*ppm)[3];
   float rgb[4], max, max2, expo, scale;
   float gymul[4];
-  int total, histogram[0x4000];
+  int total, histogram[0x1000];
   char p6head[32];
 
 /*
-   Build a histogram of magnitudes
+   Build a histogram of magnitudes using 4096 bins of 64 values each.
  */
   memset (histogram, 0, sizeof histogram);
   for (y=1; y < height-1; y++)
     for (x=1; x < width-1; x++) {
       get_rgb (rgb, image[y*width+x]);
-      val = rgb[3]/0x100000;
-      if (val > 0x3fff) val=0x3fff;
+      val = (int) sqrt(rgb[3]) >> 6;
+      if (val > 0xfff) val=0xfff;
       histogram[val]++;
     }
 /*
    Set the maximum magnitude to the 98th percentile
  */
-  for (val=0x4000, total=0; --val; )
+  for (val=0x1000, total=0; --val; )
     if ((total+=histogram[val]) > (int)(width*height*0.06)) break;
-  max2 = val << 20;
-  max = sqrt(max2);
+  max = val << 6;
+  max2 = max * max;
 
   fprintf(ofp,"P6\n%d %d\n255\n",width-2,height-2);
 
@@ -979,18 +949,16 @@ write_png(FILE *ofp)
     exit(1);
   }
 
-  if (colors == 3) {		/* Preserve the green bits */
-    rgb_mul[0] /= rgb_mul[1];
-    rgb_mul[2] /= rgb_mul[1];
-    rgb_mul[1] = 1.0;
-    max = 0x4000;
-  }
+  if (colors == 3)
+    max = 0x4000 * bright;
+  if (max > 0xffff)
+    max = 0xffff;
 
   for (y=1; y < height-1; y++) {
     for (x=1; x < width-1; x++) {
       get_rgb(rgb, image[y*width+x]);
       for (c=0; c < 3; c++) {
-	val = rgb[c];
+	val = rgb[c] * bright;
 	if (val > max) val = max;
 	png[x-1][c] = val;
       }
@@ -1024,7 +992,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.21"
+    "\nCanon PowerShot Converter v2.30"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
@@ -1032,7 +1000,7 @@ main(int argc, char **argv)
     "\n-g <num>  Set gamma value (%5.3f by default)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
     "\n-2        Write 24-bit PPM (default)"
-    "\n-4        Write 48-bit PNG (-g and -b ignored)\n\n",
+    "\n-4        Write 48-bit PNG (-g ignored)\n\n",
       argv[0], gamma_val, bright);
     exit(1);
   }
