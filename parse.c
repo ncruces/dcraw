@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.16 $
-   $Date: 2004/05/13 20:04:25 $
+   $Revision: 1.17 $
+   $Date: 2004/07/12 21:22:46 $
  */
 
 #include <stdio.h>
@@ -186,6 +186,7 @@ void nef_parse_exif(int base)
 void parse_tiff (int base, int level)
 {
   int entries, tag, type, count, slen, save, save2, val, i;
+  int comp=0, length=0;
 
   entries = fget2(ifp);
   while (entries--) {
@@ -219,6 +220,7 @@ void parse_tiff (int base, int level)
 	  thumb_layers = 1;
 	break;
       case 0x103:			/* Compression */
+	if (!comp) comp = val;
 	break;
       case 0x10f:			/* Make tag */
 	fgets (make, slen, ifp);
@@ -233,6 +235,7 @@ void parse_tiff (int base, int level)
 	if (!offset) offset = val;
 	break;
       case 0x117:			/* StripByteCounts */
+	if (!length) length = val;
 	if (offset > val && !strncmp(make,"KODAK",5))
 	  offset -= val;
 	break;
@@ -258,6 +261,10 @@ void parse_tiff (int base, int level)
     }
     fseek (ifp, save+12, SEEK_SET);
   }
+  if (comp == 6 && !strcmp(make,"Canon")) {
+    thumb_offset = offset;
+    thumb_length = length;
+  }
 }
 
 /*
@@ -274,6 +281,7 @@ void parse_tiff_file (int base)
   while ((doff = fget4(ifp))) {
     fseek (ifp, doff+base, SEEK_SET);
     parse_tiff (base, 0);
+    if (!strcmp(make,"Canon")) break;
   }
   if (strncmp(make,"KODAK",5))
     thumb_layers = 0;
