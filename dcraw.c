@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.19 $
-   $Date: 2000/05/05 13:48:25 $
+   $Revision: 1.20 $
+   $Date: 2000/05/06 20:28:57 $
 */
 
 #include <fcntl.h>
@@ -51,9 +51,20 @@ const float ymul[4] = { 1.0005, 1.0056, 0.9980, 0.9959 };
 
 const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
 
+#elif defined(PS_PRO70)
+
+#define H 1024
+#define W 1552
+
+#define RED_MUL 1.0
+#define GRN_MUL 0.76
+#define BLU_MUL 0.59
+
+const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
+
 #else
 #error You must compile with exactly one of the following:
-#error	-DPS_600 -DPS_A5 -DPS_A50 -DPS_PRO70
+#error -DPS_600 -DPS_A5 -DPS_A50 -DPS_PRO70 (untested)
 #endif
 
 /* Default values, which may be modified on the command line */
@@ -244,6 +255,60 @@ void read_crw(int row, int fd)
     gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
 }
 
+#elif defined(PS_PRO70)
+
+/*
+   Returns the filter color of a given pixel.
+   The pattern is:
+
+	  0 1 2 3 4 5
+	0 Y C Y C Y C		Return values
+	1 M G M G M G		 0  1  2  3
+	2 C Y C Y C Y		 G  M  C  Y
+	3 G M G M G M
+	4 Y C Y C Y C
+	5 G M G M G M
+	6 C Y C Y C Y
+	7 M G M G M G
+*/
+#define filter(row,col) \
+	(0x1e4b4e1b >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
+
+/*
+   Load CCD pixel values into the gmcy[] array.  Unknown colors
+   (such as cyan under a magenta filter) must be set to zero.
+*/
+void read_crw(int row, int fd)
+{
+  uchar  data[1940], *dp;
+  ushort pixel[1552], *pix;
+  int col;
+
+/*
+  Each row is 1552 ten-bit pixels, packed into 1940 bytes.
+*/
+  read(fd,data,1940);
+  for (dp=data, pix=pixel; dp < data+1940; dp+=10, pix+=8)
+  {
+    pix[0] = (dp[1] << 2) + (dp[0] >> 6);	/* Same as PS_A5 */
+    pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+    pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+    pix[3] = (dp[2] << 8) + (dp[5]     );
+    pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+    pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+    pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+    pix[7] = (dp[9] << 8) + (dp[8]     );
+  }
+
+  memset(gmcy[row], 0, W*4*sizeof (ushort));	/* Set row to zero */
+/*
+   Copy all pixels into the gmcy[] array.  Left-shift by 4 for
+   extra precision in upcoming calculations.
+*/
+  for (col=0; col < W; col++)
+    gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
+}
+
 #endif		/* End of model-specific code */
 
 /*
@@ -321,7 +386,7 @@ get_rgb(float rgb[4], ushort gmcy[4])
    Therefore, second_interpolate() writes the modified row one pixel
    above and to the left of the original.
 
-   Edge pixels are discarded.  Pixels one in from the edge get memcpy'd
+   Edge pixels are discarded.  Pixels one in from the edge are memcpy'd
    to their new locations.
 
    Convert each GMCY value to RGB, and compile a histogram of their
@@ -437,6 +502,8 @@ main(int argc, char **argv)
     "A5"
 #elif defined(PS_A50)
     "A50"
+#elif defined(PS_PRO70)
+    "Pro70"
 #endif
     " Converter v1.00"
     "\nby Dave Coffin (dcoffin@shore.net)"
