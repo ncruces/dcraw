@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.20 $
-   $Date: 2000/05/06 20:28:57 $
+   $Revision: 1.21 $
+   $Date: 2000/05/07 04:26:08 $
 */
 
 #include <fcntl.h>
@@ -27,7 +27,7 @@
 #define BLU_MUL 1.0
 
 /* Use this to remove annoying horizontal patterns */
-const float ymul[4] = { 0.9866, 1.0, 1.0125, 1.0 };
+const float ymul[4] = { 1.0, 1.0125, 1.0, 0.9866 };
 
 #elif defined(PS_A5)
 
@@ -38,7 +38,7 @@ const float ymul[4] = { 0.9866, 1.0, 1.0125, 1.0 };
 #define GRN_MUL 0.90
 #define BLU_MUL 0.88
 
-const float ymul[4] = { 1.0005, 1.0056, 0.9980, 0.9959 };
+const float ymul[4] = { 1.0056, 0.9980, 0.9959, 1.0005 };
 
 #elif defined(PS_A50)
 
@@ -172,7 +172,7 @@ void read_crw(int row, int fd)
 {
   uchar  data[1240], *dp;
   ushort pixel[992], *pix;
-  int row, col;
+  int col;
 
 /*
    Each data row is 992 ten-bit pixels, packed into 1240 bytes.
