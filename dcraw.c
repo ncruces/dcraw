@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.143 $
-   $Date: 2003/10/16 19:38:02 $
+   $Revision: 1.144 $
+   $Date: 2003/10/20 18:35:01 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -841,22 +841,33 @@ void fuji_s2_load_raw()
   }
 }
 
-void fuji_s5000_load_raw()
+void fuji_common_load_raw (int ncol, int icol, int nrow)
 {
-  ushort pixel[1472];
+  ushort pixel[2048];
   int row, col, r, c;
 
-  fseek (ifp, tiff_data_offset + (1472*4+24)*2, SEEK_SET);
-  for (row=0; row < 2152; row++) {
-    fread (pixel, 2, 1472, ifp);
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  for (row=0; row < nrow; row++) {
+    fread (pixel, 2, ncol, ifp);
     if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
-      swab (pixel, pixel, 1472*2);
-    for (col=0; col < 1424; col++) {
-      r = 1423 - col + (row >> 1);
+      swab (pixel, pixel, ncol*2);
+    for (col=0; col <= icol; col++) {
+      r = icol - col + (row >> 1);
       c = col + ((row+1) >> 1);
-      image[r*width+c][FC(r,c)] = pixel[col];
+      image[r*width+c][FC(r,c)] = pixel[col] << 2;
     }
   }
+}
+
+void fuji_s5000_load_raw()
+{
+  tiff_data_offset += (1472*4+24)*2;
+  fuji_common_load_raw (1472, 1423, 2152);
+}
+
+void fuji_s7000_load_raw()
+{
+  fuji_common_load_raw (2048, 2047, 3080);
 }
 
 /*
@@ -2559,6 +2570,15 @@ coolpix:
     load_raw = fuji_s5000_load_raw;
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
+    rgb_max = 0xf7ff;
+  } else if (!strcmp(model,"FinePix S7000")) {
+    height = 3587;
+    width  = 3588;
+    filters = 0x49494949;
+    load_raw = fuji_s7000_load_raw;
+    pre_mul[0] = 1.81;
+    pre_mul[2] = 1.38;
+    rgb_max = 0xf7ff;
   } else if (!strcmp(model,"FinePix F700")) {
     height = 2523;
     width  = 2524;
@@ -2978,7 +2998,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.09"
+    "\nRaw Photo Decoder v5.10"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
