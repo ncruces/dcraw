@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.160 $
-   $Date: 2004/01/04 08:09:05 $
+   $Revision: 1.161 $
+   $Date: 2004/01/04 09:21:49 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1896,19 +1896,32 @@ void nef_parse_makernote()
     type = fget2(ifp);
     len  = fget4(ifp);
     val  = fget4(ifp);
+    save = ftell(ifp);
     if (tag == 0xc) {
-      save = ftell(ifp);
       fseek (ifp, base+val, SEEK_SET);
       camera_red  = fget4(ifp);
       camera_red /= fget4(ifp);
       camera_blue = fget4(ifp);
       camera_blue/= fget4(ifp);
-      fseek (ifp, save, SEEK_SET);
     }
     if (tag == 0x8c)
       nef_curve_offset = base+val + 2112;
     if (tag == 0x96)
       nef_curve_offset = base+val + 2;
+    if (tag == 0x97) {
+      if (!strcmp(model,"NIKON D100 ")) {
+	fseek (ifp, base+val + 72, SEEK_SET);
+	camera_red  = fget2(ifp) / 256.0;
+	camera_blue = fget2(ifp) / 256.0;
+      } else if (!strcmp(model,"NIKON D2H")) {
+	fseek (ifp, base+val + 10, SEEK_SET);
+	camera_red  = fget2(ifp);
+	camera_red /= fget2(ifp);
+	camera_blue = fget2(ifp);
+	camera_blue = fget2(ifp) / camera_blue;
+      }
+    }
+    fseek (ifp, save, SEEK_SET);
   }
   order = sorder;
 }
@@ -3145,7 +3158,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.42"
+    "\nRaw Photo Decoder v5.43"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
