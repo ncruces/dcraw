@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.172 $
-   $Date: 2004/02/22 04:02:44 $
+   $Revision: 1.173 $
+   $Date: 2004/02/22 19:28:03 $
  */
 
 #define _GNU_SOURCE
@@ -2082,6 +2082,8 @@ void parse_ciff(int offset, int length)
     if (type == 0x102a) {		/* Find the White Balance index */
       fseek (ifp, aoff+14, SEEK_SET);	/* 0=auto, 1=daylight, 2=cloudy ... */
       wbi = fget2(ifp);
+      if (!strcmp(model,"Canon EOS DIGITAL REBEL") && wbi == 6)
+	wbi++;
     }
     if (type == 0x102c) {		/* Get white balance (G2) */
       if (!strcmp(model,"Canon PowerShot G1") ||
