@@ -1,9 +1,9 @@
 /*
-   Canon PowerShot Converter v2.00
+   Canon PowerShot Converter
    Copyright (c)1997-2001 by Dave Coffin <dcoffin@shore.net>
 
    A portable ANSI C program to convert raw CRW files from Canon
-   digital cameras into PPM format.
+   PowerShot digital cameras into PPM format.
 
    This is an entirely original work; no other copyrights apply.
    Any similarity to Canon's code is only to the extent necessary
@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.25 $
-   $Date: 2001/09/24 22:41:06 $
+   $Revision: 1.26 $
+   $Date: 2001/09/30 00:04:43 $
 */
 
 #include <math.h>
@@ -484,14 +484,14 @@ decompress(ushort *outbuf, int width, int count)
 	0 G M G M G M		 0  1  2  3
 	1 Y C Y C Y C		 G  M  C  Y
  */
-pro90_g1_filter(int row, int col)
+pro90_filter(int row, int col)
 {
   return (0xb4 >> ((((row) << 1 & 2) + ((col) & 1)) << 1) & 3);
 }
 
 void pro90_read_crw(int row)
 {
-  ushort pixel[1944*8], *pix;
+  ushort pixel[1944*8];
   int r, col;
 
 /* Read rows eight at a time */
@@ -507,7 +507,7 @@ void pro90_read_crw(int row)
 
 void g1_read_crw(int row)
 {
-  ushort pixel[2144*2], *pix;
+  ushort pixel[2144*2];
   int r, col;
 
 /* Read rows two at a time */
@@ -525,6 +525,44 @@ void g1_read_crw(int row)
     for (col=0; col < width; col++)
       gmcy[(row+r)*width+col][(*filter)(row+r,col)] =
 		(pixel[(r*2144)+col+4] & 0x3ff) << 4;
+}
+
+/*
+   Filter pattern of the PowerShot G2:
+
+	  0 1 2 3 4 5		Return values
+	0 G M G M G M		 0  1  2  3
+	1 Y C Y C Y C		 G  M  C  Y
+ */
+g2_filter(int row, int col)
+{
+  return (0x4e >> ((((row) << 1 & 2) + ((col) & 1)) << 1) & 3);
+}
+
+void g2_read_crw(int row)
+{
+  ushort pixel[2376*8], *prow, (*grow)[4];
+  int start=0, end, r, orow, col;
+
+/*  Read rows eight at a time, discarding the first six rows */
+
+  if (row == 0)
+    start = 6;
+  else if ((row & 7) != 2)
+    return;
+
+  decompress(pixel,2376,297);
+
+  end = height - row;
+  if (end > 8) end = 8;
+  memset(gmcy + row*width, 0, end*width*sizeof *gmcy);
+  for (r=start; r < end; r++) {
+    orow = row-start + r;
+    grow = gmcy + orow*width;
+    prow = pixel + r*2376 + 12;
+    for (col=0; col < width; col++)
+      grow[col][(*filter)(orow,col)] = (prow[col] & 0x3ff) << 4;
+  }
 }
 
 /*
@@ -580,9 +618,8 @@ open_and_id(char *fname)
   fseek (ifp, 26, SEEK_SET);
 
   name = search(tail, tlen, "Canon PowerShot ");
-  if (!name) name = search(tail, tlen, "Canon EOS ");
   if (!name) {
-    fprintf(stderr,"%s: cannot identify camera model.\n",fname);
+    fprintf(stderr,"%s: camera is not a Canon PowerShot.\n",fname);
     return 1;
   } else if (!strcmp(name,"Canon PowerShot 600")) {
     height = 613;
@@ -623,7 +660,7 @@ open_and_id(char *fname)
     width  = 1896;
     rgb_mul[1] = 0.628;
     rgb_mul[2] = 0.792;
-    filter   = pro90_g1_filter;
+    filter   = pro90_filter;
     read_crw = pro90_read_crw;
     init_tables(name[4762]);
     decompress(0,0,0);
@@ -632,9 +669,19 @@ open_and_id(char *fname)
     width  = 2088;
     rgb_mul[1] = 0.628;
     rgb_mul[2] = 0.792;
-    filter   = pro90_g1_filter;
+    filter   = pro90_filter;
     read_crw = g1_read_crw;
     init_tables(name[4762]);
+    decompress(0,0,0);
+  } else if (!strcmp(name,"Canon PowerShot G2")) {
+    height = 1720;
+    height = 100;
+    width  = 2312;
+    rgb_mul[1] = 0.628;
+    rgb_mul[2] = 0.792;
+    filter   = g2_filter;
+    read_crw = g2_read_crw;
+    init_tables(name[4774]);
     decompress(0,0,0);
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
@@ -830,7 +877,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v1.90"
+    "\nCanon PowerShot Converter v1.92"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
