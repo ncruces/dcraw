@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.187 $
-   $Date: 2004/04/28 14:35:07 $
+   $Revision: 1.188 $
+   $Date: 2004/04/29 19:11:08 $
  */
 
 #define _GNU_SOURCE
@@ -2826,8 +2826,10 @@ nucore:
     width  = 2312;
     top_margin  = 6;
     left_margin = 12;
+#ifdef CUSTOM
     if (write_fun == write_ppm)		/* Pro users may not want my matrix */
       canon_rgb_coeff (0.1);
+#endif
     if (!strcmp(model,"PowerShot G2") ||
 	!strcmp(model,"PowerShot S40")) {
       pre_mul[0] = 1.965;
@@ -3252,6 +3254,8 @@ coolpix:
 	  load_raw = kodak_compressed_load_raw;
 	else {
 	  load_raw = kodak_yuv_load_raw;
+	  height = (height+1) & -2;
+	  width  = (width +1) & -2;
 	  filters = 0;
 	  if (pre_mul[1] == 1) {
 	    pre_mul[0] *= 1.05;
@@ -3467,7 +3471,8 @@ void convert_to_rgb()
 	rgb[3] += rgb[r]*rgb[r];
       }
       rgb[3] = sqrt(rgb[3])/2;
-      if (rgb[3] > 0xffff) rgb[3] = 0xffff;
+      if (rgb[3] > 0xffff)
+	  rgb[3] = 0xffff;
       for (r=0; r < 4; r++)
 	img[r] = rgb[r];
       histogram[img[3] >> 3]++;		/* bin width is 8 */
@@ -3553,7 +3558,8 @@ void write_psd(FILE *ofp)
       rgb = image[row*width+col];
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
-	if (val > 0xffff) val=0xffff;
+	if (val > 0xffff)
+	    val = 0xffff;
 	pred[c*psize] = htons(val);
       }
       pred++;
@@ -3571,8 +3577,11 @@ void write_ppm16(FILE *ofp)
   int row, col, c, val;
   ushort *rgb, (*ppm)[3];
 
+  val = rgb_max * bright;
+  if (val > 0xffff)
+      val = 0xffff;
   fprintf (ofp, "P6\n%d %d\n%d\n",
-	width-trim*2, height-trim*2, rgb_max);
+	width-trim*2, height-trim*2, val);
 
   ppm = calloc (width-trim*2, 6);
   merror (ppm, "write_ppm16()");
@@ -3582,7 +3591,8 @@ void write_ppm16(FILE *ofp)
       rgb = image[row*width+col];
       for (c=0; c < 3; c++) {
 	val = rgb[c] * bright;
-	if (val > 0xffff) val=0xffff;
+	if (val > 0xffff)
+	    val = 0xffff;
 	ppm[col-trim][c] = htons(val);
       }
     }
@@ -3601,7 +3611,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.77"
+    "\nRaw Photo Decoder \"dcraw\" v5.78"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
