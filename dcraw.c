@@ -1,14 +1,14 @@
 /*
-   Canon PowerShot 600 Converter v0.86
+   Canon PowerShot Converter v0.90
 
-   by Dave Coffin (dcoffin at shore dot net)
+   by Dave Coffin (dcoffin@shore.net)
 
    No rights reserved.  Do what you want with this code,
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.12 $
-   $Date: 1999/04/15 19:57:55 $
+   $Revision: 1.13 $
+   $Date: 1999/04/15 21:20:26 $
 */
 
 #include <ctype.h>
@@ -20,11 +20,27 @@
 
 #define DEBUG
 
-/* Use these to adjust the final color balance */
+#ifdef PS_600
+
+#define H 613
+#define W 854
 
 #define RED_MUL 1.0
 #define GRN_MUL 0.6
 #define BLU_MUL 1.0
+
+#elif defined(PS_A5)
+
+#define H 776
+#define W 960
+
+#define RED_MUL 1.0
+#define GRN_MUL 1.0
+#define BLU_MUL 1.0
+
+#else
+#error You must compile with -DPS_600 or -DPS_A5
+#endif
 
 /* Default values, which may be modified on the command line */
 
@@ -43,8 +59,6 @@ typedef unsigned char uchar;
 
 /* This 4MB array holds the GMCY values for each pixel */
 
-#define H 613
-#define W 854
 ushort gmcy[H][W][4];
 
 /* Creates a new filename with a different extension */
@@ -58,6 +72,7 @@ exten(char *new, const char *old, const char *ext)
   strcpy(cp,ext);
 }
 
+#ifdef PS_600
 /*
    Returns the filter color of a given pixel.
    The pattern is:
@@ -136,6 +151,82 @@ read_crw(const char *fname)
   close(fd);
   return 1;			/* Success */
 }
+
+#elif defined(PS_A5)
+
+/*
+   Returns the filter color of a given pixel.
+   The pattern is:
+
+	  0 1 2 3 4 5
+	0 C Y C Y C Y		Return values
+	1 G M G M G M		 0  1  2  3
+	2 C Y C Y C Y		 G  M  C  Y
+	3 M G M G M G
+*/
+
+#define filter(row,col) \
+	(0x1e4e >> ((((row) << 1 & 6) + ((col) & 1)) << 1) & 3)
+
+/*
+   Load CCD pixel values into the gmcy[] array.  Unknown colors
+   (such as cyan under a magenta filter) must be set to zero.
+*/
+read_crw(const char *fname)
+{
+  uchar  data[1240], *dp;
+  ushort pixel[992], *pix;
+  int fd, row, col;
+
+  fd = open(fname,O_RDONLY | O_BINARY);
+  if (fd < 0)
+  { perror(fname);
+    return 0; }
+
+/* Check the header to confirm this is a CRW file */
+
+  read (fd, data, 26);
+  if (memcmp(data,"II",2) || memcmp(data+6,"HEAPCCDR",8))
+  {
+    fprintf(stderr,"%s is not a Canon PowerShot A5 file.\n",fname);
+    return 0;
+  }
+
+#ifdef DEBUG
+  fprintf(stderr,"Unpacking %s...\n",fname);
+#endif
+
+/*
+   Immediately after the 26-byte header come the data rows.
+   Each row is 992 pixels, ten bits each, packed into 1240 bytes.
+*/
+  for (row=0; row < H; row++)
+  {
+    read(fd,data,1240);
+    for (dp=data, pix=pixel; dp < data+1200; dp+=10, pix+=8)
+    {
+      pix[0] = (dp[1] << 2) + (dp[0] >> 6);
+      pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+      pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+      pix[3] = (dp[2] << 8) + (dp[5]     );
+      pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+      pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+      pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+      pix[7] = (dp[9] << 8) + (dp[8]     );
+    }
+/*
+   Copy 960 pixels into the gmcy[] array.  The other 32 pixels
+   are blank.  Left-shift by 4 for extra precision in upcoming
+   calculations.
+*/
+    memset(gmcy[row], 0, W*8);		/* Set row to zero */
+    for (col=0; col < W; col++)
+      gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
+  }
+  close(fd);
+  return 1;			/* Success */
+}
+#endif
 
 /*
    When this function is called, we only have one GMCY
@@ -261,8 +352,12 @@ write_ppm(char *fname)
   int histo[512], total;
   char p6head[32];
 
-/* Use this to remove an annoying horizontal pattern */
-  float ymul[4]={ 0.9866, 1.0, 1.0125, 1.0 };
+/* Use this to remove annoying horizontal patterns */
+#ifdef PS_600
+  float ymul[4] = { 0.9866, 1.0, 1.0125, 1.0 };
+#elif defined(PS_A5)
+  float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
+#endif
 
 #ifdef DEBUG
   fprintf(stderr,"First pass RGB...\n");
@@ -345,7 +440,13 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot 600 Converter v0.86"
+    "\nCanon PowerShot "
+#ifdef PS_600
+    "600"
+#elif defined(PS_A5)
+    "A5"
+#endif
+    " Converter v0.90"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
