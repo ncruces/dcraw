@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.82 $
-   $Date: 2002/12/13 02:48:35 $
+   $Revision: 1.83 $
+   $Date: 2002/12/16 06:23:49 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1276,10 +1276,14 @@ void parse_ciff(int offset, int length)
       camera_blue  = fget2(ifp);
       camera_blue /= fget2(ifp);
     }
-    if (type == 0x1031) {		/* Get the raw width and height */
-      fseek (ifp, aoff+2, SEEK_SET);
-      raw_width  = fget2(ifp);
-      raw_height = fget2(ifp);
+    if (type == 0x0032 && !strcmp(model,"Canon EOS D30")) {
+      fseek (ifp, aoff+72, SEEK_SET);	/* Get white balance (D30) */
+      camera_red   = fget2(ifp);
+      camera_red   = fget2(ifp) / camera_red;
+      camera_blue  = fget2(ifp);
+      camera_blue /= fget2(ifp);
+      if (wbi==0)			/* AWB doesn't work here */
+	camera_red = camera_blue = 0;
     }
     if (type == 0x10a9) {		/* Get white balance (D60) */
       fseek (ifp, aoff+2 + wbi*8, SEEK_SET);
@@ -1287,6 +1291,11 @@ void parse_ciff(int offset, int length)
       camera_red /= fget2(ifp);
       camera_blue = fget2(ifp);
       camera_blue = fget2(ifp) / camera_blue;
+    }
+    if (type == 0x1031) {		/* Get the raw width and height */
+      fseek (ifp, aoff+2, SEEK_SET);
+      raw_width  = fget2(ifp);
+      raw_height = fget2(ifp);
     }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
@@ -1922,7 +1931,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.02"
+    "\nRaw Photo Decoder v4.03"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
