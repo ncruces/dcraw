@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.200 $
-   $Date: 2004/08/04 18:40:25 $
+   $Revision: 1.201 $
+   $Date: 2004/09/01 21:28:04 $
  */
 
 #define _GNU_SOURCE
@@ -54,6 +54,7 @@ typedef long long INT64;
 #define LONG_BIT (8 * sizeof (long))
 #endif
 
+#define ushort UshORt
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
@@ -2359,7 +2360,7 @@ void parse_tiff(int base)
     raw_height = - (-high & -2);
     data_offset = offset;
   }
-  if (!strcmp(model,"Canon EOS-1D Mark II"))
+  if (!strcmp(make,"Canon") && strcmp(model,"EOS D2000C"))
     data_offset = cr2_offset;
 
   if (make[0] == 0 && wide == 680 && high == 680) {
@@ -2933,6 +2934,13 @@ nucore:
       pre_mul[2] = 1.094;
     }
     rgb_max = 16000;
+  } else if (is_canon && raw_width == 3160) {
+    height = 2328;
+    width  = 3112;
+    top_margin  = 12;
+    left_margin = 44;
+    pre_mul[0] = 1.85;
+    pre_mul[2] = 1.53;
   } else if (is_canon && raw_width == 3344) {
     height = 2472;
     width  = 3288;
@@ -2953,7 +2961,8 @@ nucore:
     pre_mul[0] = 1.66;
     pre_mul[2] = 1.13;
     rgb_max = 14464;
-  } else if (!strcmp(model,"EOS-1D Mark II")) {
+  } else if (!strcmp(model,"EOS-1D Mark II") ||
+	     !strcmp(model,"EOS 20D")) {
     raw_height = 2360;
     raw_width  = 3596;
     top_margin  = 12;
@@ -2961,8 +2970,8 @@ nucore:
     height = raw_height - top_margin;
     width  = raw_width - left_margin;
     filters = 0x94949494;
-    pre_mul[0] = 2.248;
-    pre_mul[2] = 1.174;
+    pre_mul[0] = 1.95;
+    pre_mul[2] = 1.36;
   } else if (!strcmp(model,"EOS D2000C")) {
     black = 800;
     pre_mul[2] = 1.25;
@@ -3505,7 +3514,7 @@ coolpix:
     filters = 0x61616161;
     load_raw = nucore_load_raw;
   }
-  if (!load_raw) {
+  if (!load_raw || !height) {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",
 	ifname, make, model);
     return 1;
@@ -3727,7 +3736,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.88"
+    "\nRaw Photo Decoder \"dcraw\" v5.90"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -3768,7 +3777,7 @@ int main(int argc, char **argv)
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
       case 'v':  verbose           = 1;  break;
-      case 'h':  half_size         = 1;
+      case 'h':  half_size         = 1;		/* "-h" implies "-f" */
       case 'f':  four_color_rgb    = 1;  break;
       case 'd':  document_mode     = 1;  break;
       case 'q':  quick_interpolate = 1;  break;
