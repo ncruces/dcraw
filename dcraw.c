@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.56 $
-   $Date: 2002/05/05 20:35:28 $
+   $Revision: 1.57 $
+   $Date: 2002/05/06 04:11:13 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -1066,6 +1066,15 @@ int open_and_id(char *fname)
     read_crw = nikon_d1x_read_crw;
     rgb_mul[0] = 0.838;
     rgb_mul[2] = 1.095;
+  } else if (!strcmp(name,"NIKON D1H")) {
+    height = 1324;
+    width  = 2012;
+    colors = 3;
+    canon = 0;
+    filters = 0x16161616;
+    read_crw = nikon_d1x_read_crw;
+    rgb_mul[0] = 1.347;
+    rgb_mul[2] = 3.279;
   } else if (!strcmp(name,"NIKON D1X")) {
     height = 1324;
     width  = 4024;
@@ -1351,7 +1360,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.93"
+    "\nCanon PowerShot Converter v2.94"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
