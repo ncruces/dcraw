@@ -6,6 +6,9 @@
    No rights reserved.  Do what you want with this code,
    but I accept no responsibility for any consequences
    of its (mis)use.
+
+   $Revision: 1.10 $
+   $Date: 1999/04/12 19:36:36 $
 */
 
 #include <ctype.h>
@@ -41,7 +44,9 @@ typedef unsigned char  uchar;
 
 /* This 4MB array holds the GMCY values for each pixel */
 
-ushort gmcy[613][854][4];
+#define H 613
+#define W 854
+ushort gmcy[H][W][4];
 
 /* Creates a new filename with a different extension */
 exten(char *new, char *old, char *ext)
@@ -103,7 +108,7 @@ the even rows 0..612, then the odd rows 1..611.  Each row is 896
 pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
 */
 
-  for (irow=orow=0; irow < 613; irow++)
+  for (irow=orow=0; irow < H; irow++)
   {
 /* Read one packed row */
     read (fd, data, 1120);
@@ -126,11 +131,11 @@ pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
 are blank.  Left-shift by 4 for extra precision in upcoming
 calculations.
 */
-    memset(gmcy[orow], 0, 854 * 8);	/* Set row to zero */
-    for (col=0; col < 854; col++)
+    memset(gmcy[orow], 0, W * 8);	/* Set row to zero */
+    for (col=0; col < W; col++)
       gmcy[orow][col][filter(orow,col)] = pixel[col] << 4;
 
-    if ((orow+=2) > 612)        /* Once we've read all the even rows, */
+    if ((orow+=2) > H)        /* Once we've read all the even rows, */
       orow = 1;                 /* read the odd rows. */
   }
   close(fd);
@@ -152,9 +157,9 @@ first_interpolate()
   fprintf(stderr,"First interpolation...\n");
 #endif
 
-  for (y=1; y < 612; y++)
+  for (y=1; y < H-1; y++)
   {
-    for (x=1; x < 853; x++)
+    for (x=1; x < W-1; x++)
     {
       sp=shift;
       for (sy=y-1; sy < y+2; sy++)
@@ -175,7 +180,7 @@ called more than once.
 
 second_interpolate()
 {
-  ushort data[2][854][4];
+  ushort data[2][W][4];
   ushort (*last_row)[4]=data[0];
   ushort (*this_row)[4]=data[1];
   void *tmp;
@@ -187,10 +192,10 @@ second_interpolate()
   fprintf(stderr,"Second interpolation...\n");
 #endif
 
-  for (y=2; y < 611; y++)
+  for (y=2; y < H-2; y++)
   {
-    memset(this_row, 0, 854*8);
-    for (x=2; x < 852; x++)
+    memset(this_row, 0, W*8);
+    for (x=2; x < W-2; x++)
     {
       sp=shift;
       c=filter(y,x);
@@ -203,7 +208,7 @@ second_interpolate()
 	    / gmcy[sy][sx][c] * gmcy[y][x][c] >> (16 + *sp++);
 	}
     }
-    if (y > 2) memcpy(gmcy[y-1]+2,last_row+2,850*8);
+    if (y > 2) memcpy(gmcy[y-1]+2,last_row+2,(W-4)*8);
     tmp = last_row;
     last_row = this_row;
     this_row = tmp;
@@ -256,9 +261,10 @@ write_ppm(char *fname)
 {
   int fd=1, y, x, i;
   register c, val;
-  uchar ppm[854][3];
+  uchar ppm[W][3];
   float rgb[4], max, max2, expo, mult, scale;
   int histo[512], total;
+  char p6head[32];
 
 /* Use this to remove an annoying horizontal pattern */
   float ymul[4]={ 0.9866, 1.0, 1.0125, 1.0 };
@@ -271,9 +277,9 @@ write_ppm(char *fname)
    First pass:  Gather stats on the RGB image
 */
   memset(histo,0,sizeof histo);
-  for (y=2; y < 611; y++)
+  for (y=2; y < H-2; y++)
   {
-    for (x=2; x < 852; x++)
+    for (x=2; x < W-2; x++)
     {
       get_rgb(rgb,gmcy[y][x]);
       for (c=0; c < 3; c++)
@@ -301,7 +307,7 @@ write_ppm(char *fname)
     { perror(fname);
       return; }
   }
-  write(fd,"P6\n852 611\n255\n",15);
+  write(fd,p6head,sprintf(p6head,"P6\n%d %d\n255\n",W-2,H-2));
 
 /*
    Second pass:  Scale RGB and write to PPM file
@@ -312,9 +318,9 @@ write_ppm(char *fname)
   for (y=0; y < 4; y++)
     ymul[y] = pow(ymul[y],gamma_val);
 
-  for (y=1; y < 612; y++)
+  for (y=1; y < H-1; y++)
   {
-    for (x=1; x < 853; x++)
+    for (x=1; x < W-1; x++)
     {
       get_rgb(rgb,gmcy[y][x]);
       scale = mult * ymul[y&3] * pow(rgb[3]/max2,expo);
@@ -327,7 +333,7 @@ write_ppm(char *fname)
 	ppm[x][c]=val;
       }
     }
-    write (fd, ppm+1, 852 * 3);
+    write (fd, ppm+1, (W-2) * 3);
   }
   if (write_to_files) close(fd);
 
