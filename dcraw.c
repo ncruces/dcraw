@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.215 $
-   $Date: 2004/11/05 06:48:50 $
+   $Revision: 1.216 $
+   $Date: 2004/11/22 02:34:41 $
  */
 
 #define _GNU_SOURCE
@@ -1510,9 +1510,9 @@ void CLASS sony_rgbe_coeff()
 {
   int r, g;
   static const float my_coeff[3][4] =
-  { {  1.321918,  0.000000,  0.149829, -0.471747 },
-    { -0.288764,  1.129213, -0.486517,  0.646067 },
-    {  0.061336, -0.199343,  1.138007,  0.000000 } };
+  { {  1.321918, -0.471747,  0.149829,  0.000000 },
+    { -0.288764,  0.646067, -0.486517,  1.129213 },
+    {  0.061336,  0.000000,  1.138007, -0.199343 } };
 
   for (r=0; r < 3; r++)
     for (g=0; g < 4; g++)
@@ -3913,7 +3913,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.11"
+    "\nRaw Photo Decoder \"dcraw\" v6.12"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
