@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.92 $
-   $Date: 2003/01/13 21:54:22 $
+   $Revision: 1.93 $
+   $Date: 2003/01/27 02:55:01 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -728,8 +728,14 @@ void nikon_read_crw()
   getbits(-1);
   for (irow=0; irow < height; irow++) {
     row = irow;
-    if (model[0] == 'E')
+    if (model[0] == 'E') {
       row = irow * 2 % height + irow / (height/2);
+      if (row == 1 && atoi(model+1) < 5000) {
+	fseek (ifp, 0, SEEK_END);
+	fseek (ifp, ftell(ifp)/2, SEEK_SET);
+	getbits(-1);
+      }
+    }
     for (col=0; col < width+waste; col++) {
       i = getbits(12);
       if (col < width)
@@ -943,6 +949,171 @@ void foveon_read_crw()
   }
 }
 
+void foveon_interpolate()
+{
+  static const int weight[3][3][3] =
+  { { {   4141,  37726,  11265  },
+      { -30437,  16066, -41102  },
+      {    326,   -413,    362  } },
+    { {   1770,  -1316,   3480  },
+      {  -2139,    213,  -4998  },
+      {  -2381,   3496,  -2008  } },
+    { {  -3838, -24025, -12968  },
+      {  20144, -12195,  30272  },
+      {   -631,  -2025,    822  } } };
+  float mul[3] =
+  { 1.0321, 1.0, 1.1124 };
+  static const int curve[72] =
+  {  0,1,2,2,3,4,5,6,6,7,8,9,9,10,11,11,12,13,13,14,14,
+    15,16,16,17,17,18,18,18,19,19,20,20,20,21,21,21,22,
+    22,22,23,23,23,23,23,24,24,24,24,24,25,25,25,25,25,
+    25,25,25,26,26,26,26,26,26,26,26,26,26,26,26,26,26 },
+  curve2[20] = { 0,1,1,2,3,3,4,4,5,5,6,6,6,7,7,7,7,7,7,7 };
+  ushort *pix, prev[3];
+  int row, col, c, i, j, diff, sum, ipix[3], work[3][3], total[4];
+  int (*smrow[7])[4], smlast, smred, smred_p=0, hood[7], min, max;
+
+  /* Sharpen all colors */
+  for (row=0; row < height; row++) {
+    pix = image[row*width];
+    memcpy (prev, pix, sizeof prev);
+    for (col=0; col < width; col++) {
+      for (c=0; c < 3; c++) {
+	diff = pix[c] - prev[c];
+	prev[c] = pix[c];
+	ipix[c] = pix[c] + ((diff + (diff*diff >> 14)) * 0x3333 >> 14);
+      }
+      for (c=0; c < 3; c++) {
+	work[0][c] = ipix[c]*ipix[c] >> 14;
+	work[2][c] = ipix[c]*work[0][c] >> 14;
+	work[1][2-c] = ipix[(c+1) % 3] * ipix[(c+2) % 3] >> 14;
+      }
+      for (c=0; c < 3; c++) {
+	for (sum=i=0; i < 3; i++)
+	  for (  j=0; j < 3; j++)
+	    sum += weight[c][i][j] * work[i][j];
+	ipix[c] = (ipix[c] + (sum >> 14)) * mul[c];
+	if (ipix[c] < 0)     ipix[c] = 0;
+	if (ipix[c] > 32000) ipix[c] = 32000;
+	pix[c] = ipix[c];
+      }
+      pix += 4;
+    }
+  }
+  /* Array for 5x5 Gaussian averaging of red values */
+  smrow[6] = calloc (width*5, sizeof **smrow);
+  if (!smrow[6]) {
+    perror("foveon_interpolate() calloc failed");
+    exit(1);
+  }
+  for (i=0; i < 5; i++)
+    smrow[i] = smrow[6] + i*width;
+
+  /* Sharpen the reds against these Gaussian averages */
+  for (smlast=-1, row=2; row < height-2; row++) {
+    while (smlast < row+2) {
+      for (i=0; i < 6; i++)
+	smrow[(i+5) % 6] = smrow[i];
+      pix = image[++smlast*width+2];
+      for (col=2; col < width-2; col++) {
+	smrow[4][col][0] =
+	  (pix[0]*6 + (pix[-4]+pix[4])*4 + pix[-8]+pix[8] + 8) >> 4;
+	pix += 4;
+      }
+    }
+    pix = image[row*width+2];
+    for (col=2; col < width-2; col++) {
+      smred = (smrow[2][col][0]*6 + (smrow[1][col][0]+smrow[3][col][0])*4
+		+ smrow[0][col][0]+smrow[4][col][0] + 8) >> 4;
+      if (col == 2)
+	smred_p = smred;
+      i = pix[0] + ((pix[0] - ((smred*7 + smred_p) >> 3)) >> 2);
+      if (i < 0)     i = 0;
+      if (i > 10000) i = 10000;
+      pix[0] = i;
+      smred_p = smred;
+      pix += 4;
+    }
+  }
+  /* Limit each color value to the range of its neighbors */
+  hood[0] = 4;
+  for (i=0; i < 3; i++) {
+    hood[i+1] = (i-width-1)*4;
+    hood[i+4] = (i+width-1)*4;
+  }
+  for (row=1; row < height-1; row++) {
+    pix = image[row*width+1];
+    memcpy (prev, pix-4, sizeof prev);
+    for (col=1; col < width-1; col++) {
+      for (c=0; c < 3; c++) {
+	for (min=max=prev[c], i=0; i < 7; i++) {
+	  j = pix[hood[i]];
+	  if (min > j) min = j;
+	  if (max < j) max = j;
+	}
+	prev[c] = *pix;
+	if (*pix < min) *pix = min;
+	if (*pix > max) *pix = max;
+	pix++;
+      }
+      pix++;
+    }
+  }
+/*
+   Because photons that miss one detector often hit another,
+   the sum R+G+B is much less noisy than the individual colors.
+   So smooth the hues without smoothing the total.
+ */
+  for (smlast=-1, row=2; row < height-2; row++) {
+    while (smlast < row+2) {
+      for (i=0; i < 6; i++)
+	smrow[(i+5) % 6] = smrow[i];
+      pix = image[++smlast*width+2];
+      for (col=2; col < width-2; col++) {
+	for (c=0; c < 3; c++)
+	  smrow[4][col][c] = pix[c-8]+pix[c-4]+pix[c]+pix[c+4]+pix[c+8];
+	pix += 4;
+      }
+    }
+    pix = image[row*width+2];
+    for (col=2; col < width-2; col++) {
+      for (total[3]=1500, sum=60, c=0; c < 3; c++) {
+	for (total[c]=i=0; i < 5; i++)
+	  total[c] += smrow[i][col][c];
+	total[3] += total[c];
+	sum += pix[c];
+      }
+      j = (sum << 16) / total[3];
+      for (c=0; c < 3; c++) {
+	i = (total[c] * j >> 16) - pix[c];
+	if      (i < -71) i = -27;
+	else if (i <   0) i = -curve[-i];
+	else if (i <  72) i =  curve[ i];
+	else              i =  27;
+	i += pix[c] - 13 - (c==1);
+	if      (i >  19) i -= 8;
+	else if (i >=  0) i -= curve2[ i];
+	else if (i > -20) i += curve2[-i];
+	else              i += 8;
+	ipix[c] = i;
+      }
+      sum = (ipix[0]+ipix[1]+ipix[1]+ipix[2]) >> 2;
+      for (c=0; c < 3; c++) {
+	i = ipix[c] - sum;
+	if      (i < -19) i = -8;
+	else if (i <   0) i = -curve2[-i];
+	else if (i <  20) i =  curve2[ i];
+	else              i =  8;
+	i = ipix[c] - i;
+	if (i < 0) i = 0;
+	pix[c] = i;
+      }
+      pix += 4;
+    }
+  }
+  free (smrow[6]);
+}
+
 void scale_colors()
 {
   int row, col, c, val;
@@ -992,7 +1163,7 @@ void scale_colors()
  */
 void vng_interpolate()
 {
-  static const char *cp, terms[] = {
+  static const signed char *cp, terms[] = {
     -2,-2,+0,-1,0,0x01, -2,-2,+0,+0,1,0x01, -2,-1,-1,+0,0,0x01,
     -2,-1,+0,-1,0,0x02, -2,-1,+0,+0,0,0x03, -2,-1,+0,+1,0,0x01,
     -2,+0,+0,-1,0,0x06, -2,+0,+0,+0,1,0x02, -2,+0,+0,+1,0,0x03,
@@ -1451,15 +1622,15 @@ void parse_foveon()
 void foveon_coeff()
 {
   static const float foveon[3][3] = {
-    {  1.25, 0, -0.25 },
-    { -2.5,  6, -2.5  },
-    { -0.5,  0,  1.5  }
-  };
+    {  1.5,  -0.5,   0   },
+    { -2.3,   5.3,  -2   },
+    {  0.68, -3.18,  3.5 }
+  }, mul[3] = { 1.0, 1.0, 0.7448 };
   int i, j;
 
   for (i=0; i < 3; i++)
     for (j=0; j < 3; j++)
-      coeff[i][j] = foveon[i][j];
+      coeff[i][j] = foveon[i][j] * mul[i];
   use_coeff = 1;
 }
 
@@ -1523,7 +1694,7 @@ void gmcy_coeff()
 int identify(char *fname)
 {
   char head[8], *c;
-  unsigned magic, hlen, g;
+  unsigned hlen, fsize, magic, g;
 
   pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
   camera_red = camera_blue = 0;
@@ -1532,32 +1703,40 @@ int identify(char *fname)
   is_cmy = use_coeff = 0;
   xmag = ymag = 1;
 
-  make[0] = model[0] = model2[0] = 0;
+  strcpy (make, "NIKON");		/* wild guess */
+  model[0] = model2[0] = 0;
+  tiff_data_offset = 0;
   order = fget2(ifp);
+  hlen = fget4(ifp);
+  fread (head, 1, 8, ifp);
+  fseek (ifp, 0, SEEK_END);
+  fsize = ftell(ifp);
+  fseek (ifp, 0, SEEK_SET);
+  magic = fget4(ifp);
   if (order == 0x4949 || order == 0x4d4d) {
-    hlen = fget4(ifp);
-    fread (head, 1, 8, ifp);
     if (!memcmp(head,"HEAPCCDR",8)) {
-      fseek (ifp, 0, SEEK_END);
-      parse_ciff(hlen, ftell(ifp) - hlen);
+      parse_ciff (hlen, fsize - hlen);
       fseek (ifp, hlen, SEEK_SET);
     } else
       parse_tiff(0);
-  } else {
-    fseek (ifp, 0, SEEK_SET);
-    magic = fget4(ifp);
-    if (magic == 0x46554a49)		/* "FUJI" */
-      parse_tiff(120);
-    else if (magic == 0x4d524d) {	/* "\0MRM" */
-      parse_tiff(48);
-      fseek (ifp, 4, SEEK_SET);
-      tiff_data_offset = fget4(ifp) + 8;
-      fseek (ifp, 24, SEEK_SET);
-      raw_height = fget2(ifp);
-      raw_width  = fget2(ifp);
-    } else if (magic == 0x464f5662)	/* "FOVb" */
-      parse_foveon();
-  }
+  } else if (magic == 0x4d524d) {	/* "\0MRM" (Minolta) */
+    parse_tiff(48);
+    fseek (ifp, 4, SEEK_SET);
+    tiff_data_offset = fget4(ifp) + 8;
+    fseek (ifp, 24, SEEK_SET);
+    raw_height = fget2(ifp);
+    raw_width  = fget2(ifp);
+  } else if (magic == 0x46554a49)	/* "FUJI" */
+    parse_tiff(120);
+  else if (magic == 0x464f5662)		/* "FOVb" */
+    parse_foveon();
+  else if (fsize == 2940928)		/* Nikon "DIAG RAW" formats */
+    strcpy (model,"E2500");
+  else if (fsize == 4771840)
+    strcpy (model,"E995");
+  else if (fsize == 5865472)
+    strcpy (model,"E4500");
+
   /* Remove excess wordage */
   if (!strncmp(make,"NIKON",5) || !strncmp(make,"Canon",5))
     make[5] = 0;
@@ -1585,9 +1764,8 @@ int identify(char *fname)
     colors = 4;
     filters = 0xe1e4e1e4;
     read_crw = ps600_read_crw;
-    pre_mul[0] = 1.388;
-    pre_mul[1] = 1.489;
-    pre_mul[2] = 1.051;
+    pre_mul[0] = 1.137;
+    pre_mul[1] = 1.257;
   } else if (!strcmp(model,"PowerShot A5")) {
     height = 776;
     width  = 960;
@@ -1712,11 +1890,27 @@ int identify(char *fname)
     pre_mul[0] = 2.374;
     pre_mul[2] = 1.677;
     rgb_max = 15632;
+  } else if (!strcmp(model,"E2500")) {
+    height = 1204;
+    width  = 1616;
+    filters = 0x4b4b4b4b;
+    goto coolpix;
+  } else if (!strcmp(model,"E995")) {
+    height = 1540;
+    width  = 2064;
+    filters = 0xb4b4b4b4;
+    goto coolpix;
+  } else if (!strcmp(model,"E4500")) {
+    height = 1708;
+    width  = 2288;
+    filters = 0xb4b4b4b4;
+    goto coolpix;
   } else if (!strcmp(model,"E5000") || !strcmp(model,"E5700")) {
     height = 1924;
     width  = 2576;
-    colors = 4;
     filters = 0xb4b4b4b4;
+coolpix:
+    colors = 4;
     read_crw = nikon_read_crw;
     pre_mul[0] = 1.300;
     pre_mul[1] = 1.300;
@@ -1850,8 +2044,6 @@ int identify(char *fname)
     filters = 0;
     read_crw = foveon_read_crw;
     foveon_coeff();
-    pre_mul[0] = 1.159;
-    pre_mul[1] = 1.006;
   } else {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",fname, make, model);
     return 1;
@@ -1998,7 +2190,7 @@ void write_ppm(FILE *ofp)
  */
 void write_psd(FILE *ofp)
 {
-  unsigned char head[] = {
+  char head[] = {
     '8','B','P','S',		/* signature */
     0,1,0,0,0,0,0,0,		/* version and reserved */
     0,3,			/* number of channels */
@@ -2099,7 +2291,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.35"
+    "\nRaw Photo Decoder v4.40"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2180,8 +2372,13 @@ int main(int argc, char **argv)
 	make, model, argv[arg]);
     (*read_crw)();
     fclose(ifp);
-    fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
-    scale_colors();
+    if (colors == 3 && !filters) {
+      fprintf (stderr, "Foveon interpolation...\n");
+      foveon_interpolate();
+    } else {
+      fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
+      scale_colors();
+    }
     trim = 0;
     if (filters) {
       trim = 1;
