@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.124 $
-   $Date: 2003/06/24 15:07:14 $
+   $Revision: 1.125 $
+   $Date: 2003/06/27 17:12:37 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -842,17 +842,20 @@ void kyocera_load_raw()
       image[row*width+col][FC(row,col)] = getbits(12) << 2;
 }
 
-void casio_qv3000ex_load_raw()
+void casio_easy_load_raw()
 {
-  uchar pixel[2080];
+  uchar *pixel;
   int row, col;
 
-  fseek (ifp, 0, SEEK_SET);
+  pixel = calloc (raw_width, sizeof *pixel);
+  merror (pixel, "casio_easy_load_raw()");
+  fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
-    fread (pixel, 1, 2080, ifp);
+    fread (pixel, 1, raw_width, ifp);
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = pixel[col] << 6;
   }
+  free (pixel);
 }
 
 void casio_qv5700_load_raw()
@@ -2087,7 +2090,9 @@ nucore:
     strcpy (model,"E4300");
   else {
     strcpy (make, "Casio");		/* Casio has similar formats */
-    if (fsize == 3217760)
+    if (fsize == 1976352)
+      strcpy (model, "QV-2000UX");
+    else if (fsize == 3217760)
       strcpy (model, "QV-3*00EX");
     else if (fsize == 7684000)
       strcpy (model, "QV-4000");
@@ -2468,16 +2473,22 @@ coolpix:
     is_foveon = 1;
     foveon_coeff();
     rgb_max = 5600;
+  } else if (!strcmp(model,"QV-2000UX")) {
+    height = 1208;
+    raw_width = width = 1632;
+    filters = 0x94949494;
+    tiff_data_offset = width * 2;
+    load_raw = casio_easy_load_raw;
   } else if (!strcmp(model,"QV-3*00EX")) {
     height = 1546;
     width  = 2070;
+    raw_width = 2080;
     filters = 0x94949494;
-    load_raw = casio_qv3000ex_load_raw;
+    load_raw = casio_easy_load_raw;
   } else if (!strcmp(model,"QV-4000")) {
     height = 1700;
     width  = 2260;
     filters = 0x94949494;
-    tiff_data_offset = 0;
     load_raw = olympus_load_raw;
   } else if (!strcmp(model,"QV-5700")) {
     height = 1924;
@@ -2704,7 +2715,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.84"
+    "\nRaw Photo Decoder v4.85"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
