@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.73 $
-   $Date: 2002/11/09 05:31:58 $
+   $Revision: 1.74 $
+   $Date: 2002/11/11 02:26:53 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -50,7 +50,7 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-int height, width, trim, colors, is_cmy, black, canon, rgb_max;
+int height, width, trim, colors, is_cmy, is_canon, black, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
 int tiff_data_offset, tiff_data_compression;
 int nef_curve_offset;
@@ -66,6 +66,35 @@ struct decode {
   struct decode *branch[2];
   int leaf;
 } first_decode[32], second_decode[512];
+
+/*
+   I assume that the influence of one pixel upon another is proportionate
+   to the inverse square of the distance between them.  So I've designed
+   three neighborhoods for aspect ratios of 1:1, 1:2, and 2:1.
+
+   Triplet format is y-offset,x-offset,weight.  0,0,0 marks the end.
+ */
+const char square_hood[] = {
+       -1,-1,1, -1,0,2, -1,1,1,
+	0,-1,2,          0,1,2,
+	1,-1,1,  1,0,2,  1,1,1,
+0,0,0 };
+
+const char wide_hood[] = {
+       -1,-1,1, -1,0,1, -1,1,1,
+0,-2,1, 0,-1,4,          0,1,4,  0,2,1,
+	1,-1,1,  1,0,1,  1,1,1,
+0,0,0 };
+
+const char tall_hood[] = {
+		-2,0,1,
+       -1,-1,1, -1,0,4, -1,1,1,
+	0,-1,1,		 0,1,1,
+	1,-1,1,  1,0,4,  1,1,1,
+		 2,0,1,
+0,0,0 };
+
+const char *hood;
 
 /*
    In order to inline this calculation, I make the risky
@@ -123,29 +152,25 @@ struct decode {
 	0 G M G M G M
 	1 Y C Y C Y C
 
-   Some RGB cameras use 0x94949494:
+   These are Bayer grids, used by most RGB cameras:
 
-	  0 1 2 3 4 5
-	0 R G R G R G
-	1 G B G B G B
-	2 R G R G R G
-	3 G B G B G B
+	0x94949494:	0x61616161:	0x16161616:
 
-   Some use 0x61616161:
+	  0 1 2 3 4 5	  0 1 2 3 4 5	  0 1 2 3 4 5
+	0 R G R G R G	0 G R G R G R	0 B G B G B G
+	1 G B G B G B	1 B G B G B G	1 G R G R G R
+	2 R G R G R G	2 G R G R G R	2 B G B G B G
+	3 G B G B G B	3 B G B G B G	3 G R G R G R
 
-	  0 1 2 3 4 5
-	0 G R G R G R
-	1 B G B G B G
-	2 G R G R G R
-	3 B G B G B G
+   The Fuji S2 does not use a Bayer grid.  Instead, it flattens
+   out the pixels as shown below, and then stores these pixels
+   in the file with a ninety-degree rotation.
 
-   Some use 0x16161616:
+	bbbb|rrrr|bbbb|rrrr|bbbb|rrrr
+	gggg|gggg|gggg|gggg|gggg|gggg
+	rrrr|bbbb|rrrr|bbbb|rrrr|bbbb
+	gggg|gggg|gggg|gggg|gggg|gggg
 
-	  0 1 2 3 4 5
-	0 B G B G B G
-	1 G R G R G R
-	2 B G B G B G
-	3 G R G R G R
  */
 
 void ps600_read_crw()
@@ -452,7 +477,8 @@ unsigned long getbits(int nbits)
   while (vbits < 25) {
     c = fgetc(ifp);
     bitbuf = (bitbuf << 8) + c;
-    if (c == 0xff && canon) fgetc(ifp); /* Canon puts an extra 0 after 0xff */
+    if (c == 0xff && is_canon)	/* Canon puts an extra 0 after 0xff */
+      fgetc(ifp);
     vbits += 8;
   }
   return ret;
@@ -749,6 +775,45 @@ void nikon_read_crw()
   }
 }
 
+/*
+   Rotate the image ninety degrees.
+ */
+void fuji_read_crw()
+{
+  ushort pixel[2944];
+  int gray=0, row, col;
+
+  fseek (ifp, 0, SEEK_SET);
+  while (gray < 2944)
+    if (fget2(ifp) == 2048) gray++;
+    else gray=0;
+  fseek (ifp, (2944*23+32) << 1, SEEK_CUR);
+  for (col=width; col--; ) {
+    fread (pixel, 2, 2944, ifp);
+    for (row=0; row < height; row++)
+      image[row*width+col][FC(row,col)] = ntohs(pixel[row]) << 2;
+  }
+}
+
+void minolta_read_crw()
+{
+  ushort *pixel;
+  int row, col;
+
+  pixel = calloc (width, sizeof *pixel);
+  if (!pixel) {
+    perror("minolta_read_crw() calloc failed");
+    exit(1);
+  }
+  fseek (ifp, tiff_data_offset, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (pixel, 2, width, ifp);
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = ntohs(pixel[col]) << 2;
+  }
+  free (pixel);
+}
+
 void olympus_read_crw()
 {
   ushort *pixel;
@@ -914,24 +979,22 @@ void dillon_interpolate()
  */
 void first_interpolate()
 {
-  int row, col, cc, x, y, c, val;
-  int avg[8];
+  unsigned row, col, cc, y, x, w, c, avg[8];
+  const char *h;
 
   for (row=1; row < height-1; row++)
     for (col=1; col < width-1; col++) {
       cc = FC(row,col);
       memset (avg, 0, sizeof avg);
-      for (y = row-1; y < row+2; y++)
-	for (x = col-1; x < col+2; x++)
-	  if ((c = FC(y,x)) != cc) {
-	    val = image[y*width+x][c];
-	    avg[c] += val;
-	    avg[c+4]++;
-	    if (y==row || x==col) {	/* Orthogonal neighbor */
-	      avg[c] += val;
-	      avg[c+4]++;
-	    }
-	  }
+      for (h = hood; ; ) {
+	y = row + *h++;
+	x = col + *h++;
+	if ((w = *h++) == 0) break;
+	if (y >= height || x >= width) continue;
+	if ((c = FC(y,x)) == cc) continue;
+	avg[c]   += w * image[y*width+x][c];
+	avg[c+4] += w;
+      }
       for (c=0; c < colors; c++)
 	if (c != cc)
 	  image[row*width+col][c] = avg[c] / avg[c+4];
@@ -952,8 +1015,8 @@ void second_interpolate()
   ushort (*last)[4];
   ushort (*curr)[4];
   void *tmp;
-  int row, col, cc, x, y, c, val;
-  int avg[8];
+  unsigned row, col, cc, y, x, w, c, val, avg[8];
+  const char *h;
 
   last = calloc (width, sizeof *curr);
   curr = calloc (width, sizeof *curr);
@@ -964,23 +1027,24 @@ void second_interpolate()
   for (row=2; row < height-2; row++) {
     for (col=2; col < width-2; col++) {
       memset (avg, 0, sizeof avg);
-      for (y = row-1; y < row+2; y++)	/* Any noisy neighbors? */
-	for (x = col-1; x < col+2; x++)
-	  for (c=0; c < colors; c++)
-	    if (image[y*width+x][c] < 75) goto noise;
-      cc = FC(row,col);
-      for (y = row-1; y < row+2; y++)	/* Neighbors are OK to use */
-	for (x = col-1; x < col+2; x++)
-	  if ((c = FC(y,x)) != cc) {
-	    val = ((unsigned long) image[y*width+x][c] << 16) /
+      for (h = hood; ; ) {	/* Any noisy neighbors in the 'hood? */
+	y = row + *h++;
+	x = col + *h++;
+	if ((w = *h++) == 0) break;
+	for (c=0; c < colors; c++)
+	  if (image[y*width+x][c] < 75) goto noise;
+      }
+      cc = FC(row,col);		/* Neighbors are OK to use */
+      for (h = hood; ; ) {
+	y = row + *h++;
+	x = col + *h++;
+	if ((w = *h++) == 0) break;
+	if ((c = FC(y,x)) == cc) continue;
+	val = ((unsigned long) image[y*width+x][c] << 16) /
 		image[y*width+x][cc] * image[row*width+col][cc] >> 16;
-	    avg[c] += val;
-	    avg[c+4]++;
-	    if (y==row || x==col) {	/* Count orthogonal neighbor twice */
-	      avg[c] += val;
-	      avg[c+4]++;
-	    }
-	  }
+	avg[c]   += w * val;
+	avg[c+4] += w;
+      }
 noise:
       for (c=0; c < colors; c++)
 	curr[col][c] = avg[c+4] ? avg[c]/avg[c+4] : image[row*width+col][c];
@@ -1006,10 +1070,10 @@ ushort fget2 (FILE *f)
 
   a = fgetc(f);
   b = fgetc(f);
-  if (order == 0x4d4d)		/* "MM" means big-endian */
-    return (a << 8) + b;
-  else				/* "II" means little-endian */
+  if (order == 0x4949)		/* "II" means little-endian */
     return a + (b << 8);
+  else				/* "MM" means big-endian */
+    return (a << 8) + b;
 }
 
 /*
@@ -1023,13 +1087,13 @@ int fget4 (FILE *f)
   b = fgetc(f);
   c = fgetc(f);
   d = fgetc(f);
-  if (order == 0x4d4d)
-    return (a << 24) + (b << 16) + (c << 8) + d;
-  else
+  if (order == 0x4949)
     return a + (b << 8) + (c << 16) + (d << 24);
+  else
+    return (a << 24) + (b << 16) + (c << 8) + d;
 }
 
-void tiff_parse_subifd()
+void tiff_parse_subifd(int base)
 {
   int entries, tag, type, len, val, save;
 
@@ -1059,7 +1123,7 @@ void tiff_parse_subifd()
 	  tiff_data_offset = val;
 	else {
 	  save = ftell(ifp);
-	  fseek (ifp, val, SEEK_SET);
+	  fseek (ifp, val+base, SEEK_SET);
 	  tiff_data_offset = fget4(ifp);
 	  fseek (ifp, save, SEEK_SET);
 	}
@@ -1135,17 +1199,18 @@ void nef_parse_exif()
 /*
    Parse a TIFF file looking for camera model and decompress offsets.
  */
-void parse_tiff()
+void parse_tiff(int base)
 {
   int doff, entries, tag, type, len, val, save;
 
   tiff_data_offset = 0;
   tiff_data_compression = 0;
   nef_curve_offset = 0;
-  fseek (ifp, 2, SEEK_SET);	/* open_and_id() already got byte order */
+  fseek (ifp, base, SEEK_SET);
+  order = fget2(ifp);
   val = fget2(ifp);		/* Should be 42 for standard TIFF */
   while ((doff = fget4(ifp))) {
-    fseek (ifp, doff, SEEK_SET);
+    fseek (ifp, doff+base, SEEK_SET);
     entries = fget2(ifp);
     while (entries--) {
       tag  = fget2(ifp);
@@ -1153,7 +1218,7 @@ void parse_tiff()
       len  = fget4(ifp);
       val  = fget4(ifp);
       save = ftell(ifp);
-      fseek (ifp, val, SEEK_SET);
+      fseek (ifp, val+base, SEEK_SET);
       switch (tag) {
 	case 271:			/* Make tag */
 	  fread (make, 64, 1, ifp);
@@ -1168,13 +1233,13 @@ void parse_tiff()
 	case 330:			/* SubIFD tag */
 	  if (len > 1)
 	    while (len--) {
-	      fseek (ifp, val, SEEK_SET);
-	      fseek (ifp, fget4(ifp), SEEK_SET);
-	      tiff_parse_subifd();
+	      fseek (ifp, val+base, SEEK_SET);
+	      fseek (ifp, fget4(ifp)+base, SEEK_SET);
+	      tiff_parse_subifd(base);
 	      val += 4;
 	    }
 	  else
-	    tiff_parse_subifd();
+	    tiff_parse_subifd(base);
 	  break;
 	case 0x8769:			/* Nikon EXIF tag */
 	  nef_parse_exif();
@@ -1233,7 +1298,7 @@ void make_coeff();
 int open_and_id(char *fname)
 {
   char head[8], *c;
-  int hlen;
+  unsigned magic, hlen;
 
   rgb_mul[0] = 1.592;
   rgb_mul[1] = 1.0;
@@ -1241,7 +1306,7 @@ int open_and_id(char *fname)
   rgb_max = 0x4000;
   colors = 4;
   is_cmy = 0;
-  canon = 1;
+  hood = square_hood;
 
   ifp = fopen(fname,"rb");
   if (!ifp) {
@@ -1258,12 +1323,25 @@ int open_and_id(char *fname)
       parse_ciff(hlen, ftell(ifp) - hlen);
       fseek (ifp, hlen, SEEK_SET);
     } else
-      parse_tiff();
+      parse_tiff(0);
+  } else {
+    fseek (ifp, 0, SEEK_SET);
+    magic = fget4(ifp);
+    if (magic == 0x46554a49)		/* "FUJI" */
+      parse_tiff(120);
+    else if (magic == 0x4d524d) {	/* "\0MRM" */
+      parse_tiff(48);
+      fseek (ifp, 4, SEEK_SET);
+      tiff_data_offset = fget4(ifp) + 8;
+      fseek (ifp, 24, SEEK_SET);
+      raw_height = fget2(ifp);
+      raw_width  = fget2(ifp);
+    }
   }
   /* Remove excess wordage */
   if (!strncmp(make,"NIKON",5) || !strncmp(make,"Canon",5))
     make[5] = 0;
-  if (!strncmp(make,"OLYMPUS",7))
+  if (!strncmp(make,"OLYMPUS",7) || !strncmp(make,"Minolta",7))
     make[7] = 0;
   if (!strncmp(make,"KODAK",5))
     model[16] = 0;
@@ -1279,6 +1357,7 @@ int open_and_id(char *fname)
     fprintf (stderr, "%s: unsupported file format.\n", fname);
     return 1;
   }
+  is_canon = !strcmp(make,"Canon");
   if (!strcmp(model,"PowerShot 600")) {
     height = 613;
     width  = 854;
@@ -1363,7 +1442,6 @@ int open_and_id(char *fname)
     height = 1324;
     width  = 2012;
     colors = 3;
-    canon = 0;
     filters = 0x16161616;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 0.838;
@@ -1372,7 +1450,6 @@ int open_and_id(char *fname)
     height = 1324;
     width  = 2012;
     colors = 3;
-    canon = 0;
     filters = 0x16161616;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 1.347;
@@ -1381,8 +1458,8 @@ int open_and_id(char *fname)
     height = 1324;
     width  = 4024;
     colors = 3;
-    canon = 0;
     filters = 0x16161616;
+    hood = wide_hood;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 1.910;
     rgb_mul[2] = 1.220;
@@ -1390,7 +1467,6 @@ int open_and_id(char *fname)
     height = 2024;
     width  = 3037;
     colors = 3;
-    canon = 0;
     filters = 0x61616161;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 2.374;
@@ -1398,11 +1474,27 @@ int open_and_id(char *fname)
   } else if (!strcmp(model,"E5000") || !strcmp(model,"E5700")) {
     height = 1924;
     width  = 2576;
-    canon = 0;
     filters = 0xb4b4b4b4;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 2.126;
     rgb_mul[2] = 1.197;
+  } else if (!strcmp(model,"FinePixS2Pro")) {
+    height = 2880;
+    width  = 2144;
+    colors = 3;
+    filters = 0x58525852;
+    hood = tall_hood;
+    read_crw = fuji_read_crw;
+    rgb_mul[0] = 1.424;
+    rgb_mul[2] = 1.718;
+  } else if (!strcmp(make,"Minolta")) {
+    height = raw_height;
+    width  = raw_width;
+    colors = 3;
+    filters = 0x94949494;
+    read_crw = minolta_read_crw;
+    rgb_mul[0] = 1;
+    rgb_mul[2] = 1;
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
@@ -1782,7 +1874,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v3.40"
+    "\nRaw Photo Decoder v3.50"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
