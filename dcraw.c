@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.242 $
-   $Date: 2005/03/23 17:52:43 $
+   $Revision: 1.243 $
+   $Date: 2005/03/23 23:00:33 $
  */
 
 #define _GNU_SOURCE
@@ -2724,10 +2724,9 @@ void CLASS dng_coeff (double cc[4][4], double cm[4][3], double xyz[3])
 
   for (num=j=0; j < colors; j++)
     num += coeff[1][j];
-  for (i=0; i < 3; i++) {
+  for (i=0; i < 3; i++)
     for (j=0; j < colors; j++)
       coeff[i][j] /= num;
-  }
   use_coeff = 1;
 }
 
@@ -3358,6 +3357,8 @@ void CLASS adobe_coeff()
 	{ 8163,-2333,-955,-6682,14174,2751,-2077,2597,8041 } },
     { "Canon PowerShot S50",
 	{ 8882,-2571,-863,-6348,14234,2288,-1516,2172,6569 } },
+    { "Canon PowerShot S60",
+	{ 8795,-2482,-797,-7804,15403,2573,-1422,1996,7082 } },
     { "Canon PowerShot S70",
 	{ 9976,-3810,-832,-7115,14463,2906,-901,989,7889 } },
     { "Contax N Digital",
@@ -4712,7 +4713,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.05"
+    "\nRaw Photo Decoder \"dcraw\" v7.06"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
