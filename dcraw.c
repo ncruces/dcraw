@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.188 $
-   $Date: 2004/04/29 19:11:08 $
+   $Revision: 1.189 $
+   $Date: 2004/05/02 19:14:54 $
  */
 
 #define _GNU_SOURCE
@@ -1234,8 +1234,14 @@ void kodak_compressed_load_raw()
   ushort raw[6];
   unsigned row, col, len, save, i, israw=0, bits=0, pred[2];
   INT64 bitbuf=0;
-  int diff;
+  int diff, shift;
 
+/*
+   Kodak claims that their "DCS Pro" cameras are all 12-bit,
+   but their raw data values never exceed 1023.  Thus I treat
+   them as 10-bit cameras.
+ */
+  shift = strncmp(model,"DCS Pro",7) ? 2 : 4;
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
     {
@@ -1287,7 +1293,7 @@ void kodak_compressed_load_raw()
 	pred[col & 1] += diff;
 	diff = pred[col & 1];
       }
-      BAYER(row,col) = diff << 2;
+      BAYER(row,col) = diff << shift;
     }
 }
 
@@ -1296,9 +1302,10 @@ void kodak_yuv_load_raw()
   uchar c, blen[384];
   unsigned row, col, len, bits=0;
   INT64 bitbuf=0;
-  int i, li=0, si, diff, six[6], y[4], cb=0, cr=0, rgb[3];
+  int i, li=0, si, diff, shift, six[6], y[4], cb=0, cr=0, rgb[3];
   ushort *ip;
 
+  shift = strncmp(model,"DCS Pro",7) ? 2 : 4;
   for (row=0; row < height; row+=2)
     for (col=0; col < width; col+=2) {
       if ((col & 127) == 0) {
@@ -1310,6 +1317,11 @@ void kodak_yuv_load_raw()
 	  blen[i++] = c >> 4;
 	}
 	li = bitbuf = bits = y[1] = y[3] = cb = cr = 0;
+	if (len % 8 == 4) {
+	  bitbuf  = fgetc(ifp) << 8;
+	  bitbuf += fgetc(ifp);
+	  bits = 16;
+	}
       }
       for (si=0; si < 6; si++) {
 	len = blen[li++];
@@ -1323,7 +1335,7 @@ void kodak_yuv_load_raw()
 	bits -= len;
 	if ((diff & (1 << (len-1))) == 0)
 	  diff -= (1 << len) - 1;
-	six[si] = diff << 2;
+	six[si] = diff << shift;
       }
       y[0] = six[0] + y[1];
       y[1] = six[1] + y[0];
@@ -3578,6 +3590,8 @@ void write_ppm16(FILE *ofp)
   ushort *rgb, (*ppm)[3];
 
   val = rgb_max * bright;
+  if (val < 256)
+      val = 256;
   if (val > 0xffff)
       val = 0xffff;
   fprintf (ofp, "P6\n%d %d\n%d\n",
@@ -3611,7 +3625,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.78"
+    "\nRaw Photo Decoder \"dcraw\" v5.79"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
