@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.227 $
-   $Date: 2005/01/14 00:01:30 $
+   $Revision: 1.228 $
+   $Date: 2005/01/19 08:50:44 $
  */
 
 #define _GNU_SOURCE
@@ -78,7 +78,7 @@ int zero_after_ff;
 unsigned filters;
 ushort (*image)[4], white[8][8];
 void (*load_raw)();
-float gamma_val=0.6, bright=1.0, red_scale=1.0, blue_scale=1.0;
+float bright=1.0, red_scale=1.0, blue_scale=1.0;
 int four_color_rgb=0, document_mode=0, quick_interpolate=0;
 int verbose=0, use_auto_wb=0, use_camera_wb=0, use_secondary=0;
 float camera_red, camera_blue;
@@ -982,6 +982,23 @@ void CLASS ixpress_load_raw()
     for (col=0; col < width; col++)
       BAYER(row,col) = pixel[width-1-col];
   }
+}
+
+void CLASS leaf_load_raw()
+{
+  ushort *pixel;
+  int r, c, row, col;
+
+  pixel = calloc (raw_width, sizeof *pixel);
+  merror (pixel, "leaf_load_raw()");
+  for (r=0; r < height-32; r+=32)
+    for (c=0; c < 3; c++)
+      for (row=r; row < r+32; row++) {
+	read_shorts (pixel, raw_width);
+	for (col=0; col < width; col++)
+	  image[row*width+col][c] = pixel[col];
+      }
+  free (pixel);
 }
 
 /* For this function only, raw_width is in bytes, not pixels! */
@@ -2742,24 +2759,6 @@ void CLASS foveon_coeff()
   use_coeff = 1;
 }
 
-/*
-   The grass is always greener in my PowerShot G2 when this
-   function is called.  Use at your own risk!
- */
-void CLASS canon_rgb_coeff (float juice)
-{
-  static const float my_coeff[3][3] =
-  { {  1.116187, -0.107427, -0.008760 },
-    { -1.551374,  4.157144, -1.605770 },
-    {  0.090939, -0.399727,  1.308788 } };
-  int i, j;
-
-  for (i=0; i < 3; i++)
-    for (j=0; j < 3; j++)
-      coeff[i][j] = my_coeff[i][j] * juice + (i==j) * (1-juice);
-  use_coeff = 1;
-}
-
 void CLASS nikon_e950_coeff()
 {
   int r, g;
@@ -3060,10 +3059,6 @@ nucore:
     width  = 2312;
     top_margin  = 6;
     left_margin = 12;
-#ifdef CUSTOM
-    if (write_fun == write_ppm)		/* Pro users may not want my matrix */
-      canon_rgb_coeff (0.1);
-#endif
     if (!strcmp(model,"PowerShot G2") ||
 	!strcmp(model,"PowerShot S40")) {
       pre_mul[0] = 1.965;
@@ -3270,6 +3265,8 @@ coolpix:
     height = 3583;
     width  = 3584;
     fuji_width = 2144;
+    if (fsize > 18000000 && use_secondary)
+      data_offset += 4352*2*1444;
     filters = 0x49494949;
     load_raw = fuji_s3_load_raw;
     rgb_max = 0xffff;
@@ -3457,6 +3454,15 @@ konica_400z:
     load_raw = all_16_load_raw;
     pre_mul[0] = 1.1629;
     pre_mul[2] = 1.3556;
+    strcpy (model, "Valeo");
+    if (raw_width == 2060) {
+      filters = 0;
+      load_raw = leaf_load_raw;
+      pre_mul[0] = 2.103;
+      pre_mul[1] = 1.256;
+      pre_mul[2] = 1.0;
+      strcpy (model, "Volare");
+    }
     rgb_max = 0xffff;
   } else if (!strcmp(model,"DIGILUX 2") || !strcmp(model,"DMC-LC1")) {
     height = 1928;
@@ -3896,7 +3902,7 @@ void CLASS fuji_rotate()
     for (col=0; col < wide; col++) {
       ur = r = fuji_width + (row-col)*step;
       uc = c = (row+col)*step;
-      if (ur >= height || uc >= width) continue;
+      if (ur > height-2 || uc > width-2) continue;
       fr = r - ur;
       fc = c - uc;
       pix = image + ur*width + uc;
@@ -3968,7 +3974,7 @@ void CLASS flip_image()
 void CLASS write_ppm (FILE *ofp)
 {
   int row, col, i, c, val, total;
-  float max, mul, scale[0x10000];
+  float white, r, scale[0x10000];
   ushort *rgb;
   uchar (*ppm)[3];
 
@@ -3978,18 +3984,17 @@ void CLASS write_ppm (FILE *ofp)
   if (fuji_width) i /= 2;
   for (val=0x2000, total=0; --val; )
     if ((total += histogram[val]) > i) break;
-  max = val << 4;
+  white = (val << 4) / bright;
 
   fprintf (ofp, "P6\n%d %d\n255\n",
 	xmag*(width-trim*2), ymag*(height-trim*2));
 
   ppm = calloc (width-trim*2, 3*xmag);
   merror (ppm, "write_ppm()");
-  mul = bright * 442 / max;
-  scale[0] = 0;
-  for (i=1; i < 0x10000; i++)
-    scale[i] = mul * pow (i*2/max, gamma_val-1);
-
+  for (i=0; i < 0x10000; i++) {
+    r = i / white;
+    scale[i] = (r <= 0.018 ? r*4.5 : pow(r,0.45)*1.099-0.099) * 256 / i;
+  }
   for (row=trim; row < height-trim; row++) {
     for (col=trim; col < width-trim; col++) {
       rgb = image[row*width+col];
@@ -4098,7 +4103,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.25"
+    "\nRaw Photo Decoder \"dcraw\" v6.30"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -4110,16 +4115,15 @@ int CLASS main (int argc, char **argv)
     "\n-q        Quick, low-quality color interpolation"
     "\n-h        Half-size color image (3x faster than -q)"
     "\n-s        Use secondary pixels (Fuji Super CCD SR only)"
-    "\n-g <num>  Set gamma      (0.6 by default, only for 24-bpp output)"
     "\n-b <num>  Set brightness (1.0 by default)"
     "\n-a        Use automatic white balance"
     "\n-w        Use camera white balance, if possible"
     "\n-r <num>  Set red  multiplier (daylight = 1.0)"
     "\n-l <num>  Set blue multiplier (daylight = 1.0)"
     "\n-t [0-7]  Flip image (0 = none, 3 = 180, 5 = 90CCW, 6 = 90CW)"
-    "\n-2        Write 24-bpp PPM (default)"
-    "\n-3        Write 48-bpp PSD (Adobe Photoshop)"
-    "\n-4        Write 48-bpp PPM"
+    "\n-2        Write  8-bit PPM with 0.45 gamma (default)"
+    "\n-3        Write 16-bit linear PSD (Adobe Photoshop)"
+    "\n-4        Write 16-bit linear PPM"
     "\n\n", argv[0]);
     return 1;
   }
@@ -4127,13 +4131,12 @@ int CLASS main (int argc, char **argv)
   argv[argc] = "";
   for (arg=1; argv[arg][0] == '-'; ) {
     opt = argv[arg++][1];
-    if (strchr ("gbrl", opt) && !isdigit(argv[arg][0])) {
+    if (strchr ("brlt", opt) && !isdigit(argv[arg][0])) {
       fprintf (stderr, "\"-%c\" requires a numeric argument.\n", opt);
       return 1;
     }
     switch (opt)
     {
-      case 'g':  gamma_val   = atof(argv[arg++]);  break;
       case 'b':  bright      = atof(argv[arg++]);  break;
       case 'r':  red_scale   = atof(argv[arg++]);  break;
       case 'l':  blue_scale  = atof(argv[arg++]);  break;
