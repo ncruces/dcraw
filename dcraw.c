@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.179 $
-   $Date: 2004/03/29 19:53:10 $
+   $Revision: 1.180 $
+   $Date: 2004/04/01 18:17:04 $
  */
 
 #define _GNU_SOURCE
@@ -3184,6 +3184,9 @@ coolpix:
     } else if (!strcasecmp(model,"DCS Pro 14n")) {
       pre_mul[1] = 1.0191;
       pre_mul[2] = 1.1567;
+    } else if (!strcasecmp(model,"DCS Pro SLR/n")) {
+      pre_mul[0] = 1.168;
+      pre_mul[2] = 1.230;
     }
     switch (tiff_data_compression) {
       case 0:				/* No compression */
@@ -3539,7 +3542,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.70"
+    "\nRaw Photo Decoder \"dcraw\" v5.71"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
