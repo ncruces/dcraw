@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.145 $
-   $Date: 2003/10/28 00:20:01 $
+   $Revision: 1.146 $
+   $Date: 2003/11/05 18:10:17 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -928,6 +928,52 @@ void rollei_load_raw()
   }
 }
 
+void phase_one_load_raw()
+{
+  int left=0, top=0, row, col, a, b;
+  ushort pixel[4134], akey, bkey;
+  INT64 bblack=0;
+
+  switch (raw_width) {
+    case 4056: left = 26; top =  5;  break;
+    case 4134: left = 26; top = 20;  break;
+  }
+  fseek (ifp, 8, SEEK_SET);
+  fseek (ifp, fget4(ifp) + 308, SEEK_SET);
+  akey = fget2(ifp);
+  bkey = fget2(ifp);
+  fseek (ifp, 12 + top*raw_width*2, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (pixel, 2, raw_width, ifp);
+    for (col=0; col < raw_width; col+=2) {
+      a = ntohs(pixel[col+0]) ^ akey;
+      b = ntohs(pixel[col+1]) ^ bkey;
+      pixel[col+0] = (b & 0xaaaa) | (a & 0x5555);
+      pixel[col+1] = (a & 0xaaaa) | (b & 0x5555);
+    }
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = pixel[col+left];
+    for (col=left+width; col < raw_width-1; col++)
+      bblack += pixel[col];
+  }
+  black = bblack / (height * (raw_width-1-width-left));
+}
+
+void ixpress_load_raw()
+{
+  ushort pixel[4090];
+  int row, col;
+
+  fseek (ifp, 304 + 6*2*4090, SEEK_SET);
+  for (row=height; --row >= 0; ) {
+    fread (pixel, 2, 4090, ifp);
+    if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
+      swab (pixel, pixel, 4090*2);
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = pixel[width-1-col];
+  }
+}
+
 void packed_12_load_raw()
 {
   int row, col;
@@ -939,39 +985,33 @@ void packed_12_load_raw()
       image[row*width+col][FC(row,col)] = getbits(12) << 2;
 }
 
-void unpacked_12_load_raw()
+void unpacked_load_raw(int rsh)
 {
   ushort *pixel;
   int row, col;
 
   pixel = calloc (width, sizeof *pixel);
-  merror (pixel, "unpacked_12_load_raw()");
+  merror (pixel, "unpacked_load_raw()");
   fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, width, ifp);
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = ntohs(pixel[col]) << 2;
+      image[row*width+col][FC(row,col)] = ntohs(pixel[col]) << 8 >> (8+rsh);
   }
   free (pixel);
 }
 
-void olympus_load_raw()
+void high_12_load_raw()
 {
-  ushort *pixel;
-  int row, col;
-
-  pixel = calloc (width, sizeof *pixel);
-  merror (pixel, "olympus_load_raw()");
-  fseek (ifp, tiff_data_offset, SEEK_SET);
-  for (row=0; row < height; row++) {
-    fread (pixel, 2, width, ifp);
-    for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = ntohs(pixel[col]) >> 2;
-  }
-  free (pixel);
+  unpacked_load_raw(2);
 }
 
-void olympus2_load_raw()
+void low_12_load_raw()
+{
+  unpacked_load_raw(-2);
+}
+
+void olympus_c5050z_load_raw()
 {
   int irow, row, col;
 
@@ -984,17 +1024,6 @@ void olympus2_load_raw()
     for (col=0; col < width; col++)
       image[row*width+col][FC(row,col)] = getbits(12) << 2;
   }
-}
-
-void kyocera_load_raw()
-{
-  int row, col;
-
-  fseek (ifp, tiff_data_offset, SEEK_SET);
-  getbits(-1);
-  for (row=0; row < height; row++)
-    for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = getbits(12) << 2;
 }
 
 void casio_easy_load_raw()
@@ -1948,6 +1977,7 @@ void parse_tiff(int base)
 {
   int doff, entries, tag, type, len, val, save;
   char software[64];
+  int wide=0, high=0;
 
   tiff_data_offset = 0;
   tiff_data_compression = 0;
@@ -1966,6 +1996,12 @@ void parse_tiff(int base)
       save = ftell(ifp);
       fseek (ifp, val+base, SEEK_SET);
       switch (tag) {
+	case 256:			/* ImageWidth */
+	  wide = val >> 16;
+	  break;
+	case 257:			/* ImageHeight */
+	  high = val >> 16;
+	  break;
 	case 271:			/* Make tag */
 	  fgets (make, 64, ifp);
 	  break;
@@ -1998,6 +2034,10 @@ void parse_tiff(int base)
       }
       fseek (ifp, save, SEEK_SET);
     }
+  }
+  if (model[0] == 0 && wide == 680 && high == 680) {
+    strcpy (make, "Imacon");
+    strcpy (model,"Ixpress");
   }
 }
 
@@ -2077,6 +2117,7 @@ void parse_rollei()
   char line[128], *val;
   int tx=0, ty=0;
 
+  fseek (ifp, 0, SEEK_SET);
   do {
     fgets (line, 128, ifp);
     if ((val = strchr(line,'=')))
@@ -2238,8 +2279,8 @@ void gmcy_coeff()
  */
 int identify(char *fname)
 {
-  char head[26], *c;
-  unsigned hlen, fsize, magic, i;
+  char head[32], *c;
+  unsigned hlen, fsize, i;
 
   pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
   camera_red = camera_blue = black = timestamp = 0;
@@ -2253,25 +2294,35 @@ int identify(char *fname)
   tiff_data_offset = 0;
   order = fget2(ifp);
   hlen = fget4(ifp);
-  fread (head, 1, 26, ifp);
+  fseek (ifp, 0, SEEK_SET);
+  fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  fseek (ifp, 0, SEEK_SET);
-  magic = fget4(ifp);
-  if (order == 0x4949 || order == 0x4d4d) {
-    if (!memcmp(head,"HEAPCCDR",8)) {
+  if (!memcmp (head,"MMMMRawT",8)) {
+    strcpy (make, "Phase One");
+    fseek (ifp, 8, SEEK_SET);
+    fseek (ifp, fget4(ifp) + 148, SEEK_SET);
+    raw_width = fget4(ifp);
+    fseek (ifp, 12, SEEK_CUR);
+    raw_height = fget4(ifp);
+    switch (raw_width) {
+      case 4056:  strcpy (model, "H10");  break;
+      case 4134:  strcpy (model, "H20");  break;
+    }
+  } else if (order == 0x4949 || order == 0x4d4d) {
+    if (!memcmp (head+6,"HEAPCCDR",8)) {
       parse_ciff (hlen, fsize - hlen);
       fseek (ifp, hlen, SEEK_SET);
     } else
       parse_tiff(0);
-  } else if (magic == 0x4d524d) {	/* "\0MRM" (Minolta) */
+  } else if (!memcmp (head,"\0MRM",4)) {
     parse_tiff(48);
     fseek (ifp, 4, SEEK_SET);
     tiff_data_offset = fget4(ifp) + 8;
     fseek (ifp, 24, SEEK_SET);
     raw_height = fget2(ifp);
     raw_width  = fget2(ifp);
-  } else if (magic >> 16 == 0x424d) {	/* "BM" */
+  } else if (!memcmp (head,"BM",2)) {
     tiff_data_offset = 0x1000;
     order = 0x4949;
     fseek (ifp, 38, SEEK_SET);
@@ -2279,7 +2330,7 @@ int identify(char *fname)
       strcpy (model, "BMQ");
       goto nucore;
     }
-  } else if (magic >> 16 == 0x4252) {	/* "BR" */
+  } else if (!memcmp (head,"BR",2)) {
     strcpy (model, "RAW");
 nucore:
     strcpy (make, "Nucore");
@@ -2293,18 +2344,18 @@ nucore:
       raw_width++;
       tiff_data_offset -= 0x1000;
     }
-  } else if (!memcmp(head+19,"ARECOYK",7)) {
+  } else if (!memcmp (head+25,"ARECOYK",7)) {
     strcpy (make, "CONTAX");
     strcpy (model,"N DIGITAL");
-  } else if (magic == 0x46554a49) {	/* "FUJI" */
+  } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     parse_tiff (fget4(ifp)+12);
     order = 0x4d4d;
     fseek (ifp, 100, SEEK_SET);
     tiff_data_offset = fget4(ifp);
-  } else if (magic == 0x4453432d)	/* "DSC-" */
+  } else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
-  else if (magic == 0x464f5662)		/* "FOVb" */
+  else if (!memcmp (head,"FOVb",4))
     parse_foveon();
   else if (fsize == 2465792)		/* Nikon "DIAG RAW" formats */
     strcpy (model,"E950");
@@ -2418,8 +2469,14 @@ nucore:
     load_raw = canon_compressed_load_raw;
     if (write_fun == write_ppm)		/* Pro users may not want my matrix */
       canon_rgb_coeff (0.1);
-    pre_mul[0] = 1.965;
-    pre_mul[2] = 1.208;
+    if (!strcmp(model,"PowerShot G2") ||
+	!strcmp(model,"PowerShot S40")) {
+      pre_mul[0] = 1.965;
+      pre_mul[2] = 1.208;
+    } else {				/* G3 and S45 */
+      pre_mul[0] = 1.855;
+      pre_mul[2] = 1.339;
+    }
   } else if (is_canon && raw_width == 2672) {
     height = 1960;
     width  = 2616;
@@ -2590,7 +2647,7 @@ coolpix:
     height = raw_height;
     width  = raw_width;
     filters = 0x94949494;
-    load_raw = unpacked_12_load_raw;
+    load_raw = low_12_load_raw;
     if (!strcmp(model,"DiMAGE A1"))
       load_raw = packed_12_load_raw;
     pre_mul[0] = 1.57;
@@ -2600,15 +2657,37 @@ coolpix:
     width  = 3040;
     filters = 0x94949494;
     tiff_data_offset = 0x10000;
-    load_raw = unpacked_12_load_raw;
+    load_raw = low_12_load_raw;
     pre_mul[0] = 1.76;
     pre_mul[1] = 1.07;
+  } else if (!strcmp(model,"H10")) {
+    height = 2672;
+    width  = 4012;
+    filters = 0x94949494;
+    load_raw = phase_one_load_raw;
+    rgb_max = 0xffff;
+  } else if (!strcmp(model,"H20")) {
+    height = 4098;
+    width  = 4098;
+    filters = 0x49494949;
+    load_raw = phase_one_load_raw;
+    pre_mul[0] = 1.963;
+    pre_mul[2] = 1.430;
+    rgb_max = 0xffff;
+  } else if (!strcmp(model,"Ixpress")) {
+    height = 4084;
+    width  = 4080;
+    filters = 0x49494949;
+    load_raw = ixpress_load_raw;
+    pre_mul[0] = 1.963;
+    pre_mul[2] = 1.430;
+    rgb_max = 0xffff;
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
     filters = 0x94949494;
     tiff_data_offset = 0x4000;
-    load_raw = olympus_load_raw;
+    load_raw = high_12_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
   } else if (!strncmp(model,"E-20",4)) {
@@ -2616,14 +2695,14 @@ coolpix:
     width  = 2576;
     filters = 0x94949494;
     tiff_data_offset = 0x4000;
-    load_raw = olympus_load_raw;
+    load_raw = high_12_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
   } else if (!strcmp(model,"C5050Z")) {
     height = 1926;
     width  = 2576;
     filters = 0x16161616;
-    load_raw = olympus2_load_raw;
+    load_raw = olympus_c5050z_load_raw;
     pre_mul[0] = 1.533;
     pre_mul[2] = 1.880;
   } else if (!strcmp(model,"N DIGITAL")) {
@@ -2631,7 +2710,7 @@ coolpix:
     width  = 3072;
     filters = 0x61616161;
     tiff_data_offset = 0x1a00;
-    load_raw = kyocera_load_raw;
+    load_raw = packed_12_load_raw;
     pre_mul[0] = 1.366;
     pre_mul[2] = 1.251;
   } else if (!strcasecmp(make,"KODAK")) {
@@ -2771,7 +2850,7 @@ coolpix:
     height = 1700;
     width  = 2260;
     filters = 0x94949494;
-    load_raw = olympus_load_raw;
+    load_raw = high_12_load_raw;
   } else if (!strcmp(model,"QV-5700")) {
     height = 1924;
     width  = 2576;
@@ -2997,7 +3076,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.10"
+    "\nRaw Photo Decoder v5.15"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
