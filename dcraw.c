@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.27 $
-   $Date: 2001/09/30 15:30:42 $
+   $Revision: 1.28 $
+   $Date: 2001/10/14 20:46:29 $
 */
 
 #include <math.h>
@@ -310,7 +310,7 @@ int make_decoder(struct decode *dest, const uchar *source, int level)
     dest->leaf = source[16 + leaf++];
 }
 
-init_tables(int table)
+init_tables(unsigned table)
 {
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
@@ -637,7 +637,7 @@ second_interpolate()
       memset (avg, 0, sizeof avg);
       for (y = row-1; y < row+2; y++)
 	for (x = col-1; x < col+2; x++)
-	  if ((c = (*filter)(y,x)) != cc) {
+	  if ((c = (*filter)(y,x)) != cc && image[y*width+x][cc]) {
 	    val = ((unsigned long) image[y*width+x][c] << 16) /
 		image[y*width+x][cc] * image[row*width+col][cc] >> 16;
 	    avg[c] += val;
@@ -650,7 +650,7 @@ second_interpolate()
       this[col][cc] = image[row*width+col][cc];
       for (c=0; c < colors; c++)
 	if (c != cc)
-	  this[col][c] = avg[c] / avg[c+4];
+	  this[col][c] = avg[c+4] ? avg[c] / avg[c+4] : 0;
     }
     if (row > 2)
       memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
@@ -771,7 +771,8 @@ open_and_id(char *fname)
     filter   = pro90_filter;
     read_crw = g1_read_crw;
     init_tables (name[4762]);
-  } else if (!strcmp(name,"Canon PowerShot G2")) {
+  } else if (!strcmp(name,"Canon PowerShot G2") ||
+	     !strcmp(name,"Canon PowerShot S40")) {
     height = 1720;
     width  = 2312;
     colors = 3;
