@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.189 $
-   $Date: 2004/05/02 19:14:54 $
+   $Revision: 1.190 $
+   $Date: 2004/05/05 17:20:10 $
  */
 
 #define _GNU_SOURCE
@@ -462,7 +462,7 @@ int canon_has_lowbits()
 void canon_compressed_load_raw()
 {
   ushort *pixel, *prow;
-  int lowbits, shift, i, row, r, col, save;
+  int lowbits, shift, i, row, r, col, save, val;
   unsigned irow, icol;
   uchar c;
   INT64 bblack=0;
@@ -479,8 +479,11 @@ void canon_compressed_load_raw()
       fseek (ifp, 26 + row*raw_width/4, SEEK_SET);
       for (prow=pixel, i=0; i < raw_width*2; i++) {
 	c = fgetc(ifp);
-	for (r=0; r < 8; r+=2, prow++)
-	  *prow = (*prow << 2) + ((c >> r) & 3);
+	for (r=0; r < 8; r+=2, prow++) {
+	  val = (*prow << 2) + ((c >> r) & 3);
+	  if (raw_width == 2672 && val < 512) val += 2;
+	  *prow = val;
+	}
       }
       fseek (ifp, save, SEEK_SET);
     }
@@ -788,8 +791,10 @@ void fuji_f700_load_raw()
       r = 1439 - col + (row >> 1);
       c = col + ((row+1) >> 1);
       val = pixel[col+16];
-      if (val == 0x3fff)		/* If the primary is maxed, */
+      if (val == 0x3fff) {		/* If the primary is maxed, */
 	val = pixel[col+1488] << 4;	/* use the secondary.       */
+	rgb_max = 0xffff;
+      }
       if (val > 0xffff)
 	val = 0xffff;
       BAYER(r,c) = val;
@@ -1228,20 +1233,36 @@ void kodak_easy_load_raw()
   free (pixel);
 }
 
+void kodak_dcr_curve (ushort *curve)
+{
+  int i, j;
+
+  for (i=0; i < 0x1000; i++)
+    curve[i] = i;
+  if (strncmp(model,"DCS Pro",7)) return;
+  fseek (ifp, 0x4000, SEEK_SET);
+  for (i=j=0; j < 100; i++) {
+    if (i > 0x10000) return;
+    if (fget2(ifp) == j) j++;
+    else j=0;
+  }
+  fseek (ifp, 7992, SEEK_CUR);
+  for (i=0; i < 0x400; i++)
+    curve[i] = fget2(ifp);
+  rgb_max = curve[i-1] << 2;
+}
+
 void kodak_compressed_load_raw()
 {
   uchar c, blen[256];
-  ushort raw[6];
+  ushort raw[6], curve[0x1000];
   unsigned row, col, len, save, i, israw=0, bits=0, pred[2];
   INT64 bitbuf=0;
-  int diff, shift;
+  int diff;
 
-/*
-   Kodak claims that their "DCS Pro" cameras are all 12-bit,
-   but their raw data values never exceed 1023.  Thus I treat
-   them as 10-bit cameras.
- */
-  shift = strncmp(model,"DCS Pro",7) ? 2 : 4;
+  kodak_dcr_curve (curve);
+  fseek (ifp, data_offset, SEEK_SET);
+
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
     {
@@ -1293,7 +1314,7 @@ void kodak_compressed_load_raw()
 	pred[col & 1] += diff;
 	diff = pred[col & 1];
       }
-      BAYER(row,col) = diff << shift;
+      BAYER(row,col) = curve[diff] << 2;
     }
 }
 
@@ -1302,10 +1323,12 @@ void kodak_yuv_load_raw()
   uchar c, blen[384];
   unsigned row, col, len, bits=0;
   INT64 bitbuf=0;
-  int i, li=0, si, diff, shift, six[6], y[4], cb=0, cr=0, rgb[3];
-  ushort *ip;
+  int i, li=0, si, diff, six[6], y[4], cb=0, cr=0, rgb[3];
+  ushort *ip, curve[0x1000];
 
-  shift = strncmp(model,"DCS Pro",7) ? 2 : 4;
+  kodak_dcr_curve (curve);
+  fseek (ifp, data_offset, SEEK_SET);
+
   for (row=0; row < height; row+=2)
     for (col=0; col < width; col+=2) {
       if ((col & 127) == 0) {
@@ -1335,7 +1358,7 @@ void kodak_yuv_load_raw()
 	bits -= len;
 	if ((diff & (1 << (len-1))) == 0)
 	  diff -= (1 << len) - 1;
-	six[si] = diff << shift;
+	six[si] = diff;
       }
       y[0] = six[0] + y[1];
       y[1] = six[1] + y[0];
@@ -1345,11 +1368,11 @@ void kodak_yuv_load_raw()
       cr  += six[5];
       for (i=0; i < 4; i++) {
 	ip = image[(row+(i >> 1))*width + col+(i & 1)];
-	rgb[0] = y[i] + 1.40200/2 * cr;
-	rgb[1] = y[i] - 0.34414/2 * cb - 0.71414/2 * cr;
-	rgb[2] = y[i] + 1.77200/2 * cb;
+	rgb[0] = y[i] + cr;
+	rgb[1] = y[i];
+	rgb[2] = y[i] + cb;
 	for (c=0; c < 3; c++)
-	  if (rgb[c] > 0) ip[c] = rgb[c];
+	  if (rgb[c] > 0) ip[c] = curve[rgb[c]] << 2;
       }
     }
 }
@@ -2990,6 +3013,7 @@ coolpix:
     width  = 3583;
     filters = 0x61616161;
     load_raw = fuji_s2_load_raw;
+    black = 512;
     pre_mul[0] = 1.424;
     pre_mul[2] = 1.718;
   } else if (!strcmp(model,"FinePix S5000")) {
@@ -3015,7 +3039,7 @@ coolpix:
     load_raw = fuji_f700_load_raw;
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
-    rgb_max = 0xffff;
+    rgb_max = 0x3e00;
   } else if (!strcmp(make,"Minolta")) {
     load_raw = be_low_12_load_raw;
     if (!strncmp(model,"DiMAGE A",8))
@@ -3238,17 +3262,17 @@ coolpix:
       pre_mul[0] = 1.01755;
       pre_mul[2] = 1.5424;
     } else if (!strcasecmp(model,"DCS Pro 14n")) {
-      pre_mul[1] = 1.0191;
-      pre_mul[2] = 1.1567;
+      pre_mul[1] = 1.0323;
+      pre_mul[2] = 1.258;
     } else if (!strcasecmp(model,"DCS Pro 14nx")) {
-      pre_mul[0] = 1.25;
-      pre_mul[2] = 1.225;
+      pre_mul[0] = 1.336;
+      pre_mul[2] = 1.3155;
     } else if (!strcasecmp(model,"DCS Pro SLR/c")) {
-      pre_mul[0] = 1.24;
-      pre_mul[2] = 1.16;
+      pre_mul[0] = 1.425;
+      pre_mul[2] = 1.293;
     } else if (!strcasecmp(model,"DCS Pro SLR/n")) {
-      pre_mul[0] = 1.273;
-      pre_mul[2] = 1.235;
+      pre_mul[0] = 1.324;
+      pre_mul[2] = 1.483;
     }
     switch (tiff_data_compression) {
       case 0:				/* No compression */
@@ -3269,10 +3293,6 @@ coolpix:
 	  height = (height+1) & -2;
 	  width  = (width +1) & -2;
 	  filters = 0;
-	  if (pre_mul[1] == 1) {
-	    pre_mul[0] *= 1.05;
-	    pre_mul[2] *= 1.10;
-	  }
 	}
 	break;
       default:
@@ -3625,7 +3645,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.79"
+    "\nRaw Photo Decoder \"dcraw\" v5.80"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
