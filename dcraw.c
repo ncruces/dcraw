@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.59 $
-   $Date: 2002/05/28 17:18:51 $
+   $Revision: 1.60 $
+   $Date: 2002/06/20 20:32:08 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -707,7 +707,10 @@ void nikon_d1x_read_crw()
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
 
-  fseek (ifp, 3488, SEEK_SET);
+  if (!strcmp(name,"NIKON D100 "))
+    fseek (ifp, 5974, SEEK_SET);
+  else
+    fseek (ifp, 3488, SEEK_SET);
   for (i=0; i < 4; i++)
     vpred[i] = fget2(ifp);
   csize = fget2(ifp);
@@ -1085,6 +1088,15 @@ int open_and_id(char *fname)
     read_crw = nikon_d1x_read_crw;
     rgb_mul[0] = 1.910;
     rgb_mul[2] = 1.220;
+  } else if (!strcmp(name,"NIKON D100 ")) {
+    height = 2024;
+    width  = 3034;
+    colors = 3;
+    canon = 0;
+    filters = 0x61616161;
+    read_crw = nikon_d1x_read_crw;
+    rgb_mul[0] = 2.374;
+    rgb_mul[2] = 1.677;
   } else {
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
@@ -1362,7 +1374,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.95"
+    "\nCanon PowerShot Converter v2.96"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
