@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.63 $
-   $Date: 2002/06/28 03:55:09 $
+   $Revision: 1.64 $
+   $Date: 2002/08/07 22:50:13 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -770,6 +770,29 @@ compressed:
   free (curve);
 }
 
+void nikon_e5700_read_crw()
+{
+  uchar  data[3864], *dp;
+  ushort pixel[2576], *pix;
+  int irow, row, col;
+
+  fseek (ifp, 589226, SEEK_SET);
+  for (irow=row=0; irow < height; irow++)
+  {
+    fread (data, 3864, 1, ifp);
+    for (dp=data, pix=pixel; dp < data+3864; dp+=3, pix+=2)
+    {
+      pix[0] = (dp[0] << 8) + (dp[1] & 0xf0) + (dp[1] >> 4);
+      pix[1] = (dp[2] << 4) + (dp[1] & 0x0f);
+    }
+    for (col=0; col < width; col++)
+      image[row*width+col][FC(row,col)] = (pixel[col] & 0xfff) << 2;
+
+    if ((row+=2) >= height)	/* Once we've read all the even rows, */
+      row = 1;			/* read the odd rows. */
+  }
+}
+
 void olympus_read_crw()
 {
   ushort *pixel;
@@ -1236,6 +1259,13 @@ int open_and_id(char *fname)
     read_crw = nikon_d1x_read_crw;
     rgb_mul[0] = 2.374;
     rgb_mul[2] = 1.677;
+  } else if (!strcmp(name,"E5700")) {
+    height = 1924;
+    width  = 2576;
+    filters = 0xe1e1e1e1;
+    read_crw = nikon_e5700_read_crw;
+    rgb_mul[0] = 2.126;
+    rgb_mul[2] = 1.197;
   } else if (!strcmp(name,"E-10")) {
     height = 1684;
     width  = 2256;
@@ -1529,7 +1559,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v3.02"
+    "\nCanon PowerShot Converter v3.03"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
