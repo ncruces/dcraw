@@ -1,6 +1,6 @@
 /*
    Canon PowerShot Converter
-   Copyright 1997-2001 by Dave Coffin <dcoffin@shore.net>
+   Copyright 1997-2002 by Dave Coffin <dcoffin@shore.net>
 
    A portable ANSI C program to convert raw CRW files from Canon
    digital cameras into PPM or PNG format.
@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.40 $
-   $Date: 2002/01/13 18:05:57 $
+   $Revision: 1.41 $
+   $Date: 2002/01/29 20:53:56 $
 */
 
 #include <math.h>
@@ -299,10 +299,10 @@ void pro70_read_crw()
 	1111110		0x0b
 	1111111		0xff
  */
-int make_decoder(struct decode *dest, const uchar *source, int level)
+void make_decoder(struct decode *dest, const uchar *source, int level)
 {
   static struct decode *free;	/* Next unused node */
-  static leaf;			/* number of leaves already added */
+  static int leaf;		/* number of leaves already added */
   int i, next;
 
   if (level==0) {
@@ -325,7 +325,7 @@ int make_decoder(struct decode *dest, const uchar *source, int level)
     dest->leaf = source[16 + leaf++];
 }
 
-init_tables(unsigned table)
+void init_tables(unsigned table)
 {
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
@@ -428,7 +428,7 @@ unsigned long getbits(int nbits)
    larger than the global width, because it includes some
    blank pixels that (*read_crw) will strip off.
  */
-decompress(ushort *outbuf, int width, int count)
+void decompress(ushort *outbuf, int width, int count)
 {
   struct decode *decode, *dindex;
   int i, leaf, len, sign, diff, diffbuf[64];
@@ -583,7 +583,7 @@ void d30_read_crw()
   black = ((long long) black << 2) / (8 * 2224 + 48 * height);
 }
 
-subtract_black()
+void subtract_black()
 {
   ushort *img;
   int size;
@@ -603,7 +603,7 @@ subtract_black()
    other colors, and average them.  Diagonal neighbors get
    counted once, orthogonal neighbors twice.
  */
-first_interpolate()
+void first_interpolate()
 {
   int row, col, cc, x, y, c, val;
   int avg[8];
@@ -634,7 +634,7 @@ first_interpolate()
    color balance to avoid artifacts.  This function may be
    called more than once.
 */
-second_interpolate()
+void second_interpolate()
 {
   ushort (*last)[4];
   ushort (*this)[4];
@@ -706,7 +706,7 @@ int fget4 (FILE *f)
    Parse the CIFF structure looking for two pieces of information:
    The camera name, and the decode table number.
  */
-parse (int offset, int length)
+void parse (int offset, int length)
 {
   int tboff, nrecs, i, type, len, roff, aoff, save;
 
@@ -739,7 +739,7 @@ parse (int offset, int length)
    Open a CRW file, identify which camera created it, and set
    global variables accordingly.  Returns nonzero if an error occurs.
  */
-open_and_id(char *fname)
+int open_and_id(char *fname)
 {
   char head[8];
   static const float def_coeff[3][4] = {
@@ -860,7 +860,7 @@ open_and_id(char *fname)
 
    get_rgb() is based on an inversion of this table.
  */
-get_rgb(float rgb[4], ushort image[4])
+void get_rgb(float rgb[4], ushort image[4])
 {
   int r, g;
 
@@ -1062,7 +1062,7 @@ void write_png(FILE *ofp)
 /*
    Creates a new filename with a different extension
  */
-exten(char *new, const char *old, const char *ext)
+void exten(char *new, const char *old, const char *ext)
 {
   char *cp;
 
@@ -1072,7 +1072,7 @@ exten(char *new, const char *old, const char *ext)
   strcpy(cp,ext);
 }
 
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
   char data[256];
   int i, arg, write_to_files=1;
@@ -1171,4 +1171,5 @@ main(int argc, char **argv)
 
     free (image);
   }
+  return 0;
 }
