@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.76 $
-   $Date: 2002/11/24 15:00:57 $
+   $Revision: 1.77 $
+   $Date: 2002/11/25 04:36:23 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -162,9 +162,9 @@ const char *hood;
 	2 R G R G R G	2 G R G R G R	2 B G B G B G
 	3 G B G B G B	3 B G B G B G	3 G R G R G R
 
-   The Fuji S2 does not use a Bayer grid.  Instead, it flattens
-   out the pixels as shown below, and then stores these pixels
-   in the file with a ninety-degree rotation.
+   The Fuji S2 does not use a Bayer grid.  It has flat, wide
+   pixels in the following pattern, stored in the file with
+   a ninety-degree rotation (not shown here).
 
 	bbbb|rrrr|bbbb|rrrr|bbbb|rrrr
 	gggg|gggg|gggg|gggg|gggg|gggg
@@ -644,10 +644,7 @@ void lossless_jpeg_read_crw()
 {
   DecompressInfo dcInfo;
 
-  if (!strcmp(model,"EOS-1D"))
-    fseek (ifp, 288912, SEEK_SET);
-  else
-    fseek (ifp, tiff_data_offset, SEEK_SET);
+  fseek (ifp, tiff_data_offset, SEEK_SET);
 
   MEMSET(&dcInfo, 0, sizeof(dcInfo));
   ReadFileHeader (&dcInfo);
@@ -1436,8 +1433,19 @@ int open_and_id(char *fname)
     colors = 3;
     filters = 0x61616161;
     read_crw = lossless_jpeg_read_crw;
+    tiff_data_offset = 288912;
     rgb_mul[0] = 1.976;
     rgb_mul[2] = 1.282;
+  } else if (!strcmp(model,"EOS-1DS")) {
+    height = 2718;
+    width  = 4082;
+    colors = 3;
+    filters = 0x61616161;
+    read_crw = lossless_jpeg_read_crw;
+    tiff_data_offset = 289168;
+    rgb_mul[0] = 1.66;
+    rgb_mul[2] = 1.13;
+    rgb_max = 14464;
   } else if (!strcmp(model,"D1")) {
     height = 1324;
     width  = 2012;
@@ -1879,7 +1887,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v3.53"
+    "\nRaw Photo Decoder v3.54"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -1964,7 +1972,7 @@ int main(int argc, char **argv)
       subtract_black();
     }
     trim = 0;
-    if (colors == 1) goto nointerp;
+    if (filters == 0) goto nointerp;
     dillon_ok = dillon;
     for (i=8; i < 32; i+=8)
       if ((filters >> i & 0xff) != (filters & 0xff))
