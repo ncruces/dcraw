@@ -12,9 +12,14 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.43 $
-   $Date: 2002/03/24 17:34:52 $
-*/
+   $Revision: 1.44 $
+   $Date: 2002/03/24 19:29:10 $
+
+   The Canon EOS-1D digital camera compresses its data with
+   lossless JPEG.  To read EOS-1D images, you must also download:
+
+	http://www.shore.net/~dcoffin/powershot/ljpeg_decode.tar.gz
+ */
 
 #include <math.h>
 #ifndef NO_PNG
@@ -24,6 +29,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef LJPEG_DECODE
+#include "jpeg.h"
+#include "mcu.h"
+#include "proto.h"
+#endif
 
 typedef unsigned char uchar;
 typedef unsigned short ushort;
@@ -102,13 +113,21 @@ struct decode {
 	0 G M G M G M
 	1 Y C Y C Y C
 
-   All RGB cameras use 0x94949494:
+   Some RGB cameras use 0x94949494:
 
 	  0 1 2 3 4 5
 	0 R G R G R G
 	1 G B G B G B
 	2 R G R G R G
 	3 G B G B G B
+
+   The EOS-1D uses 0x61616161:
+
+	  0 1 2 3 4 5
+	0 G R G R G R
+	1 B G B G B G
+	2 G R G R G R
+	3 B G B G B G
  */
 
 void ps600_read_crw()
@@ -583,6 +602,51 @@ void d30_read_crw()
   black = ((long long) black << 2) / (8 * 2224 + 48 * height);
 }
 
+#ifdef LJPEG_DECODE
+/*
+   Lossless JPEG code calls this function to get data.
+ */
+int ReadJpegData (char *buffer, int numBytes)
+{
+  return fread(buffer, 1, numBytes, ifp);
+}
+
+/*
+   Called from DecodeImage() in huffd.c to write one row.
+   Notice that one row of the JPEG data is two rows for us.
+   Canon did this so that the predictors could work against
+   like colors.  Quite clever!
+ */
+void PmPutRow(ushort **buf, int numComp, int numCol, int row)
+{
+  register int r, col;
+
+  row *= 2;
+  for (r = row; r < row + 2; r++)
+    for (col=0; col < width; ) {
+      image[r*width+col++][FC(r,col)] = buf[0][0] << 2;
+      image[r*width+col++][FC(r,col)] = buf[0][1] << 2;
+      buf++;
+    }
+}
+
+void eos1d_read_crw()
+{
+  DecompressInfo dcInfo;
+
+  fseek (ifp, 288912, SEEK_SET);
+
+  MEMSET(&dcInfo, 0, sizeof(dcInfo));
+  ReadFileHeader (&dcInfo);
+  ReadScanHeader (&dcInfo);
+  DecoderStructInit (&dcInfo);
+  HuffDecoderInit (&dcInfo);
+  DecodeImage (&dcInfo);
+  FreeArray2D (mcuROW1);
+  FreeArray2D (mcuROW2);
+}
+#endif /* LJPEG_DECODE */
+
 void subtract_black()
 {
   ushort *img;
@@ -764,8 +828,26 @@ int open_and_id(char *fname)
 
   fread (head, 1, 8, ifp);
   if (memcmp(head,"HEAPCCDR",8) || (order != 0x4949 && order != 0x4d4d)) {
-    fprintf(stderr,"%s is not a Canon CRW file.\n",fname);
-    return 1;
+    fseek(ifp, 250, SEEK_SET);
+    fread(name, 64, 1, ifp);
+    if (!strcmp(name,"Canon EOS-1D")) {
+#ifdef LJPEG_DECODE
+      height = 1662;
+      width  = 2496;
+      colors = 3;
+      filters = 0x61616161;
+      read_crw = eos1d_read_crw;
+      rgb_mul[0] = 1.976;
+      rgb_mul[2] = 1.282;
+      return 0;
+#else
+      fprintf(stderr,"crw.c was compiled without EOS-1D support.\n",fname);
+      return 1;
+#endif
+    } else {
+      fprintf(stderr,"%s is not a Canon RAW file.\n",fname);
+      return 1;
+    }
   }
 
   name[0] = 0;
@@ -1083,7 +1165,10 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.54"
+    "\nCanon PowerShot Converter v2.55"
+#ifdef LJPEG_DECODE
+    " with EOS-1D support"
+#endif
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
@@ -1146,13 +1231,13 @@ int main(int argc, char **argv)
     black = 0;
     fprintf (stderr, "Loading data from %s...\n",argv[arg]);
     (*read_crw)();
+    fclose(ifp);
     fprintf (stderr, "Subtracting thermal noise (%d)...\n",black);
     subtract_black();
     fprintf (stderr, "First interpolation...\n");
     first_interpolate();
     fprintf (stderr, "Second interpolation...\n");
     second_interpolate();
-    fclose(ifp);
 
     ofp = stdout;
     strcpy (data, "standard output");
