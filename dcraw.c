@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.213 $
-   $Date: 2004/10/24 23:27:22 $
+   $Revision: 1.214 $
+   $Date: 2004/10/26 02:28:46 $
  */
 
 #define _GNU_SOURCE
@@ -2291,7 +2291,7 @@ void CLASS get_timestamp()
     return;
   t.tm_year -= 1900;
   t.tm_mon -= 1;
-  putenv ("TZ=");		/* Remove this to assume local time */
+  putenv ("TZ=UTC");		/* Remove this to assume local time */
   if ((ts = mktime(&t)) > 0)
     timestamp = ts;
 }
