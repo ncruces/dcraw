@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.137 $
-   $Date: 2003/10/01 21:59:51 $
+   $Revision: 1.138 $
+   $Date: 2003/10/04 19:17:37 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2253,13 +2253,15 @@ nucore:
   /* Remove excess wordage */
   if (!strncmp(make,"NIKON",5) || !strncmp(make,"Canon",5))
     make[5] = 0;
+  if (!strncmp(make,"PENTAX",6))
+    make[6] = 0;
   if (!strncmp(make,"OLYMPUS",7) || !strncmp(make,"Minolta",7))
     make[7] = 0;
   if (!strncmp(make,"KODAK",5))
     make[16] = model[16] = 0;
-  if (!strncmp(model,"Canon",5) || !strncmp(model,"NIKON",5) ||
-      !strncmp(model,"SIGMA",5))
-    memmove (model, model+6, 64-6);
+  i = strlen(make);
+  if (!strncmp(model,make,i++))
+    memmove (model, model+i, 64-i);
 
   /* Remove trailing spaces */
   c = make + strlen(make);
@@ -2506,6 +2508,14 @@ coolpix:
       load_raw = packed_12_load_raw;
     pre_mul[0] = 1.57;
     pre_mul[2] = 1.42;
+  } else if (!strcmp(model,"*ist D")) {
+    height = 2024;
+    width  = 3040;
+    filters = 0x94949494;
+    tiff_data_offset = 0x10000;
+    load_raw = unpacked_12_load_raw;
+    pre_mul[0] = 1.76;
+    pre_mul[1] = 1.07;
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
@@ -2900,7 +2910,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.03"
+    "\nRaw Photo Decoder v5.04"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
