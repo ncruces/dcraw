@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.104 $
-   $Date: 2003/03/14 16:43:26 $
+   $Revision: 1.105 $
+   $Date: 2003/03/17 19:34:10 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -28,6 +28,8 @@
 
 #ifdef WIN32
 #include <winsock2.h>
+#pragma comment(lib, "ws2_32.lib")
+#define strcasecmp stricmp
 typedef __int64 INT64;
 #else
 #include <netinet/in.h>
