@@ -1,5 +1,5 @@
 .\"
-.\" Man page for crw (Raw Photo Decoder)
+.\" Man page for dcraw (Raw Photo Decoder)
 .\"
 .\" Copyright (c) 2003 by David Coffin
 .\"
@@ -9,15 +9,15 @@
 .\" dcoffin@shore.net
 .\" http://www.shore.net/~dcoffin
 .\"
-.TH crw 1 "March 6, 2003"
+.TH dcraw 1 "March 14, 2003"
 .LO 1
 .SH NAME
-crw - convert raw digital photos to PPM format
+dcraw - convert raw digital photos to PPM format
 .SH SYNOPSIS
-.B crw
+.B dcraw
 [\fIOPTION\fR]... [\fIFILE\fR]...
 .SH DESCRIPTION
-.B crw
+.B dcraw
 converts a list of raw digital camera files to
 .BR ppm (5)
 format.  Dozens of cameras are supported, and new ones are
@@ -27,7 +27,7 @@ added as they reach the market.
 .B -i
 Identify the first file and exit immediately.
 Exit status is 0 if
-.B crw
+.B dcraw
 can decode this file, 1 if it can't.
 .TP
 .B -c
@@ -81,17 +81,17 @@ No attempt is made to save camera settings or thumbnail images.
 Author stubbornly refuses to add more output formats.
 .P
 Don't expect
-.B crw
+.B dcraw
 to produce the same images as software provided by the camera
 vendor.  Sometimes
-.B crw
+.B dcraw
 gives better results!
 .SH TIPS
 First raise the brightness if the highlights are too dark,
 then lower the gamma if the lowlights are too dark.
 .P
 To balance the color, do
-.RB \^" crw\ -g\ 1\ -b\ 0.5 \^"
+.RB \^" dcraw\ -g\ 1\ -b\ 0.5 \^"
 and select a rectangle of something that you know is white.
 Compute the average R, G, and B values for this area, then
 set red_mul and blue_mul to G/R and G/B.
