@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.220 $
-   $Date: 2004/12/08 23:50:03 $
+   $Revision: 1.221 $
+   $Date: 2004/12/17 07:31:32 $
  */
 
 #define _GNU_SOURCE
@@ -799,7 +799,7 @@ void CLASS nikon_e2100_load_raw()
 
   for (row=0; row <= height; row+=2) {
     if (row == height) {
-      fseek (ifp, width==1616 ? 8792:424, SEEK_CUR);
+      fseek (ifp, ((width==1616) << 13) - (-ftell(ifp) & -2048), SEEK_SET);
       row = 1;
     }
     fread (data, 1, width*3/2, ifp);
@@ -1024,6 +1024,29 @@ void CLASS le_high_12_load_raw()	/* "le" = "little-endian" */
 void CLASS le_low_12_load_raw()
 {
   unpacked_load_raw (0xaa55,-2);
+}
+
+void CLASS olympus_e300_load_raw()
+{
+  uchar  *data,  *dp;
+  ushort *pixel, *pix;
+  int dwide, row, col;
+
+  dwide = raw_width * 16 / 10;
+  data = malloc (dwide + raw_width*2);
+  merror (data, "olympus_e300_load_raw()");
+  pixel = (ushort *) (data + dwide);
+  for (row=0; row < height; row++) {
+    fread (data, 1, dwide, ifp);
+    for (dp=data, pix=pixel; pix < pixel+raw_width; dp+=3, pix+=2) {
+      if (((dp-data) & 15) == 15) dp++;
+      pix[0] = dp[1] << 8 | dp[0];
+      pix[1] = dp[2] << 4 | dp[1] >> 4;
+    }
+    for (col=0; col < width; col++)
+      BAYER(row,col) = (pixel[col] & 0xfff) << 2;
+  }
+  free (data);
 }
 
 void CLASS olympus_cseries_load_raw()
@@ -2808,6 +2831,7 @@ int CLASS identify()
     {  2465792, "NIKON",    "E950" },
     {  2940928, "NIKON",    "E2100" },
     {  4771840, "NIKON",    "E990" },
+    {  4775936, "NIKON",    "E3700" },
     {  5865472, "NIKON",    "E4500" },
     {  5869568, "NIKON",    "E4300" },
     {   787456, "Creative", "PC-CAM 600" },
@@ -3176,6 +3200,12 @@ nucore:
       filters = 0x4b4b4b4b;
       goto coolpix;
     }
+  } else if (!strcmp(model,"E3700")) {
+    height = 1542;
+    width  = 2064;
+    load_raw = nikon_e2100_load_raw;
+    pre_mul[0] = 1.818;
+    pre_mul[2] = 1.618;
   } else if (!strcmp(model,"E4300")) {
     height = 1710;
     width  = 2288;
@@ -3411,6 +3441,11 @@ konica_400z:
     black = 640;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
+  } else if (!strcmp(model,"E-300")) {
+    width -= 21;
+    load_raw = olympus_e300_load_raw;
+    pre_mul[0] = 1.718;
+    pre_mul[2] = 1.235;
   } else if (!strcmp(model,"C5050Z")) {
     filters = 0x16161616;
     load_raw = olympus_cseries_load_raw;
@@ -3980,7 +4015,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.17"
+    "\nRaw Photo Decoder \"dcraw\" v6.18"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
