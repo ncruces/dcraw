@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.131 $
-   $Date: 2003/09/17 18:33:30 $
+   $Revision: 1.132 $
+   $Date: 2003/09/18 02:21:21 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2326,7 +2326,8 @@ nucore:
     pre_mul[0] = 1.592;
     pre_mul[2] = 1.261;
   } else if (!strcmp(model,"EOS D60") ||
-	     !strcmp(model,"EOS 10D")) {
+	     !strcmp(model,"EOS 10D") ||
+	     !strcmp(model,"EOS 300D DIGITAL")) {
     height = 2056;
     width  = 3088;
     filters = 0x94949494;
@@ -2862,7 +2863,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.93"
+    "\nRaw Photo Decoder v4.94"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
