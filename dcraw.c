@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.195 $
-   $Date: 2004/06/16 17:19:36 $
+   $Revision: 1.196 $
+   $Date: 2004/06/29 02:23:39 $
  */
 
 #define _GNU_SOURCE
@@ -974,7 +974,7 @@ void unpacked_load_raw (int order, int rsh)
   pixel = calloc (width, sizeof *pixel);
   merror (pixel, "unpacked_load_raw()");
   for (row=0; row < height; row++) {
-    fread (pixel, 2, width, ifp);
+    fread (pixel, 2, raw_width, ifp);
     if (order != ntohs(0x55aa))
       swab (pixel, pixel, width*2);
     for (col=0; col < width; col++)
@@ -996,6 +996,11 @@ void be_high_12_load_raw()
 void be_low_12_load_raw()
 {
   unpacked_load_raw (0x55aa,-2);
+}
+
+void be_low_10_load_raw()
+{
+  unpacked_load_raw (0x55aa,-4);
 }
 
 void le_high_12_load_raw()	/* "le" = "little-endian" */
@@ -2740,6 +2745,12 @@ int identify()
     camera_red /= fget2(ifp);
     camera_blue = fget2(ifp);
     camera_blue = fget2(ifp) / camera_blue;
+  } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
+	     !memcmp (head+6,"Exif",4)) {
+    fseek (ifp, 4, SEEK_SET);
+    fseek (ifp, 4 + fget2(ifp), SEEK_SET);
+    if (fgetc(ifp) != 0xff)
+      parse_tiff(12);
   } else if (!memcmp (head,"BM",2)) {
     data_offset = 0x1000;
     order = 0x4949;
@@ -3100,6 +3111,21 @@ coolpix:
     load_raw = be_low_12_load_raw;
     if (!strncmp(model,"DiMAGE A",8))
       load_raw = packed_12_load_raw;
+    else if (!strncmp(model,"DiMAGE G",8)) {
+      load_raw = be_low_10_load_raw;
+      height = 1956;
+      width  = 2607;
+      raw_width = 2624;
+      filters = 0x61616161;
+      data_offset = 4016;
+      rgb_max = 15856;
+      order = 0x4d4d;
+      fseek (ifp, 1936, SEEK_SET);
+      camera_red   = fget2(ifp);
+      camera_blue  = fget2(ifp);
+      camera_red  /= fget2(ifp);
+      camera_blue /= fget2(ifp);
+    }
     pre_mul[0] = 2.00;
     pre_mul[2] = 1.25;
   } else if (!strcmp(model,"*ist D")) {
@@ -3203,6 +3229,7 @@ coolpix:
     pre_mul[2] = 1.77;
   } else if (!strncmp(model,"E-20",4)) {
     load_raw = be_high_12_load_raw;
+    black = 640;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
   } else if (!strcmp(model,"C5050Z")) {
@@ -3714,7 +3741,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.85"
+    "\nRaw Photo Decoder \"dcraw\" v5.86"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
