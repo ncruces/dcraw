@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.44 $
-   $Date: 2002/03/24 19:29:10 $
+   $Revision: 1.45 $
+   $Date: 2002/03/25 03:52:38 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -43,7 +43,7 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-int height, width, colors, black;
+int height, width, colors, black, canon;
 unsigned filters;
 char name[64];
 ushort (*image)[4];
@@ -434,7 +434,7 @@ unsigned long getbits(int nbits)
   while (vbits < 25) {
     c = fgetc(ifp);
     bitbuf = (bitbuf << 8) + c;
-    if (c == 0xff) fgetc(ifp);	/* always extra 00 after ff */
+    if (c == 0xff && canon) fgetc(ifp); /* Canon puts an extra 0 after 0xff */
     vbits += 8;
   }
   return ret;
@@ -647,6 +647,61 @@ void eos1d_read_crw()
 }
 #endif /* LJPEG_DECODE */
 
+short fget2 (FILE *f);
+
+void nikon_d1x_read_crw()
+{
+  static const uchar nikon_tree[] = {
+    0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
+    5,4,3,6,2,7,1,0,8,9,11,10,12
+  };
+  int vpred[4], hpred[2], csize, row, col, i, len;
+  ushort *curve;
+  struct decode *dindex;
+  register int diff;
+
+  memset (first_decode, 0, sizeof first_decode);
+  make_decoder (first_decode,  nikon_tree, 0);
+
+  fseek (ifp, 3488, SEEK_SET);
+  for (i=0; i < 4; i++)
+    vpred[i] = fget2(ifp);
+  csize = fget2(ifp);
+  curve = calloc (csize, sizeof *curve);
+  if (!curve) {
+    perror("nikon_d1x_read_crw() calloc failed");
+    exit(1);
+  }
+  for (i=0; i < csize; i++)
+    curve[i] = fget2(ifp);
+
+  fseek (ifp, 83662, SEEK_SET);
+  getbits(-1);
+
+  for (row=0; row < 1324; row++)
+    for (col=0; col < 4028; col++) {
+
+      for (dindex=first_decode; dindex->branch[0]; )
+	dindex = dindex->branch[getbits(1)];
+      len = dindex->leaf;
+      diff = getbits(len);
+      if ((diff & (1 << (len-1))) == 0)
+	diff -= (1 << len) - 1;
+      if (col < 2) {
+	i = 2*(row & 1) + col;
+	vpred[i] += diff;
+	hpred[col] = vpred[i];
+      } else
+	hpred[col & 1] += diff;
+      if (col >= 4024) continue;
+      diff = hpred[col & 1];
+      if (diff < 0) diff = 0;
+      if (diff >= csize) diff = csize-1;
+      image[row*width+col][FC(row,col)] = curve[diff];
+    }
+  free (curve);
+}
+
 void subtract_black()
 {
   ushort *img;
@@ -817,6 +872,7 @@ int open_and_id(char *fname)
   rgb_mul[1] = 1.0;
   rgb_mul[2] = 1.261;
   colors = 4;
+  canon = 1;
 
   ifp = fopen(fname,"rb");
   if (!ifp) {
@@ -844,10 +900,22 @@ int open_and_id(char *fname)
       fprintf(stderr,"crw.c was compiled without EOS-1D support.\n",fname);
       return 1;
 #endif
-    } else {
-      fprintf(stderr,"%s is not a Canon RAW file.\n",fname);
-      return 1;
     }
+    fseek(ifp, 382, SEEK_SET);
+    fread(name, 64, 1, ifp);
+    if (!strcmp(name,"NIKON D1X")) {
+      height = 1324;
+      width  = 4024;
+      colors = 3;
+      canon = 0;
+      filters = 0x94949494;
+      read_crw = nikon_d1x_read_crw;
+      rgb_mul[0] = 1.3;
+      rgb_mul[2] = 1.24;
+      return 0;
+    }
+    fprintf(stderr,"%s is not a Canon RAW file.\n",fname);
+    return 1;
   }
 
   name[0] = 0;
@@ -1165,7 +1233,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.55"
+    "\nCanon PowerShot Converter v2.60"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
