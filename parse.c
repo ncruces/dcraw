@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.11 $
-   $Date: 2004/02/11 00:03:21 $
+   $Revision: 1.12 $
+   $Date: 2004/02/20 04:22:08 $
  */
 
 #include <stdio.h>
@@ -145,6 +145,21 @@ void nef_parse_makernote()
   order = sorder;
 }
 
+void mrw_parse_makernote(int base)
+{
+  int entries, tag, type, count, val;
+
+  entries = fget2(ifp);
+  while (entries--) {
+    tag  = fget2(ifp);
+    type = fget2(ifp);
+    count= fget4(ifp);
+    val  = fget4(ifp);
+    if (tag == 0x81 || tag == 0x88)
+      thumb_offset = base + val;
+  }
+}
+
 void nef_parse_exif(int base)
 {
   int entries, tag, type, count, save;
@@ -157,8 +172,11 @@ void nef_parse_exif(int base)
     type = fget2(ifp);
     count= fget4(ifp);
     tiff_dump (base, tag, type, count, 1);
-    if (tag == 0x927c && !strncmp(make,"NIKON",5))
-      nef_parse_makernote();
+    if (tag == 0x927c)
+      if (!strncmp(make,"NIKON",5))
+	nef_parse_makernote();
+      else if (strstr(make,"Minolta"))
+	mrw_parse_makernote(base);
     fseek (ifp, save+12, SEEK_SET);
   }
 }
@@ -521,14 +539,11 @@ int identify(char *fname)
     } else
       parse_tiff_file(0);
   } else if (!memcmp (head,"\0MRM",4)) {
-    parse_tiff_file(48);
-    strcpy (thumb_head, "\xff");
     fseek (ifp, 4, SEEK_SET);
     thumb_length = fget4(ifp);
-    fseek (ifp, 584, SEEK_SET);
-    if (!strcmp(model,"DiMAGE A1"))
-      fseek (ifp, 974, SEEK_SET);
-    thumb_offset = fget4(ifp) + 49;
+    parse_tiff_file(48);
+    strcpy (thumb_head, "\xff");
+    thumb_offset++;
     thumb_length -= thumb_offset;
   } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
@@ -548,6 +563,11 @@ int identify(char *fname)
   if (!strncmp(model,"C50",3)) {
     thumb_head[0] = 0;
     thumb_offset = 0x1000;
+    thumb_length = 0x2c00;
+  }
+  if (!strncmp(model,"C80",3)) {
+    thumb_head[0] = 0;
+    thumb_offset = 0x1584;
     thumb_length = 0x2c00;
   }
   fprintf (stderr, "Findings for %s:\n", fname);

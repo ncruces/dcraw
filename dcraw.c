@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.168 $
-   $Date: 2004/02/18 20:29:52 $
+   $Revision: 1.169 $
+   $Date: 2004/02/20 04:22:08 $
  */
 
 #define _GNU_SOURCE
@@ -905,7 +905,7 @@ void olympus_cseries_load_raw()
   for (irow=0; irow < height; irow++) {
     row = irow * 2 % height + irow / (height/2);
     if (row < 2) {
-      fseek (ifp, 15360 - row*(-width*height*3/4 & -2048), SEEK_SET);
+      fseek (ifp, data_offset - row*(-width*height*3/4 & -2048), SEEK_SET);
       getbits(-1);
     }
     for (col=0; col < width; col++)
@@ -1959,7 +1959,7 @@ void parse_tiff(int base)
 {
   int doff, entries, tag, type, len, val, save;
   char software[64];
-  int wide=0, high=0;
+  int wide=0, high=0, offset=0;
 
   nef_curve_offset = 0;
   fseek (ifp, base, SEEK_SET);
@@ -1977,16 +1977,19 @@ void parse_tiff(int base)
       fseek (ifp, val+base, SEEK_SET);
       switch (tag) {
 	case 256:			/* ImageWidth */
-	  wide = val >> 16;
+	  wide = val;
 	  break;
 	case 257:			/* ImageHeight */
-	  high = val >> 16;
+	  high = val;
 	  break;
 	case 271:			/* Make tag */
 	  fgets (make, 64, ifp);
 	  break;
 	case 272:			/* Model tag */
 	  fgets (model, 64, ifp);
+	  break;
+	case 273:			/* StripOffset */
+	  offset = fget4(ifp);
 	  break;
 	case 33405:			/* Model2 tag */
 	  fgets (model2, 64, ifp);
@@ -2015,7 +2018,13 @@ void parse_tiff(int base)
       fseek (ifp, save, SEEK_SET);
     }
   }
-  if (make[0] == 0 && wide == 680 && high == 680) {
+  if (!strncmp(make,"OLYMPUS",7)) {
+    make[7] = 0;
+    raw_width = wide;
+    raw_height = - (-high & -2);
+    data_offset = offset;
+  }
+  if (make[0] == 0 && wide == 0x2a80000 && high == 0x2a80000) {
     strcpy (make, "Imacon");
     strcpy (model,"Ixpress");
   }
@@ -2409,8 +2418,8 @@ nucore:
     make[5] = 0;
   if (!strncmp(make,"PENTAX",6))
     make[6] = 0;
-  if (!strncmp(make,"OLYMPUS",7) || !strncmp(make,"Minolta",7))
-    make[7] = 0;
+  if (strstr(make,"Minolta"))
+    strcpy (make, "Minolta");
   if (!strncmp(make,"KODAK",5))
     make[16] = model[16] = 0;
   i = strlen(make);
@@ -2678,7 +2687,7 @@ coolpix:
     rgb_max = 0xffff;
   } else if (!strcmp(make,"Minolta")) {
     load_raw = be_low_12_load_raw;
-    if (!strcmp(model,"DiMAGE A1"))
+    if (!strncmp(model,"DiMAGE A",8))
       load_raw = packed_12_load_raw;
     pre_mul[0] = 1.57;
     pre_mul[2] = 1.42;
@@ -2751,38 +2760,30 @@ coolpix:
     load_raw = be_16_load_raw;
     rgb_max = 0xffff;
   } else if (!strcmp(model,"E-1")) {
-    height = 1966;
-    width  = 2624;
     filters = 0x61616161;
-    data_offset = 0x54000;
     load_raw = le_high_12_load_raw;
     pre_mul[0] = 1.57;
     pre_mul[2] = 1.48;
   } else if (!strcmp(model,"E-10")) {
-    height = 1684;
-    width  = 2256;
-    data_offset = 0x4000;
     load_raw = be_high_12_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
   } else if (!strncmp(model,"E-20",4)) {
-    height = 1924;
-    width  = 2576;
-    data_offset = 0x4000;
     load_raw = be_high_12_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
   } else if (!strcmp(model,"C5050Z")) {
-    height = 1926;
-    width  = 2576;
     filters = 0x16161616;
     load_raw = olympus_cseries_load_raw;
     pre_mul[0] = 1.533;
     pre_mul[2] = 1.880;
   } else if (!strcmp(model,"C5060WZ")) {
-    height = 1950;
-    width  = 2608;
     load_raw = olympus_cseries_load_raw;
+  } else if (!strcmp(model,"C8080WZ")) {
+    filters = 0x16161616;
+    load_raw = olympus_cseries_load_raw;
+    pre_mul[0] = 2.335;
+    pre_mul[2] = 1.323;
   } else if (!strcmp(model,"N DIGITAL")) {
     height = 2047;
     width  = 3072;
@@ -3170,7 +3171,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.50"
+    "\nRaw Photo Decoder v5.52"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
