@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.211 $
-   $Date: 2004/10/13 01:13:53 $
+   $Revision: 1.212 $
+   $Date: 2004/10/23 04:40:54 $
  */
 
 #define _GNU_SOURCE
@@ -80,7 +80,7 @@ ushort (*image)[4], white[8][8];
 void (*load_raw)();
 float gamma_val=0.6, bright=1.0, red_scale=1.0, blue_scale=1.0;
 int four_color_rgb=0, document_mode=0, quick_interpolate=0;
-int verbose=0, use_auto_wb=0, use_camera_wb=0;
+int verbose=0, use_auto_wb=0, use_camera_wb=0, use_secondary=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
 int histogram[0x2000];
@@ -881,13 +881,7 @@ void CLASS fuji_f700_load_raw()
     for (col=0; col < 1440; col++) {
       r = 1439 - col + (row >> 1);
       c = col + ((row+1) >> 1);
-      val = pixel[col+16];
-      if (val == 0x3fff) {		/* If the primary is maxed, */
-	val = pixel[col+1488] << 4;	/* use the secondary.       */
-	rgb_max = 0xffff;
-      }
-      if (val > 0xffff)
-	val = 0xffff;
+      val = pixel[col+16 + use_secondary*1472];
       BAYER(r,c) = val;
     }
   }
@@ -2759,7 +2753,7 @@ int CLASS identify()
     {  6114240, "Pentax",   "Optio S4" },
     { 12582980, "Sinar",    "" } };
   static const char *corp[] =
-    { "Canon", "NIKON", "Kodak", "PENTAX", "Minolta", "Konica" };
+    { "Canon", "NIKON", "Kodak", "PENTAX", "MINOLTA", "Minolta", "Konica" };
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
@@ -3160,7 +3154,7 @@ coolpix:
     load_raw = fuji_s5000_load_raw;
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
-    rgb_max = 0xf7ff;
+    rgb_max = 0xf800;
   } else if (!strcmp(model,"FinePix S7000")) {
     pre_mul[0] = 1.62;
     pre_mul[2] = 1.38;
@@ -3173,15 +3167,16 @@ fuji_s7000:
     width  = 3588;
     filters = 0x49494949;
     load_raw = fuji_s7000_load_raw;
-    rgb_max = 0xf7ff;
-  } else if (!strcmp(model,"FinePix F700")) {
+    rgb_max = 0xf800;
+  } else if (!strcmp(model,"FinePix F700") ||
+	     !strcmp(model,"FinePix S20Pro")) {
     height = 2523;
     width  = 2524;
     filters = 0x49494949;
     load_raw = fuji_f700_load_raw;
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
-    rgb_max = 14000;
+    rgb_max = 0x3e00;
   } else if (!strcmp(model,"Digital Camera KD-400Z")) {
     height = 1712;
     width  = 2312;
@@ -3193,14 +3188,19 @@ fuji_s7000:
     data_offset = 4032;
     fseek (ifp, 2032, SEEK_SET);
     goto konica_510z;
-  } else if (!strcmp(make,"Minolta")) {
+  } else if (!strcasecmp(make,"MINOLTA")) {
     load_raw = be_low_12_load_raw;
     rgb_max = 15860;
     if (!strncmp(model,"DiMAGE A",8)) {
       load_raw = packed_12_load_raw;
       rgb_max = model[8] == '1' ? 15916:16380;
     } else if (!strncmp(model,"DiMAGE G",8)) {
-      if (model[8] <= '5') {
+      if (model[8] == '4') {
+	data_offset = 5056;
+	fseek (ifp, 2078, SEEK_SET);
+	height = 1716;
+	width  = 2304;
+      } else if (model[8] == '5') {
 	data_offset = 4016;
 	fseek (ifp, 1936, SEEK_SET);
 konica_510z:
@@ -3887,7 +3887,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.08"
+    "\nRaw Photo Decoder \"dcraw\" v6.09"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -3898,6 +3898,7 @@ int CLASS main (int argc, char **argv)
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-q        Quick, low-quality color interpolation"
     "\n-h        Half-size color image (3x faster than -q)"
+    "\n-s        Use secondary pixels (Fuji Super CCD SR only)"
     "\n-g <num>  Set gamma      (0.6 by default, only for 24-bpp output)"
     "\n-b <num>  Set brightness (1.0 by default)"
     "\n-a        Use automatic white balance"
@@ -3936,6 +3937,7 @@ int CLASS main (int argc, char **argv)
       case 'q':  quick_interpolate = 1;  break;
       case 'a':  use_auto_wb       = 1;  break;
       case 'w':  use_camera_wb     = 1;  break;
+      case 's':  use_secondary     = 1;  break;
 
       case '2':  write_fun = write_ppm;   write_ext = ".ppm";  break;
       case '3':  write_fun = write_psd;   write_ext = ".psd";  break;
