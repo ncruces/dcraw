@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.10.1.2 $
-   $Date: 2005/01/20 07:18:22 $
+   $Revision: 1.10.1.3 $
+   $Date: 2005/01/21 07:02:54 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -28,13 +28,15 @@
 
 #include <libgimp/gimp.h>
 #include <libgimp/gimpui.h>
-#include <libgimp/gimpintl.h>
 
 #if GIMP_CHECK_VERSION(1,3,0)
 #define GimpRunModeType GimpRunMode
 #endif
 
-#define PLUG_IN_VERSION  "1.0.10 - 20 January 2005"
+#include <libintl.h>
+#define _(String) gettext(String)
+
+#define PLUG_IN_VERSION  "1.0.11 - 21 January 2005"
 
 static void query(void);
 static void run(gchar *name,
@@ -55,10 +57,10 @@ GimpPlugInInfo PLUG_IN_INFO =
 };
 
 static struct {
-  gboolean check_val[5];
+  gboolean check_val[6];
   gfloat    spin_val[3];
 } cfg = {
-  { FALSE, FALSE, FALSE, FALSE, FALSE },
+  { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE },
   { 1, 1, 1 }
 };
 
@@ -86,7 +88,7 @@ static void query (void)
 			  "Loads raw digital camera files",
 			  "This plug-in loads raw digital camera files.",
 			  "Dave Coffin at cybercom dot net, user dcoffin",
-			  "Copyright 2003 by Dave Coffin",
+			  "Copyright 2003-2005 by Dave Coffin",
 			  PLUG_IN_VERSION,
 			  "<Load>/rawphoto",
 			  NULL,
@@ -174,15 +176,17 @@ static gint32 load_image (gchar *filename)
   guchar	*pixel;
   char		*command, nl;
 
+  setlocale (LC_NUMERIC, "C");
   command = g_malloc (strlen(filename)+100);
   if (!command) return -1;
   sprintf (command,
-	"dcraw -c%s%s%s%s%s -b %0.2f -r %0.2f -l %0.2f '%s'\n",
+	"dcraw -c%s%s%s%s%s%s -b %0.2f -r %0.2f -l %0.2f '%s'\n",
 	cfg.check_val[0] ? " -q":"",
-	cfg.check_val[1] ? " -f":"",
-	cfg.check_val[2] ? " -d":"",
-	cfg.check_val[3] ? " -a":"",
-	cfg.check_val[4] ? " -w":"",
+	cfg.check_val[1] ? " -h":"",
+	cfg.check_val[2] ? " -f":"",
+	cfg.check_val[3] ? " -d":"",
+	cfg.check_val[4] ? " -a":"",
+	cfg.check_val[5] ? " -w":"",
 	cfg.spin_val[0], cfg.spin_val[1], cfg.spin_val[2],
 	filename );
   fputs (command, stderr);
@@ -249,6 +253,8 @@ static void callback_ok (GtkWidget * widget, gpointer data)
   gtk_widget_destroy (GTK_WIDGET (data));
 }
 
+#define NCHECK (sizeof cfg.check_val / sizeof (gboolean))
+
 gint load_dialog (gchar * name)
 {
   GtkWidget *dialog;
@@ -256,16 +262,16 @@ gint load_dialog (gchar * name)
   GtkObject *adj;
   GtkWidget *widget;
   int i;
-  static const char *label[8] =
-  { "Quick interpolation", "Four color interpolation",
-    "Grayscale document",
+  static const char *label[9] =
+  { "Quick interpolation", "Half-size interpolation",
+    "Four color interpolation", "Grayscale document",
     "Automatic white balance", "Camera white balance",
     "Brightness", "Red Multiplier", "Blue Multiplier" };
 
   gimp_ui_init ("rawphoto", TRUE);
 
   dialog = gimp_dialog_new (_("Raw Photo Loader 1.0"), "rawphoto",
-			gimp_standard_help_func, "",
+			gimp_standard_help_func, "rawphoto",
 			GTK_WIN_POS_MOUSE,
 			FALSE, TRUE, FALSE,
 			_("OK"), callback_ok, NULL, NULL, NULL, TRUE,
@@ -280,7 +286,7 @@ gint load_dialog (gchar * name)
 	(GTK_BOX(GTK_DIALOG(dialog)->vbox), table, FALSE, FALSE, 0);
   gtk_widget_show (table);
 
-  for (i=0; i < 5; i++) {
+  for (i=0; i < NCHECK; i++) {
     widget = gtk_check_button_new_with_label
 	(_(label[i]));
     gtk_toggle_button_set_active
@@ -293,7 +299,7 @@ gint load_dialog (gchar * name)
     gtk_widget_show (widget);
   }
 
-  for (i=5; i < 8; i++) {
+  for (i=NCHECK; i < NCHECK+3; i++) {
     widget = gtk_label_new (_(label[i]));
     gtk_misc_set_alignment (GTK_MISC (widget), 1.0, 0.5);
     gtk_misc_set_padding   (GTK_MISC (widget), 10, 0);
@@ -301,12 +307,12 @@ gint load_dialog (gchar * name)
 	(GTK_TABLE(table), widget, 0, 1, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
     gtk_widget_show (widget);
     widget = gimp_spin_button_new
-	(&adj, cfg.spin_val[i-5], 0.01, 4.0, 0.01, 0.1, 0.1, 0.1, 2);
+	(&adj, cfg.spin_val[i-NCHECK], 0.01, 4.0, 0.01, 0.1, 0.1, 0.1, 2);
     gtk_table_attach
 	(GTK_TABLE(table), widget, 1, 2, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
     gtk_signal_connect (GTK_OBJECT (adj), "value_changed",
 			GTK_SIGNAL_FUNC (gimp_float_adjustment_update),
-			&cfg.spin_val[i-5]);
+			&cfg.spin_val[i-NCHECK]);
     gtk_widget_show (widget);
   }
 
