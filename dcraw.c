@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.201 $
-   $Date: 2004/09/01 21:28:04 $
+   $Revision: 1.202 $
+   $Date: 2004/09/06 05:50:09 $
  */
 
 #define _GNU_SOURCE
@@ -68,7 +68,7 @@ int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, colors, black, rgb_max;
 int iheight, iwidth, shrink;
-int is_canon, is_cmy, is_foveon, use_coeff, trim, ymag;
+int is_canon, is_cmy, is_foveon, use_coeff, trim, flip, xmag, ymag;
 int zero_after_ff;
 unsigned filters;
 ushort (*image)[4], white[8][8];
@@ -2273,6 +2273,7 @@ void parse_tiff(int base)
   int doff, entries, tag, type, len, val, save;
   char software[64];
   int wide=0, high=0, cr2_offset=0, offset=0;
+  static const int flip_map[] = { 0,1,3,2,4,6,7,5 };
 
   fseek (ifp, base, SEEK_SET);
   order = fget2(ifp);
@@ -2312,6 +2313,9 @@ void parse_tiff(int base)
 	case 0x111:			/* StripOffset */
 	  cr2_offset = val;
 	  offset = fget4(ifp);
+	  break;
+	case 0x112:			/* Rotation */
+	  flip = flip_map[(val-1) & 7];
 	  break;
 	case 0x123:
 	  curve_offset = val;
@@ -2482,6 +2486,14 @@ common:
     if (type == 0x180e) {		/* Get the timestamp */
       fseek (ifp, aoff, SEEK_SET);
       timestamp = fget4(ifp);
+    }
+    if (type == 0x1810) {		/* Get the rotation */
+      fseek (ifp, aoff+12, SEEK_SET);
+      switch (fget4(ifp)) {
+	case 270:  flip = 5;  break;
+	case 180:  flip = 3;  break;
+	case  90:  flip = 6;
+      }
     }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
@@ -2687,7 +2699,7 @@ int identify()
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
-  raw_height = raw_width = 0;
+  raw_height = raw_width = flip = 0;
   make[0] = model[0] = model2[0] = 0;
   memset (white, 0, sizeof white);
   camera_red = camera_blue = timestamp = 0;
@@ -2815,7 +2827,8 @@ nucore:
   colors = 3;
   filters = 0x94949494;
   black = is_cmy = is_foveon = use_coeff = 0;
-  pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = ymag = 1;
+  pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
+  xmag = ymag = 1;
   rgb_max = 0x4000;
 
 /*  We'll try to decode anything from Canon or Nikon. */
@@ -3602,6 +3615,52 @@ norgb:
     }
 }
 
+void flip_image()
+{
+  unsigned *flag;
+  int size, base, dest, next, row, col, temp;
+  INT64 *img, hold;
+
+  img = (INT64 *) image;
+  size = height * width;
+  flag = calloc ((size+31) >> 5, sizeof *flag);
+  merror (flag, "flip_image()");
+  for (base=0; base < size; base++) {
+    if (flag[base >> 5] & (1 << (base & 31)))
+      continue;
+    dest = base;
+    hold = img[base];
+    while (1) {
+      if (flip & 4) {
+	row = dest % height;
+	col = dest / height;
+      } else {
+	row = dest / width;
+	col = dest % width;
+      }
+      if (flip & 2)
+	row = height - 1 - row;
+      if (flip & 1)
+	col = width - 1 - col;
+      next = row * width + col;
+      if (next == base) break;
+      flag[next >> 5] |= 1 << (next & 31);
+      img[dest] = img[next];
+      dest = next;
+    }
+    img[dest] = hold;
+  }
+  free (flag);
+  if (flip & 4) {
+    temp = height;
+    height = width;
+    width = temp;
+    temp = ymag;
+    ymag = xmag;
+    xmag = temp;
+  }
+}
+
 /*
    Write the image to a 24-bpp PPM file.
  */
@@ -3621,9 +3680,9 @@ void write_ppm(FILE *ofp)
   max = val << 4;
 
   fprintf (ofp, "P6\n%d %d\n255\n",
-	width-trim*2, ymag*(height-trim*2));
+	xmag*(width-trim*2), ymag*(height-trim*2));
 
-  ppm = calloc (width-trim*2, 3);
+  ppm = calloc (width-trim*2, 3*xmag);
   merror (ppm, "write_ppm()");
   mul = bright * 442 / max;
   scale[0] = 0;
@@ -3636,11 +3695,12 @@ void write_ppm(FILE *ofp)
       for (c=0; c < 3; c++) {
 	val = rgb[c] * scale[rgb[3]];
 	if (val > 255) val=255;
-	ppm[col-trim][c] = val;
+	for (i=0; i < xmag; i++)
+	  ppm[xmag*(col-trim)+i][c] = val;
       }
     }
     for (i=0; i < ymag; i++)
-      fwrite (ppm, width-trim*2, 3, ofp);
+      fwrite (ppm, width-trim*2, 3*xmag, ofp);
   }
   free (ppm);
 }
@@ -3728,7 +3788,8 @@ void write_ppm16(FILE *ofp)
 
 int main(int argc, char **argv)
 {
-  int arg, status=0, identify_only=0, write_to_stdout=0, half_size=0;
+  int arg, status=0, user_flip=-1;
+  int identify_only=0, write_to_stdout=0, half_size=0;
   char opt, *ofname, *cp;
   const char *write_ext = ".ppm";
   FILE *ofp = stdout;
@@ -3736,7 +3797,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.90"
+    "\nRaw Photo Decoder \"dcraw\" v6.00"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -3753,6 +3814,7 @@ int main(int argc, char **argv)
     "\n-w        Use camera white balance, if possible"
     "\n-r <num>  Set red  multiplier (daylight = 1.0)"
     "\n-l <num>  Set blue multiplier (daylight = 1.0)"
+    "\n-t [0-7]  Flip image (0 = none, 3 = 180, 5 = 90CCW, 6 = 90CW)"
     "\n-2        Write 24-bpp PPM (default)"
     "\n-3        Write 48-bpp PSD (Adobe Photoshop)"
     "\n-4        Write 48-bpp PPM"
@@ -3773,6 +3835,7 @@ int main(int argc, char **argv)
       case 'b':  bright      = atof(argv[arg++]);  break;
       case 'r':  red_scale   = atof(argv[arg++]);  break;
       case 'l':  blue_scale  = atof(argv[arg++]);  break;
+      case 't':  user_flip   = atoi(argv[arg++]);  break;
 
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
@@ -3867,6 +3930,14 @@ int main(int argc, char **argv)
     if (verbose)
       fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
+    if (user_flip >= 0)
+      flip = user_flip;
+    if (flip) {
+      if (verbose)
+	fprintf (stderr, "Flipping image %c:%c:%c...\n",
+	  flip & 1 ? 'H':'0', flip & 2 ? 'V':'0', flip & 4 ? 'T':'0');
+      flip_image();
+    }
     ofname = malloc (strlen(ifname) + 16);
     merror (ofname, "main()");
     if (write_to_stdout)
