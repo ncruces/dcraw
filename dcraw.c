@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.182 $
-   $Date: 2004/04/19 22:58:46 $
+   $Revision: 1.183 $
+   $Date: 2004/04/22 01:01:56 $
  */
 
 #define _GNU_SOURCE
@@ -3552,8 +3552,8 @@ void write_ppm16(FILE *ofp)
   int row, col, c, val;
   ushort *rgb, (*ppm)[3];
 
-  fprintf (ofp, "P6\n%d %d\n65535\n",
-	width-trim*2, height-trim*2);
+  fprintf (ofp, "P6\n%d %d\n%d\n",
+	width-trim*2, height-trim*2, rgb_max);
 
   ppm = calloc (width-trim*2, 6);
   merror (ppm, "write_ppm16()");
@@ -3582,7 +3582,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.75"
+    "\nRaw Photo Decoder \"dcraw\" v5.76"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
