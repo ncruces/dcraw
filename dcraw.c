@@ -18,8 +18,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.237 $
-   $Date: 2005/03/10 03:48:40 $
+   $Revision: 1.238 $
+   $Date: 2005/03/11 00:50:22 $
  */
 
 #define _GNU_SOURCE
@@ -626,6 +626,13 @@ void CLASS lossless_jpeg_load_raw()
 	  jidx -= 2*1680*jh.high;
 	  row = jidx / 1748;
 	  col = jidx % 1748 + 2*1680;
+	}
+      } else if (raw_width == 3516) {
+	row = jidx / 1758;
+	col = jidx % 1758;
+	if (row >= raw_height) {
+	  row -= raw_height;
+	  col += 1758;
 	}
       } else {
 	row = jidx / raw_width;
@@ -3818,18 +3825,23 @@ nucore:
     raw_width  = 3596;
     top_margin  = 12;
     left_margin = 74;
-    height = raw_height - top_margin;
-    width  = raw_width - left_margin;
-    filters = 0x94949494;
+    goto canon_cr2;
   } else if (!strcmp(model,"EOS-1Ds Mark II")) {
     raw_height = 3349;
     raw_width  = 5108;
     top_margin  = 13;
     left_margin = 98;
+    maximum = 0xe80;
+    goto canon_cr2;
+  } else if (!strcmp(model,"EOS DIGITAL REBEL XT")) {
+    raw_height = 2328;
+    raw_width  = 3516;
+    top_margin  = 14;
+    left_margin = 42;
+canon_cr2:
     height = raw_height - top_margin;
     width  = raw_width - left_margin;
     filters = 0x94949494;
-    maximum = 0xe80;
   } else if (!strcmp(model,"EOS D2000C")) {
     black = curve[200];
   } else if (!strcmp(model,"D1")) {
@@ -4729,7 +4741,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.00"
+    "\nRaw Photo Decoder \"dcraw\" v7.01"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
