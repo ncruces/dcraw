@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.130 $
-   $Date: 2003/09/15 03:12:54 $
+   $Revision: 1.131 $
+   $Date: 2003/09/17 18:33:30 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -840,21 +840,32 @@ void fuji_f700_load_raw()
 
 void rollei_load_raw()
 {
-  ushort *pixel, val;
-  int row, col;
+  uchar pixel[10];
+  unsigned left=0, top=0, iten=0, isix, i, buffer=0, row, col, todo[16];
 
-  pixel = calloc (width, 2);
-  merror (pixel, "rollei_load_raw()");
+  switch (raw_width) {
+    case 1316: left = 6; top = 1; width = 1300; height = 1030;  break;
+    case 2568: left = 8; top = 2; width = 2560; height = 1960;  break;
+  }
+  isix = raw_width * raw_height * 5 / 8;
   fseek (ifp, tiff_data_offset, SEEK_SET);
-  for (row=0; row < height; row++) {
-    fread (pixel, 2, width, ifp);
-    for (col=0; col < width; col++) {
-      val = ntohs(pixel[col]);
-      val = val << 6 | val >> 10;
-      image[row*width+col][FC(row,col)] = val >> 2;
+  while (fread (pixel, 1, 10, ifp) == 10) {
+    for (i=0; i < 10; i+=2) {
+      todo[i]   = iten++;
+      todo[i+1] = pixel[i] << 8 | pixel[i+1];
+      buffer    = pixel[i] >> 2 | buffer << 6;
+    }
+    for (   ; i < 16; i+=2) {
+      todo[i]   = isix++;
+      todo[i+1] = buffer >> (14-i)*5;
+    }
+    for (i=0; i < 16; i+=2) {
+      row = todo[i] / raw_width - top;
+      col = todo[i] % raw_width - left;
+      if (row < height && col < width)
+	image[row*width+col][FC(row,col)] = (todo[i+1] & 0x3ff) << 4;
     }
   }
-  free (pixel);
 }
 
 void minolta_load_raw()
@@ -1992,7 +2003,6 @@ void parse_rollei()
       ty = atoi(val);
   } while (strncmp(line,"EOHD",4));
   tiff_data_offset += tx * ty * 2;
-  tiff_data_offset += raw_width * (raw_width == 1316 ? 2:4);
   strcpy (make, "Rollei");
   strcpy (model,"d530flex");
 }
@@ -2852,7 +2862,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.92"
+    "\nRaw Photo Decoder v4.93"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
