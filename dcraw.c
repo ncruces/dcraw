@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.155 $
-   $Date: 2003/12/09 20:35:40 $
+   $Revision: 1.156 $
+   $Date: 2003/12/17 05:08:01 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -66,7 +66,8 @@ unsigned filters;
 ushort (*image)[4];
 void (*load_raw)();
 float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
-int four_color_rgb=0, use_camera_wb=0, document_mode=0, quick_interpolate=0;
+int verbose=0, four_color_rgb=0, use_camera_wb=0;
+int document_mode=0, quick_interpolate=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
 int histogram[0x2000];
@@ -1082,7 +1083,7 @@ void kodak_yuv_load_raw()
   for (row=0; row < height; row+=2)
     for (col=0; col < width; col+=2) {
       if ((col & 127) == 0) {
-	len = (width - col) * 3;
+	len = (width - col + 1) * 3 & -4;
 	if (len > 384) len = 384;
 	for (i=0; i < len; ) {
 	  c = fgetc(ifp);
@@ -1487,9 +1488,11 @@ void bad_pixels()
 	    n++;
 	  }
     image[row*width+col][FC(row,col)] = tot/n;
-    if (!fixed++)
-      fprintf (stderr, "Fixed bad pixels at:");
-    fprintf (stderr, " %d,%d", col, row);
+    if (verbose) {
+      if (!fixed++)
+	fprintf (stderr, "Fixed bad pixels at:");
+      fprintf (stderr, " %d,%d", col, row);
+    }
   }
   if (fixed) fputc ('\n', stderr);
   fclose (fp);
@@ -3003,7 +3006,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.25"
+    "\nRaw Photo Decoder v5.26"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -3012,6 +3015,7 @@ int main(int argc, char **argv)
     "\nValid options:"
     "\n-i        Identify files but don't decode them"
     "\n-c        Write to standard output"
+    "\n-v        Print verbose messages while decoding"
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-q        Quick, low-quality color interpolation"
@@ -3043,6 +3047,7 @@ int main(int argc, char **argv)
 
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
+      case 'v':  verbose           = 1;  break;
       case 'f':  four_color_rgb    = 1;  break;
       case 'd':  document_mode     = 1;  break;
       case 'q':  quick_interpolate = 1;  break;
@@ -3092,16 +3097,19 @@ int main(int argc, char **argv)
     }
     image = calloc (height * width, sizeof *image);
     merror (image, "main()");
-    fprintf (stderr, "Loading %s %s image from %s...\n",
-	make, model, argv[arg]);
+    if (verbose)
+      fprintf (stderr,
+	"Loading %s %s image from %s...\n", make, model, argv[arg]);
     (*load_raw)();
     fclose(ifp);
     if (is_foveon) {
-      fprintf (stderr, "Foveon interpolation...\n");
+      if (verbose)
+	fprintf (stderr, "Foveon interpolation...\n");
       foveon_interpolate();
     } else {
       bad_pixels();
-      fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
+      if (verbose)
+	fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
       if (document_mode)
 	auto_scale();
       scale_colors();
@@ -3109,11 +3117,13 @@ int main(int argc, char **argv)
     trim = 0;
     if (filters && !document_mode) {
       trim = 1;
-      fprintf (stderr, "%s interpolation...\n",
-	quick_interpolate ? "Bilinear":"VNG");
+      if (verbose)
+	fprintf (stderr, "%s interpolation...\n",
+	  quick_interpolate ? "Bilinear":"VNG");
       vng_interpolate();
     }
-    fprintf (stderr, "Converting to RGB colorspace...\n");
+    if (verbose)
+      fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
     ofname = malloc (strlen(argv[arg]) + 16);
     merror (ofname, "main()");
@@ -3130,7 +3140,8 @@ int main(int argc, char **argv)
 	goto cleanup;
       }
     }
-    fprintf (stderr, "Writing data to %s...\n", ofname);
+    if (verbose)
+      fprintf (stderr, "Writing data to %s...\n", ofname);
     (*write_fun)(ofp);
     if (ofp != stdout)
       fclose(ofp);
