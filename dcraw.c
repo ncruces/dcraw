@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.57 $
-   $Date: 2002/05/06 04:11:13 $
+   $Revision: 1.58 $
+   $Date: 2002/05/23 16:26:47 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -51,7 +51,7 @@ unsigned filters;
 char name[64];
 ushort (*image)[4];
 void (*read_crw)();
-float gamma_val=0.8, bright=1.0;
+float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
 float rgb_mul[3];
 float coeff[3][4];
 
@@ -1088,6 +1088,8 @@ int open_and_id(char *fname)
     fprintf(stderr,"Sorry, the %s is not yet supported.\n",name);
     return 1;
   }
+  rgb_mul[0] *= red_scale;	/* Apply user-selected color balance */
+  rgb_mul[2] *= blue_scale;
   if (colors == 4) make_coeff();
   return 0;
 }
@@ -1360,7 +1362,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.94"
+    "\nCanon PowerShot Converter v2.95"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
@@ -1371,6 +1373,8 @@ int main(int argc, char **argv)
     "\n-s <num>  Number of times to smooth colors (1 by default)"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
+    "\n-r <num>  Set red  scaling (daylight = 1.0)"
+    "\n-l <num>  Set blue scaling (daylight = 1.0)"
     "\n-2        Write 24-bit PPM (default)"
     "\n-3        Write 48-bit PSD (Adobe Photoshop)"
 #ifndef NO_PNG
@@ -1394,6 +1398,10 @@ int main(int argc, char **argv)
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
 	bright = atof(argv[++arg]);  break;
+      case 'r':
+	red_scale = atof(argv[++arg]);  break;
+      case 'l':
+	blue_scale = atof(argv[++arg]);  break;
       case '2':
 	write_fun = write_ppm;
 	write_ext = ".ppm";
