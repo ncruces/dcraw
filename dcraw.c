@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.23 $
-   $Date: 2000/06/19 06:56:27 $
+   $Revision: 1.24 $
+   $Date: 2000/06/23 20:19:09 $
 */
 
 #include <fcntl.h>
@@ -80,6 +80,7 @@ float gamma_val=0.8, bright=1.0;
 #define WFLAGS O_WRONLY | O_CREAT | O_TRUNC | O_BINARY
 
 typedef unsigned char uchar;
+typedef unsigned short ushort;
 
 /* This array holds the GMCY values for each pixel */
 
