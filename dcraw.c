@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.42 $
-   $Date: 2002/02/05 22:40:25 $
+   $Revision: 1.43 $
+   $Date: 2002/03/24 17:34:52 $
 */
 
 #include <math.h>
@@ -817,8 +817,8 @@ int open_and_id(char *fname)
     colors = 3;
     filters = 0x94949494;
     read_crw = g1_read_crw;
-    rgb_mul[0] = 1.97;
-    rgb_mul[2] = 1.123;
+    rgb_mul[0] = 1.785;
+    rgb_mul[2] = 1.266;
   } else if (!strcmp(name,"Canon PowerShot G2") ||
 	     !strcmp(name,"Canon PowerShot S40")) {
     height = 1720;
@@ -1083,7 +1083,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.53"
+    "\nCanon PowerShot Converter v2.54"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
