@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.67 $
-   $Date: 2002/08/15 17:22:53 $
+   $Revision: 1.68 $
+   $Date: 2002/10/15 01:28:32 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -46,7 +46,7 @@ FILE *ifp;
 short order;
 int height, width, trim, colors, black, canon, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
-int nef_data_offset;
+int nikon_curve_offset, nikon_data_compression, nikon_data_offset;
 unsigned filters;
 char name[64];
 ushort (*image)[4];
@@ -675,7 +675,7 @@ int    fget4 (FILE *f);
 
 void nikon_d1x_read_crw()
 {
-  int waste=0, comp;
+  int waste=0;
   static const uchar nikon_tree[] = {
     0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
     5,4,3,6,2,7,1,0,8,9,11,10,12
@@ -693,10 +693,7 @@ void nikon_d1x_read_crw()
    my limited collection of NEF files.  For the D100, every
    16th byte of an uncompressed image is zero.
  */
-  fseek (ifp, nef_data_offset+58, SEEK_SET);
-  comp = fget2(ifp);
-  fseek (ifp, nef_data_offset+142, SEEK_SET);
-  fseek (ifp, fget4(ifp)+8, SEEK_SET);
+  fseek (ifp, nikon_data_offset, SEEK_SET);
   if (!strcmp(name,"NIKON D100")) {
     width = 3034;
     fread (test, 1, 256, ifp);
@@ -706,7 +703,7 @@ void nikon_d1x_read_crw()
     width = 3037;
     waste = 3;
     skip16 = 1;
-  } else if (comp == 0x8799)
+  } else if (nikon_data_compression == 0x8799)
     goto compressed;
 
 /* Read an uncompressed image */
@@ -727,10 +724,9 @@ compressed:
   memset (first_decode, 0, sizeof first_decode);
   make_decoder (first_decode,  nikon_tree, 0);
 
-  if (!strcmp(name,"NIKON D100"))
-    fseek (ifp, 5974, SEEK_SET);
-  else
-    fseek (ifp, 3488, SEEK_SET);
+  if (nikon_curve_offset == 0)
+    nikon_curve_offset = strcmp(name,"NIKON D100") ? 3488:5974;
+  fseek (ifp, nikon_curve_offset, SEEK_SET);
   for (i=0; i < 4; i++)
     vpred[i] = fget2(ifp);
   csize = fget2(ifp);
@@ -742,8 +738,7 @@ compressed:
   for (i=0; i < csize; i++)
     curve[i] = fget2(ifp);
 
-  fseek (ifp, nef_data_offset+82, SEEK_SET);
-  fseek (ifp, fget4(ifp), SEEK_SET);
+  fseek (ifp, nikon_data_offset, SEEK_SET);
   getbits(-1);
 
   for (row=0; row < height; row++)
@@ -1041,6 +1036,105 @@ int fget4 (FILE *f)
     return a + (b << 8) + (c << 16) + (d << 24);
 }
 
+void nikon_parse_subifd()
+{
+  int entries, tag, type, len, val, save;
+
+  entries = fget2(ifp);
+  while (entries--) {
+    tag  = fget2(ifp);
+    type = fget2(ifp);
+    len  = fget4(ifp);
+    if (type == 3) {		/* short int */
+      val = fget2(ifp);  fget2(ifp);
+    } else
+      val = fget4(ifp);
+    save = ftell(ifp);
+    switch (tag) {
+      case 0x100:		/* ImageWidth */
+	raw_width = val;
+	break;
+      case 0x101:		/* ImageHeight */
+	raw_height = val;
+	break;
+      case 0x102:		/* Bits per sample */
+	break;
+      case 0x103:		/* Compression */
+	nikon_data_compression = val;
+	break;
+      case 0x111:		/* StripOffset */
+	if (len == 1)
+	  nikon_data_offset = val;
+	else {
+	  fseek (ifp, val, SEEK_SET);
+	  nikon_data_offset = fget4(ifp);
+	}
+	break;
+      case 0x115:		/* SamplesPerRow */
+      case 0x116:		/* RowsPerStrip */
+      case 0x117:		/* StripByteCounts */
+      case 0x828d:		/* Unknown */
+      case 0x828e:		/* Unknown */
+      case 0x9217:		/* Unknown */
+	break;
+    }
+    fseek (ifp, save, SEEK_SET);
+  }
+}
+
+void nikon_parse_makernote()
+{
+  int base=0, offset=0, entries, tag, type, len, val, save;
+  short sorder;
+  char buf[10];
+
+/*
+   The MakerNote might have its own TIFF header (possibly with
+   its own byte-order!), or it might just be a table.
+ */
+  sorder = order;
+  fread (buf, 1, 10, ifp);
+  if (!strcmp (buf,"Nikon")) {	/* starts with "Nikon\0\2\0\0\0" ? */
+    base = ftell(ifp);
+    order = fget2(ifp);		/* might differ from file-wide byteorder */
+    val = fget2(ifp);		/* should be 42 decimal */
+    offset = fget4(ifp);
+    fseek (ifp, offset-8, SEEK_CUR);
+  } else
+    fseek (ifp, -10, SEEK_CUR);
+
+  entries = fget2(ifp);
+  while (entries--) {
+    tag  = fget2(ifp);
+    type = fget2(ifp);
+    len  = fget4(ifp);
+    val  = fget4(ifp);
+    save = ftell(ifp);
+    if (tag == 0x96)
+      nikon_curve_offset = base+val + 2;
+  }
+  order = sorder;
+}
+
+void nikon_parse_exif()
+{
+  int entries, tag, type, len, val, save;
+
+  entries = fget2(ifp);
+  while (entries--) {
+    tag  = fget2(ifp);
+    type = fget2(ifp);
+    len  = fget4(ifp);
+    val  = fget4(ifp);
+    save = ftell(ifp);
+    if (tag == 0x927c) {		/* MakerNote */
+      fseek (ifp, val, SEEK_SET);
+      nikon_parse_makernote();
+      fseek (ifp, save, SEEK_SET);
+    }
+  }
+}
+
 /*
    Parse a TIFF file looking for camera name and decompress offsets.
  */
@@ -1048,6 +1142,9 @@ void parse_tiff()
 {
   int doff, entries, tag, type, len, val, save;
 
+  nikon_curve_offset = 0;
+  nikon_data_compression = 0;
+  nikon_data_offset = 0;
   fseek (ifp, 2, SEEK_SET);	/* open_and_id() already got byte order */
   val = fget2(ifp);		/* Should be 42 for standard TIFF */
   while ((doff = fget4(ifp))) {
@@ -1059,13 +1156,17 @@ void parse_tiff()
       len  = fget4(ifp);
       val  = fget4(ifp);
       save = ftell(ifp);
+      fseek (ifp, val, SEEK_SET);
       switch (tag) {
 	case 272:			/* Model tag */
-	  fseek (ifp, val, SEEK_SET);
 	  fread (name, 64, 1, ifp);
 	  break;
 	case 330:			/* SubIFD tag */
-	  nef_data_offset = val;
+	  nikon_parse_subifd();
+	  break;
+	case 0x8769:			/* Nikon EXIF tag */
+	  nikon_parse_exif();
+	  break;
       }
       fseek (ifp, save, SEEK_SET);
     }
@@ -1076,7 +1177,7 @@ void parse_tiff()
    Parse the CIFF structure looking for two pieces of information:
    The camera name, and the decode table number.
  */
-void parse (int offset, int length)
+void parse_ciff(int offset, int length)
 {
   int tboff, nrecs, i, type, len, roff, aoff, save;
 
@@ -1105,7 +1206,7 @@ void parse (int offset, int length)
       init_tables (fget4(ifp));
     }
     if (type >> 8 == 0x28 || type >> 8 == 0x30)	/* Get sub-tables */
-      parse (aoff, len);
+      parse_ciff(aoff, len);
     fseek (ifp, save, SEEK_SET);
   }
 }
@@ -1140,7 +1241,7 @@ int open_and_id(char *fname)
     fread (head, 1, 8, ifp);
     if (!memcmp(head,"HEAPCCDR",8)) {
       fseek (ifp, 0, SEEK_END);
-      parse (hlen, ftell(ifp) - hlen);
+      parse_ciff(hlen, ftell(ifp) - hlen);
       fseek (ifp, hlen, SEEK_SET);
     } else
       parse_tiff();
@@ -1570,7 +1671,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v3.06"
+    "\nCanon PowerShot Converter v3.10"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
