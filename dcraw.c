@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.222 $
-   $Date: 2004/12/22 20:48:54 $
+   $Revision: 1.223 $
+   $Date: 2004/12/31 09:07:44 $
  */
 
 #define _GNU_SOURCE
@@ -2542,7 +2542,12 @@ void CLASS parse_ciff (int offset, int length)
   int tboff, nrecs, i, type, len, roff, aoff, save, wbi=-1;
   static const int remap[] = { 1,2,3,4,5,1 };
   static const int remap_10d[] = { 0,1,3,4,5,6,0,0,2,8 };
+  ushort key[] = { 0x410, 0x45f3 };
 
+  if (strcmp(model,"Canon PowerShot G6") &&
+      strcmp(model,"Canon PowerShot S70") &&
+      strcmp(model,"Canon PowerShot Pro1"))
+    key[0] = key[1] = 0;
   fseek (ifp, offset+length-4, SEEK_SET);
   tboff = fget4(ifp) + offset;
   fseek (ifp, tboff, SEEK_SET);
@@ -2576,22 +2581,24 @@ void CLASS parse_ciff (int offset, int length)
 	white[1][1] = fget2(ifp) << 4;
       } else {
 	fseek (ifp, aoff+100, SEEK_SET);
-	if (wbi == 6 && fget4(ifp) == 0)
-	  wbi = 15;
-	else {
-	  fseek (ifp, aoff+100, SEEK_SET);
-	  goto common;
-	}
+	goto common;
       }
     }
     if (type == 0x0032) {		/* Get white balance (D30 & G3) */
       if (!strcmp(model,"Canon EOS D30")) {
 	fseek (ifp, aoff+72, SEEK_SET);
 common:
-	camera_red   = fget2(ifp);
-	camera_red   = fget2(ifp) / camera_red;
-	camera_blue  = fget2(ifp);
-	camera_blue /= fget2(ifp);
+	camera_red   = fget2(ifp) ^ key[0];
+	camera_red   =(fget2(ifp) ^ key[1]) / camera_red;
+	camera_blue  = fget2(ifp) ^ key[0];
+	camera_blue /= fget2(ifp) ^ key[1];
+      } else if (!strcmp(model,"Canon PowerShot G6") ||
+		 !strcmp(model,"Canon PowerShot S70")) {
+	fseek (ifp, aoff+104 + wbi*8, SEEK_SET);
+	goto common;
+      } else if (!strcmp(model,"Canon PowerShot Pro1")) {
+	fseek (ifp, aoff+96 + wbi*8, SEEK_SET);
+	goto common;
       } else {
 	fseek (ifp, aoff+80 + (wbi < 6 ? remap[wbi]*8 : 0), SEEK_SET);
 	if (!camera_red)
@@ -2607,8 +2614,8 @@ common:
       camera_blue = fget2(ifp);
       camera_blue = fget2(ifp) / camera_blue;
     }
-    if (type == 0x1030 && wbi > 14) {	/* Get white sample */
-      fseek (ifp, aoff, SEEK_SET);
+    if (type == 0x1030 && (wbi == 6 || wbi > 14)) {
+      fseek (ifp, aoff, SEEK_SET);	/* Get white sample */
       ciff_block_1030();
     }
     if (type == 0x1031) {		/* Get the raw width and height */
@@ -4019,7 +4026,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.19"
+    "\nRaw Photo Decoder \"dcraw\" v6.20"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
