@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.246 $
-   $Date: 2005/03/28 19:32:13 $
+   $Revision: 1.247 $
+   $Date: 2005/03/29 06:33:18 $
  */
 
 #define _GNU_SOURCE
@@ -1254,10 +1254,10 @@ int CLASS radc_token (int tree)
       s = make_decoder_int (s, 0);
     }
   if (tree == 18) {
-    if (model[2] == '4')
-      return (getbits(5) << 3) + 4;	/* DC40 */
-    else
+    if (model[2] == '5')
       return (getbits(6) << 2) + 2;	/* DC50 */
+    else
+      return (getbits(5) << 3) + 4;	/* DC40, Fotoman Pixtura */
   }
   for (dindex = dstart[tree]; dindex->branch[0]; )
     dindex = dindex->branch[getbits(1)];
@@ -3358,6 +3358,8 @@ void CLASS adobe_coeff()
 	{ 6827,-1878,-732,-8429,16012,2564,-704,592,7145 } },
     { "FUJIFILM FinePix E550",
 	{ 11044,-3888,-1120,-7248,15168,2208,-1531,2277,8069 } },
+    { "FUJIFILM FinePix F8",
+	{ 11044,-3888,-1120,-7248,15168,2208,-1531,2277,8069 } },
     { "FUJIFILM FinePix F7",
 	{ 10004,-3219,-1201,-7036,15047,2107,-1863,2565,7736 } },
     { "FUJIFILM FinePix S20Pro",
@@ -3640,6 +3642,9 @@ nucore:
     camera_red /= get4();
     camera_blue = get4();
     camera_blue = get4() / camera_blue;
+  } else if (!strcmp (head, "PXN")) {
+    strcpy (make, "Logitech");
+    strcpy (model,"Fotoman Pixtura");
   } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     parse_tiff (get4()+12);
@@ -4328,6 +4333,12 @@ konica_400z:
       else
 	load_raw = kodak_dc120_load_raw;
     }
+  } else if (!strcmp(model,"Fotoman Pixtura")) {
+    height = 512;
+    width  = 768;
+    data_offset = 3632;
+    load_raw = kodak_radc_load_raw;
+    filters = 0x61616161;
   } else if (!strcmp(make,"Rollei")) {
     switch (raw_width) {
       case 1316:
@@ -4734,7 +4745,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.08"
+    "\nRaw Photo Decoder \"dcraw\" v7.09"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
