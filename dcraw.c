@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.79 $
-   $Date: 2002/12/04 03:28:49 $
+   $Revision: 1.80 $
+   $Date: 2002/12/12 06:31:37 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -51,6 +51,7 @@ typedef unsigned short ushort;
 FILE *ifp;
 short order;
 int height, width, trim, colors, is_cmy, is_canon, black, rgb_max;
+int xmag, ymag;
 int raw_height, raw_width;	/* Including black borders */
 int tiff_data_offset, tiff_data_compression;
 int nef_curve_offset;
@@ -67,35 +68,6 @@ struct decode {
   struct decode *branch[2];
   int leaf;
 } first_decode[32], second_decode[512];
-
-/*
-   I assume that the influence of one pixel upon another is proportionate
-   to the inverse square of the distance between them.  So I've designed
-   three neighborhoods for aspect ratios of 1:1, 1:2, and 2:1.
-
-   Triplet format is y-offset,x-offset,weight.  0,0,0 marks the end.
- */
-const char square_hood[] = {
-       -1,-1,1, -1,0,2, -1,1,1,
-	0,-1,2,          0,1,2,
-	1,-1,1,  1,0,2,  1,1,1,
-0,0,0 };
-
-const char wide_hood[] = {
-       -1,-1,1, -1,0,1, -1,1,1,
-0,-2,1, 0,-1,4,          0,1,4,  0,2,1,
-	1,-1,1,  1,0,1,  1,1,1,
-0,0,0 };
-
-const char tall_hood[] = {
-		-2,0,1,
-       -1,-1,1, -1,0,4, -1,1,1,
-	0,-1,1,		 0,1,1,
-	1,-1,1,  1,0,4,  1,1,1,
-		 2,0,1,
-0,0,0 };
-
-const char *hood;
 
 /*
    In order to inline this calculation, I make the risky
@@ -911,190 +883,161 @@ void subtract_black()
 }
 
 /*
-   RGB interpolation algorithm designed by Matt Dillon.
-   GMCY cameras still use my algorithm.
-   His explanation follows:
+   This algorithm is officially called:
 
- * When this function is called, we only have one color for
- * each pixel.  This code searches the 5x5 neighborhood and
- * synthesizes the other colors based on interpolation.  The
- * algorithm works as follows.  Take one portion of the
- * CCD filter pattern:
- *
- *	  0 1 2 3 4
- *	0 G R G R G
- *	1 B G B G B
- *	2 G R<G>R G
- *	3 B G B G B
- *	4 G R G R G
- *
- * Lets say we are on pixel (x,y) = (2,2), the bracketed green above, and
- * we are trying to synthesize the Blue and Red guns for that pixel based
- * on the surrounding pixels.
- *
- * We could average the surrounding blue pixels to synthesize a blue for
- * (2,2) but that will blur the image somewhat if we are on the boundary
- * of an edge.  Instead what we do is calculate a temporary green for each
- * blue pixel and then generate the blue for (2,2) by scaling it against
- * the differential between the temporary green and the green in (2,2).
- *
- * For example, the green for the blue pixel at (2,1) is calculated by
- * averaging the green at (2,0) and (2,2).  A scaling factor is generated
- * using this green and the green at (2,2), we multiply in the Blue pixel
- * at (2,1), and that is the Blue we store for (2,2).  It's actually somewhat
- * more complicated since there are other blue's around (2,2).  What we do
- * is execute this calculate for each blue and do a weighted average of the
- * result, and that final number is the Blue we store at (2,2).
- *
- * The scaling factor tends to blow up in low-light situations due to
- * the calculation of the scaling factor becoming skewed (think about the
- * difference between two pixel brightnesses of 10 and 15, and 4000 and 4005).
- * To compensate we introduce a constant in the scaling process, llfactor.
- * The higher the constant the closer the scaling factor gets to 1:1 (a
- * straight average of the surrounding blue's regardless of the scale
- * generated using the green's).  This results in somewhat more blurring
- * but hides low-light dropouts.
+   "Interpolation using a Threshold-based variable number of gradients"
+
+   described in http://www-ise.stanford.edu/~tingchen/algodep/vargra.html
+
+   I've extended the basic idea to work with non-Bayer filter arrays.
+   Gradients are numbered clockwise from NW=0 to W=7.
  */
-#define lowlight_val 0
-void dillon_interpolate()
+void vng_interpolate()
 {
-  int row, col, cc, c;
-  int vb, vr, val;
-  int dx, dy;
-  int avg[4], sum[4];
-  int base = 4096 + 64;
-  int llfactor = 8 + lowlight_val * 16;
-  int weight;
-  int size;
-  ushort (*oimage)[4];
+  static const char *cp, terms[] = {
+    -2,-2,+0,-1,0,0x01, -2,-2,+0,+0,1,0x01, -2,-1,-1,+0,0,0x01,
+    -2,-1,+0,-1,0,0x02, -2,-1,+0,+0,0,0x03, -2,-1,+0,+1,0,0x01,
+    -2,+0,+0,-1,0,0x06, -2,+0,+0,+0,1,0x02, -2,+0,+0,+1,0,0x03,
+    -2,+1,-1,+0,0,0x04, -2,+1,+0,-1,0,0x04, -2,+1,+0,+0,0,0x06,
+    -2,+1,+0,+1,0,0x02, -2,+2,+0,+0,1,0x04, -2,+2,+0,+1,0,0x04,
+    -1,-2,-1,+0,0,0x80, -1,-2,+0,-1,0,0x01, -1,-2,+1,-1,0,0x01,
+    -1,-2,+1,+0,0,0x01, -1,-1,-1,+1,0,0x88, -1,-1,+1,-2,0,0x40,
+    -1,-1,+1,-1,0,0x22, -1,-1,+1,+0,0,0x33, -1,-1,+1,+1,1,0x11,
+    -1,+0,-1,+2,0,0x08, -1,+0,+0,-1,0,0x44, -1,+0,+0,+1,0,0x11,
+    -1,+0,+1,-2,0,0x40, -1,+0,+1,-1,0,0x66, -1,+0,+1,+0,1,0x22,
+    -1,+0,+1,+1,0,0x33, -1,+0,+1,+2,0,0x10, -1,+1,+1,-1,1,0x44,
+    -1,+1,+1,+0,0,0x66, -1,+1,+1,+1,0,0x22, -1,+1,+1,+2,0,0x10,
+    -1,+2,+0,+1,0,0x04, -1,+2,+1,+0,0,0x04, -1,+2,+1,+1,0,0x04,
+    +0,-2,+0,+0,1,0x80, +0,-1,+0,+1,1,0x88, +0,-1,+1,-2,0,0x40,
+    +0,-1,+1,+0,0,0x11, +0,-1,+2,-2,0,0x40, +0,-1,+2,-1,0,0x20,
+    +0,-1,+2,+0,0,0x30, +0,-1,+2,+1,0,0x10, +0,+0,+0,+2,1,0x08,
+    +0,+0,+2,-2,1,0x40, +0,+0,+2,-1,0,0x60, +0,+0,+2,+0,1,0x20,
+    +0,+0,+2,+1,0,0x30, +0,+0,+2,+2,1,0x10, +0,+1,+1,+0,0,0x44,
+    +0,+1,+1,+2,0,0x10, +0,+1,+2,-1,0,0x40, +0,+1,+2,+0,0,0x60,
+    +0,+1,+2,+1,0,0x20, +0,+1,+2,+2,0,0x10, +1,-2,+1,+0,0,0x80,
+    +1,-1,+1,+1,0,0x88, +1,+0,+1,+2,0,0x08, +1,+0,+2,-1,0,0x40,
+    +1,+0,+2,+1,0,0x10
+  }, chood[] = { -1,-1, -1,0, -1,+1, 0,+1, +1,+1, +1,0, +1,-1, 0,-1 };
+  ushort (*brow[5])[4], *pix;
+  int code[8][576], *ip, ihood[8], gval[8], gmin, gmax, sum[4];
+  int row, col, shift, x, y, x1, x2, y1, y2, t, weight, grads, color, diag;
+  int g, diff, thold, num, c;
 
-  size = height * width * 8;
-  oimage = malloc(size);
-  if (!oimage) {
-    perror("dillon_interpolate() calloc failed");
+  for (row=0; row < 8; row++) {		/* Precalculate for bilinear */
+    ip = code[row];
+    for (col=1; col < 3; col++) {
+      memset (sum, 0, sizeof sum);
+      for (y=-1; y <= 1; y++)
+	for (x=-1; x <= 1; x++) {
+	  shift = (y==0) + (x==0);
+	  if (shift == 2) continue;
+	  color = FC(row+y,col+x);
+	  *ip++ = (width*y + x)*4 + color;
+	  *ip++ = shift;
+	  *ip++ = color;
+	  sum[color] += 1 << shift;
+	}
+      for (c=0; c < colors; c++)
+	if (c != FC(row,col)) {
+	  *ip++ = c;
+	  *ip++ = sum[c];
+	}
+    }
+  }
+  for (row=1; row < height-1; row++) {	/* Do bilinear interpolation */
+    pix = image[row*width+1];
+    for (col=1; col < width-1; col++) {
+      if (col & 1)
+	ip = code[row & 7];
+      memset (sum, 0, sizeof sum);
+      for (g=8; g--; ) {
+	diff = pix[*ip++];
+	diff <<= *ip++;
+	sum[*ip++] += diff;
+      }
+      for (g=colors; --g; ) {
+	c = *ip++;
+	pix[c] = sum[c] / *ip++;
+      }
+      pix += 4;
+    }
+  }
+  for (row=0; row < 8; row++) {		/* Precalculate for VNG */
+    ip = code[row];
+    for (col=0; col < 2; col++) {
+      for (cp=terms, t=0; t < 64; t++) {
+	y1 = *cp++;  x1 = *cp++;
+	y2 = *cp++;  x2 = *cp++;
+	weight = *cp++;
+	grads = *cp++;
+	color = FC(row+y1,col+x1);
+	if (FC(row+y2,col+x2) != color) continue;
+	diag = (FC(row,col+1) == color && FC(row+1,col) == color) ? 2:1;
+	if (abs(y1-y2) == diag && abs(x1-x2) == diag) continue;
+	*ip++ = (y1*width + x1)*4 + color;
+	*ip++ = (y2*width + x2)*4 + color;
+	*ip++ = weight;
+	for (g=0; g < 8; g++)
+	  if (grads & 1<<g) *ip++ = g;
+	*ip++ = -1;
+      }
+    *ip++ = INT_MAX;
+    }
+  }
+  for (cp=chood, g=0; g < 8; g++) {
+    ihood[g]  = *cp++ * width;
+    ihood[g] += *cp++;
+    ihood[g] *= 4;
+  }
+  brow[4] = calloc (width*3, sizeof **brow);
+  if (!brow[4]) {
+    perror("vng_interpolate() calloc failed");
     exit(1);
   }
-  memcpy (oimage, image, size);
-
-  for (row=2; row < height-2; row++) {
+  for (row=0; row < 3; row++)
+    brow[row] = brow[4] + row*width;
+  for (row=2; row < height-2; row++) {		/* Do VNG interpolation */
+    pix = image[row*width+2];
     for (col=2; col < width-2; col++) {
-      cc = FC(row,col);
-      vb = oimage[row*width+col][cc];
-      avg[0] = avg[1] = avg[2] = avg[3] = 0;
-      sum[0] = sum[1] = sum[2] = sum[3] = 0;
-      for (dy = -1; dy <= 1; ++dy) {
-	for (dx = -1; dx <= 1; ++dx) {
-	  c = FC(row+dy, col+dx);
-	  vr = oimage[(row+dy*2)*width + (col+dx*2)][cc];
-	  vr = (vb + vr) / 2;
-	  /*
-	   * RGB CCDs almost universally repeat the same
-	   * color filter 2 pixels in any direction.
-	   */
-	  val = oimage[(row+dy)*width + (col+dx)][c];
-	  weight = base - abs(vr - vb);
-	  val = (llfactor + vb) * val / (llfactor + vr);
-	  weight = 100;
-	  avg[c] += val * weight;
-	  sum[c] += weight;
+      if ((col & 1) == 0)
+	ip = code[row & 7];
+      memset (gval, 0, sizeof gval);
+      while ((g = *ip++) != INT_MAX) {		/* Calculate gradients */
+	diff = abs(pix[g] - pix[*ip++]);
+	diff <<= *ip++;
+	while ((g = *ip++) != -1)
+	  gval[g] += diff;
+      }
+      gmin = INT_MAX;				/* Choose a threshold */
+      gmax = 0;
+      for (g=0; g < 8; g++) {
+	if (gmin > gval[g]) gmin = gval[g];
+	if (gmax < gval[g]) gmax = gval[g];
+      }
+      thold = gmin + (gmax >> 1);
+      memset (sum, 0, sizeof sum);
+      for (num=g=0; g < 8; g++) {		/* Average the neighbors */
+	if (gval[g] <= thold) {
+	  for (c=0; c < colors; c++)
+	    sum[c] += pix[ihood[g] + c];
+	  num++;
 	}
       }
+      color = FC(row,col);			/* Save to buffer */
       for (c=0; c < colors; c++) {
-	if (sum[c])
-	  image[row*width+col][c] = (avg[c] + (sum[c]/2)) / sum[c];
+	t = pix[color] + (sum[c] - sum[color])/num;
+	brow[2][col][c] = t > 0 ? t:0;
       }
+      pix += 4;
     }
+    if (row > 3)				/* Write buffer to image */
+      memcpy (image[(row-2)*width+2], brow[0]+2, (width-4)*sizeof *image);
+    for (g=0; g < 4; g++)
+      brow[(g-1) & 3] = brow[g];
   }
-  free (oimage);
-}
-
-/*
-   When this function is called, we only have one color for
-   each pixel.  Search the 3x3 neighborhood for pixels of
-   other colors, and average them.  Diagonal neighbors get
-   counted once, orthogonal neighbors twice.
- */
-void bilinear_interpolate()
-{
-  unsigned row, col, cc, y, x, w, c, avg[8];
-  const char *h;
-
-  for (row=1; row < height-1; row++)
-    for (col=1; col < width-1; col++) {
-      cc = FC(row,col);
-      memset (avg, 0, sizeof avg);
-      for (h = hood; ; ) {
-	y = row + *h++;
-	x = col + *h++;
-	if ((w = *h++) == 0) break;
-	if (y >= height || x >= width) continue;
-	if ((c = FC(y,x)) == cc) continue;
-	avg[c]   += w * image[y*width+x][c];
-	avg[c+4] += w;
-      }
-      for (c=0; c < colors; c++)
-	if (c != cc)
-	  image[row*width+col][c] = avg[c] / avg[c+4];
-    }
-}
-
-/*
-   We now have all color values for each pixel.  Sharpen the
-   spatial detail by assuming that neighboring pixels have
-   similar color ratios.
-
-   To avoid amplifying noise, wherever any color value falls
-   below a certain threshold, that pixel and all neighboring
-   pixels will be left unchanged.
-*/
-void smooth_hues()
-{
-  ushort (*last)[4];
-  ushort (*curr)[4];
-  void *tmp;
-  unsigned row, col, cc, y, x, w, c, val, avg[8];
-  const char *h;
-
-  last = calloc (width, sizeof *curr);
-  curr = calloc (width, sizeof *curr);
-  if (!last || !curr) {
-    perror("smooth_hues() calloc failed");
-    exit(1);
-  }
-  for (row=2; row < height-2; row++) {
-    for (col=2; col < width-2; col++) {
-      memset (avg, 0, sizeof avg);
-      for (h = hood; ; ) {	/* Any noisy neighbors in the 'hood? */
-	y = row + *h++;
-	x = col + *h++;
-	if ((w = *h++) == 0) break;
-	for (c=0; c < colors; c++)
-	  if (image[y*width+x][c] < 75) goto noise;
-      }
-      cc = FC(row,col);		/* Neighbors are OK to use */
-      for (h = hood; ; ) {
-	y = row + *h++;
-	x = col + *h++;
-	if ((w = *h++) == 0) break;
-	if ((c = FC(y,x)) == cc) continue;
-	val = ((unsigned long) image[y*width+x][c] << 16) /
-		image[y*width+x][cc] * image[row*width+col][cc] >> 16;
-	avg[c]   += w * val;
-	avg[c+4] += w;
-      }
-noise:
-      for (c=0; c < colors; c++)
-	curr[col][c] = avg[c+4] ? avg[c]/avg[c+4] : image[row*width+col][c];
-    }
-    if (row > 2)
-      memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
-    tmp = last;
-    last = curr;
-    curr = tmp;
-  }
-  memcpy (image[(row-1)*width+2], last+2, (width-4)*sizeof *last);
-  free (last);
-  free (curr);
+  memcpy (image[(row-2)*width+2], brow[0]+2, (width-4)*sizeof *image);
+  memcpy (image[(row-1)*width+2], brow[1]+2, (width-4)*sizeof *image);
+  free (brow[4]);
 }
 
 /*
@@ -1234,7 +1177,7 @@ void nef_parse_exif()
     len  = fget4(ifp);
     val  = fget4(ifp);
     save = ftell(ifp);
-    if (tag == 0x927c) {		/* MakerNote */
+    if (tag == 0x927c && !strncmp(make,"NIKON",5)) {
       fseek (ifp, val, SEEK_SET);
       nef_parse_makernote();
       fseek (ifp, save, SEEK_SET);
@@ -1267,19 +1210,13 @@ void parse_tiff(int base)
       fseek (ifp, val+base, SEEK_SET);
       switch (tag) {
 	case 271:			/* Make tag */
-	  fread (make, 64, 1, ifp);
-	  if (len > 63) len=63;
-	  make[len]=0;
+	  fgets (make, 64, ifp);
 	  break;
 	case 272:			/* Model tag */
-	  fread (model, 64, 1, ifp);
-	  if (len > 63) len=63;
-	  model[len]=0;
+	  fgets (model, 64, ifp);
 	  break;
 	case 33405:			/* Model2 tag */
-	  fread (model2, 64, 1, ifp);
-	  if (len > 63) len=63;
-	  model2[len]=0;
+	  fgets (model2, 64, ifp);
 	  break;
 	case 330:			/* SubIFD tag */
 	  if (len > 2) len=2;
@@ -1378,7 +1315,7 @@ int open_and_id(char *fname)
   rgb_max = 0x4000;
   colors = 4;
   is_cmy = 0;
-  hood = square_hood;
+  xmag = ymag = 1;
 
   ifp = fopen(fname,"rb");
   if (!ifp) {
@@ -1416,7 +1353,7 @@ int open_and_id(char *fname)
   if (!strncmp(make,"OLYMPUS",7) || !strncmp(make,"Minolta",7))
     make[7] = 0;
   if (!strncmp(make,"KODAK",5))
-    model[16] = 0;
+    make[16] = model[16] = 0;
   if (!strncmp(model,"Canon",5) || !strncmp(model,"NIKON",5))
     memmove (model, model+6, 64-6);
 
@@ -1542,7 +1479,7 @@ int open_and_id(char *fname)
     width  = 4024;
     colors = 3;
     filters = 0x16161616;
-    hood = wide_hood;
+    ymag = 2;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 1.910;
     rgb_mul[2] = 1.220;
@@ -1566,7 +1503,7 @@ int open_and_id(char *fname)
     width  = 2144;
     colors = 3;
     filters = 0x58525852;
-    hood = tall_hood;
+    xmag = 2;
     read_crw = fuji_read_crw;
     rgb_mul[0] = 1.424;
     rgb_mul[2] = 1.718;
@@ -1794,7 +1731,7 @@ void get_rgb(float rgb[4], ushort image[4])
  */
 void write_ppm(FILE *ofp)
 {
-  int y, x, i, ymag=1, xmag=1;
+  int y, x, i;
   register unsigned c, val;
   uchar (*ppm)[3];
   float rgb[4], max, max2, expo, mul, scale;
@@ -1819,8 +1756,6 @@ void write_ppm(FILE *ofp)
   max = val << 6;
   max2 = max * max;
 
-  if (hood == tall_hood) xmag = 2;
-  if (hood == wide_hood) ymag = 2;
   fprintf (ofp, "P6\n%d %d\n255\n",
 	xmag*(width-trim*2), ymag*(height-trim*2));
 
@@ -1983,7 +1918,7 @@ void exten(char *new_name, const char *old, const char *ext)
 int main(int argc, char **argv)
 {
   char data[256];
-  int i, arg, write_to_files=1, dillon=0, dillon_ok, smooth=1;
+  int arg, write_to_files=1;
   void (*write_fun)(FILE *) = write_ppm;
   const char *write_ext = ".ppm";
   FILE *ofp;
@@ -1991,7 +1926,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v3.65"
+    "\nRaw Photo Decoder v4.00"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -1999,8 +1934,6 @@ int main(int argc, char **argv)
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
     "\n-c        Write to standard output"
-    "\n-d        Use Dillon interpolation if possible"
-    "\n-s <num>  Number of times to smooth hues (1 by default)"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
     "\n-w        Use camera white balance settings if possible"
@@ -2023,10 +1956,6 @@ int main(int argc, char **argv)
     {
       case 'c':
 	write_to_files = 0;  break;
-      case 'd':
-	dillon = 1;  break;
-      case 's':
-	smooth = atoi(argv[++arg]);  break;
       case 'g':
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
@@ -2079,27 +2008,11 @@ int main(int argc, char **argv)
       subtract_black();
     }
     trim = 0;
-    if (filters == 0) goto nointerp;
-    dillon_ok = dillon;
-    for (i=8; i < 32; i+=8)
-      if ((filters >> i & 0xff) != (filters & 0xff))
-	dillon_ok = 0;
-    if (dillon_ok) {
-      fprintf (stderr, "Dillon interpolation...\n");
-      dillon_interpolate();
-      trim = 2;
-    } else {
-      if (dillon)
-	fprintf (stderr, "Filter pattern is not Dillon-compatible.\n");
-      fprintf (stderr, "Bilinear interpolation...\n");
-      bilinear_interpolate();
-      for (i=0; i < smooth; i++) {
-	fprintf (stderr, "Smoothing hues...\n");
-	smooth_hues();
-      }
+    if (filters) {
       trim = 1;
+      fprintf (stderr, "VNG interpolation...\n");
+      vng_interpolate();
     }
-nointerp:
     ofp = stdout;
     strcpy (data, "standard output");
     if (write_to_files) {
