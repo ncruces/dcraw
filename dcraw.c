@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.78 $
-   $Date: 2002/12/01 04:34:57 $
+   $Revision: 1.79 $
+   $Date: 2002/12/04 03:28:49 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -54,13 +54,13 @@ int height, width, trim, colors, is_cmy, is_canon, black, rgb_max;
 int raw_height, raw_width;	/* Including black borders */
 int tiff_data_offset, tiff_data_compression;
 int nef_curve_offset;
-int kodak_645m;
+int use_camera_wb=0;
 unsigned filters;
-char make[64], model[64];
+char make[64], model[64], model2[64];
 ushort (*image)[4];
 void (*read_crw)();
 float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
-float rgb_mul[3];
+float rgb_mul[3], camera_red, camera_blue;
 float coeff[3][4];
 
 struct decode {
@@ -1175,19 +1175,13 @@ void tiff_parse_subifd(int base)
       case 0x828e:		/* Unknown */
       case 0x9217:		/* Unknown */
 	break;
-      case 0x920e:
-	kodak_645m = 0;
-	break;
-      case 0xa20e:
-	kodak_645m = 1;
-	break;
     }
   }
 }
 
 void nef_parse_makernote()
 {
-  int base=0, offset=0, entries, tag, type, len, val;
+  int base=0, offset=0, entries, tag, type, len, val, save;
   short sorder;
   char buf[10];
 
@@ -1212,6 +1206,15 @@ void nef_parse_makernote()
     type = fget2(ifp);
     len  = fget4(ifp);
     val  = fget4(ifp);
+    if (tag == 0xc) {
+      save = ftell(ifp);
+      fseek (ifp, base+val, SEEK_SET);
+      camera_red  = fget4(ifp);
+      camera_red /= fget4(ifp);
+      camera_blue = fget4(ifp);
+      camera_blue/= fget4(ifp);
+      fseek (ifp, save, SEEK_SET);
+    }
     if (tag == 0x8c)
       nef_curve_offset = base+val + 2112;
     if (tag == 0x96)
@@ -1273,6 +1276,11 @@ void parse_tiff(int base)
 	  if (len > 63) len=63;
 	  model[len]=0;
 	  break;
+	case 33405:			/* Model2 tag */
+	  fread (model2, 64, 1, ifp);
+	  if (len > 63) len=63;
+	  model2[len]=0;
+	  break;
 	case 330:			/* SubIFD tag */
 	  if (len > 2) len=2;
 	  if (len > 1)
@@ -1301,6 +1309,7 @@ void parse_tiff(int base)
 void parse_ciff(int offset, int length)
 {
   int tboff, nrecs, i, type, len, roff, aoff, save;
+  int wbi=0;
 
   fseek (ifp, offset+length-4, SEEK_SET);
   tboff = fget4(ifp) + offset;
@@ -1318,10 +1327,28 @@ void parse_ciff(int offset, int length)
       fseek (ifp, aoff+strlen(make)+1, SEEK_SET);
       fread (model, 64, 1, ifp);
     }
+    if (type == 0x102a) {		/* Find the White Balance index */
+      fseek (ifp, aoff+14, SEEK_SET);	/* 0=auto, 1=daylight, 2=cloudy ... */
+      wbi = fget2(ifp);
+    }
+    if (type == 0x102c) {		/* Get white balance (G2) */
+      fseek (ifp, aoff+100, SEEK_SET);	/* could use 100, 108 or 116 */
+      camera_red = fget2(ifp);
+      camera_red = fget2(ifp) / camera_red;
+      camera_blue  = fget2(ifp);
+      camera_blue /= fget2(ifp);
+    }
     if (type == 0x1031) {		/* Get the raw width and height */
       fseek (ifp, aoff+2, SEEK_SET);
       raw_width  = fget2(ifp);
       raw_height = fget2(ifp);
+    }
+    if (type == 0x10a9) {		/* Get white balance (D60) */
+      fseek (ifp, aoff+2 + wbi*8, SEEK_SET);
+      camera_red  = fget2(ifp);
+      camera_red /= fget2(ifp);
+      camera_blue = fget2(ifp);
+      camera_blue = fget2(ifp) / camera_blue;
     }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
@@ -1347,6 +1374,7 @@ int open_and_id(char *fname)
   rgb_mul[0] = 1.592;
   rgb_mul[1] = 1.0;
   rgb_mul[2] = 1.261;
+  camera_red = camera_blue = 0;
   rgb_max = 0x4000;
   colors = 4;
   is_cmy = 0;
@@ -1357,7 +1385,7 @@ int open_and_id(char *fname)
     perror(fname);
     return 1;
   }
-  model[0] = 0;
+  make[0] = model[0] = model2[0] = 0;
   order = fget2(ifp);
   if (order == 0x4949 || order == 0x4d4d) {
     hlen = fget4(ifp);
@@ -1634,14 +1662,12 @@ int open_and_id(char *fname)
     } else if (!strcmp(model,"ProBack")) {
       rgb_mul[0] = 1.06;
       rgb_mul[2] = 1.385;
-    } else if (!strcmp(model,"ProBack645")) {
-      if (kodak_645m) {
-	rgb_mul[0] = 1.06;		/* 645M sample image */
-	rgb_mul[2] = 1.50;
-      } else {
-	rgb_mul[0] = 1.20;		/* 645H sample image */
-	rgb_mul[2] = 1.52;
-      }
+    } else if (!strncmp(model2,"PB645M",6)) {
+      rgb_mul[0] = 1.06;
+      rgb_mul[2] = 1.50;
+    } else if (!strncmp(model2,"PB645H",6)) {
+      rgb_mul[0] = 1.20;
+      rgb_mul[2] = 1.52;
     }
     switch (tiff_data_compression) {
       case 0:				/* No compression */
@@ -1668,6 +1694,13 @@ int open_and_id(char *fname)
     return 1;
   }
 #endif
+  if (use_camera_wb) {
+    if (camera_red && camera_blue && colors == 3) {
+      rgb_mul[0] = camera_red;
+      rgb_mul[2] = camera_blue;
+    } else
+      fprintf (stderr, "%s: Cannot use camera white balance.\n",fname);
+  }
   rgb_mul[0] *= red_scale;	/* Apply user-selected color balance */
   rgb_mul[2] *= blue_scale;
   if (colors == 4) make_coeff();
@@ -1793,7 +1826,7 @@ void write_ppm(FILE *ofp)
 
   ppm = calloc (width-trim*2, 3*xmag);
   if (!ppm) {
-    perror("ppm calloc failed");
+    perror("write_ppm() calloc failed");
     exit(1);
   }
   expo = (gamma_val-1)/2;		/* Pull these out of the loop */
@@ -1852,7 +1885,7 @@ void write_psd(FILE *ofp)
   psize = (height-trim*2) * (width-trim*2);
   buffer = calloc (6, psize);
   if (!buffer) {
-    perror("psd calloc failed");
+    perror("write_psd() calloc failed");
     exit(1);
   }
   pred = buffer;
@@ -1913,7 +1946,7 @@ void write_png(FILE *ofp)
 
   png = calloc(width-trim*2,6);
   if (!png) {
-    perror("png calloc failed");
+    perror("write_png() calloc failed");
     exit(1);
   }
 
@@ -1958,7 +1991,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v3.60"
+    "\nRaw Photo Decoder v3.65"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -1970,6 +2003,7 @@ int main(int argc, char **argv)
     "\n-s <num>  Number of times to smooth hues (1 by default)"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
+    "\n-w        Use camera white balance settings if possible"
     "\n-r <num>  Set red  scaling (daylight = 1.0)"
     "\n-l <num>  Set blue scaling (daylight = 1.0)"
     "\n-2        Write 24-bit PPM (default)"
@@ -1997,6 +2031,8 @@ int main(int argc, char **argv)
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
 	bright = atof(argv[++arg]);  break;
+      case 'w':
+	use_camera_wb = 1;  break;
       case 'r':
 	red_scale = atof(argv[++arg]);  break;
       case 'l':
