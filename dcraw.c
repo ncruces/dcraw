@@ -1,5 +1,5 @@
 /*
-   Raw Photo Decoder (formerly "Canon PowerShot Converter")
+   dcraw.c -- Dave Coffin's raw photo decoder
    Copyright 1997-2003 by Dave Coffin, dcoffin a cybercom o net
 
    This is a portable ANSI C program to convert raw image files from
@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.135 $
-   $Date: 2003/09/21 19:31:42 $
+   $Revision: 1.136 $
+   $Date: 2003/09/23 00:38:14 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -67,7 +67,7 @@ float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
 int four_color_rgb=0, use_camera_wb=0, document_mode=0, quick_interpolate=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
-int histogram[0x1000];
+int histogram[0x2000];
 void write_ppm(FILE *);
 void (*write_fun)(FILE *) = write_ppm;
 
@@ -605,7 +605,7 @@ void PmPutRow(ushort **buf, int numComp, int numCol, int row)
 {
   int r, col, trick=1;
 
-  if (make[0] == 'C') trick=2;		/* Canon */
+  trick = numComp * numCol / width;
   row *= trick;
   for (r = row; r < row+trick; r++)
     for (col=0; col < width; col+=2) {
@@ -835,7 +835,7 @@ void fuji_f700_load_raw()
 	val = pixel[col+1488] << 4;	/* use the secondary.       */
       if (val > 0xffff)
 	val = 0xffff;
-      image[r*width+c][FC(r,c)] = val >> 1;
+      image[r*width+c][FC(r,c)] = val;
     }
   }
 }
@@ -1689,7 +1689,7 @@ void vng_interpolate()
       }
       for (c=0; c < colors; c++) {		/* Save to buffer */
 	t = pix[color] + (sum[c] - sum[color])/num;
-	brow[2][col][c] = t > 0 ? t:0;
+	brow[2][col][c] = t > 0 ? (t < 0xffff ? t : 0xffff) : 0;
       }
       pix += 4;
     }
@@ -2485,7 +2485,7 @@ coolpix:
     load_raw = fuji_f700_load_raw;
     pre_mul[0] = 1.639;
     pre_mul[2] = 1.438;
-    rgb_max = 0x7fff;
+    rgb_max = 0xffff;
   } else if (!strcmp(make,"Minolta")) {
     height = raw_height;
     width  = raw_width;
@@ -2754,11 +2754,11 @@ void convert_to_rgb()
 	if (rgb[r] > rgb_max) rgb[r] = rgb_max;
 	rgb[3] += rgb[r]*rgb[r];
       }
-      rgb[3] = sqrt(rgb[3]);
+      rgb[3] = sqrt(rgb[3])/2;
       if (rgb[3] > 0xffff) rgb[3] = 0xffff;
       for (r=0; r < 4; r++)
 	img[r] = rgb[r];
-      histogram[img[3] >> 4]++;		/* bin width is 16 */
+      histogram[img[3] >> 3]++;		/* bin width is 8 */
     }
 }
 
@@ -2775,7 +2775,7 @@ void write_ppm(FILE *ofp)
 /*
    Set the white point to the 99th percentile
  */
-  for (val=0x1000, total=0; --val; )
+  for (val=0x2000, total=0; --val; )
     if ((total+=histogram[val]) > (int)(width*height*0.01)) break;
   max = val << 4;
 
@@ -2790,7 +2790,7 @@ void write_ppm(FILE *ofp)
     for (col=trim; col < width-trim; col++) {
       rgb = image[row*width+col];
 /* In some math libraries, pow(0,expo) doesn't return zero */
-      scale = rgb[3] ? mul * pow (rgb[3]/max, gamma_val-1) : 0;
+      scale = rgb[3] ? mul * pow (rgb[3]*2/max, gamma_val-1) : 0;
       for (c=0; c < 3; c++) {
 	val = rgb[c] * scale;
 	if (val > 255) val=255;
@@ -2887,7 +2887,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.00"
+    "\nRaw Photo Decoder v5.02"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
