@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.199 $
-   $Date: 2004/07/28 04:25:31 $
+   $Revision: 1.200 $
+   $Date: 2004/08/04 18:40:25 $
  */
 
 #define _GNU_SOURCE
@@ -425,53 +425,6 @@ void crw_init_tables (unsigned table)
 }
 
 /*
-   Decompress "count" blocks of 64 samples each.
- */
-void crw_decompress (ushort *outbuf, int count)
-{
-  struct decode *decode, *dindex;
-  int i, leaf, len, diff, diffbuf[64];
-  static int carry, pixel, base[2];
-
-  zero_after_ff = 1;
-  if (!outbuf) {			/* Initialize */
-    carry = pixel = 0;
-    fseek (ifp, count, SEEK_SET);
-    getbits(-1);
-    return;
-  }
-  while (count--) {
-    memset(diffbuf,0,sizeof diffbuf);
-    decode = first_decode;
-    for (i=0; i < 64; i++ ) {
-
-      for (dindex=decode; dindex->branch[0]; )
-	dindex = dindex->branch[getbits(1)];
-      leaf = dindex->leaf;
-      decode = second_decode;
-
-      if (leaf == 0 && i) break;
-      if (leaf == 0xff) continue;
-      i  += leaf >> 4;
-      len = leaf & 15;
-      if (len == 0) continue;
-      diff = getbits(len);
-      if ((diff & (1 << (len-1))) == 0)
-	diff -= (1 << len) - 1;
-      if (i < 64) diffbuf[i] = diff;
-    }
-    diffbuf[0] += carry;
-    carry = diffbuf[0];
-    for (i=0; i < 64; i++ ) {
-      if (pixel++ % raw_width == 0)
-	base[0] = base[1] = 512;
-      outbuf[i] = ( base[i & 1] += diffbuf[i] );
-    }
-    outbuf += 64;
-  }
-}
-
-/*
    Return 0 if the image starts with compressed data,
    1 if it starts with uncompressed low-order bits.
 
@@ -497,6 +450,8 @@ void canon_compressed_load_raw()
   ushort *pixel, *prow;
   int lowbits, shift, i, row, r, col, save, val;
   unsigned irow, icol;
+  struct decode *decode, *dindex;
+  int block, diffbuf[64], leaf, len, diff, carry=0, pnum=0, base[2];
   uchar c;
   INT64 bblack=0;
 
@@ -504,9 +459,36 @@ void canon_compressed_load_raw()
   merror (pixel, "canon_compressed_load_raw()");
   lowbits = canon_has_lowbits();
   shift = 4 - lowbits*2;
-  crw_decompress (0, 540 + lowbits*raw_height*raw_width/4);
+  fseek (ifp, 540 + lowbits*raw_height*raw_width/4, SEEK_SET);
+  zero_after_ff = 1;
+  getbits(-1);
   for (row=0; row < raw_height; row+=8) {
-    crw_decompress (pixel, raw_width/8);	/* Get eight rows */
+    for (block=0; block < raw_width >> 3; block++) {
+      memset (diffbuf, 0, sizeof diffbuf);
+      decode = first_decode;
+      for (i=0; i < 64; i++ ) {
+	for (dindex=decode; dindex->branch[0]; )
+	  dindex = dindex->branch[getbits(1)];
+	leaf = dindex->leaf;
+	decode = second_decode;
+	if (leaf == 0 && i) break;
+	if (leaf == 0xff) continue;
+	i  += leaf >> 4;
+	len = leaf & 15;
+	if (len == 0) continue;
+	diff = getbits(len);
+	if ((diff & (1 << (len-1))) == 0)
+	  diff -= (1 << len) - 1;
+	if (i < 64) diffbuf[i] = diff;
+      }
+      diffbuf[0] += carry;
+      carry = diffbuf[0];
+      for (i=0; i < 64; i++ ) {
+	if (pnum++ % raw_width == 0)
+	  base[0] = base[1] = 512;
+	pixel[(block << 6) + i] = ( base[i & 1] += diffbuf[i] );
+      }
+    }
     if (lowbits) {
       save = ftell(ifp);			/* Don't lose our place */
       fseek (ifp, 26 + row*raw_width/4, SEEK_SET);
