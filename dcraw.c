@@ -1,6 +1,6 @@
 /*
    dcraw.c -- Dave Coffin's raw photo decoder
-   Copyright 1997-2003 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 1997-2004 by Dave Coffin, dcoffin a cybercom o net
 
    This is a portable ANSI C program to convert raw image files from
    any digital camera into PPM format.  TIFF and CIFF parsing are
@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.159 $
-   $Date: 2003/12/24 18:29:49 $
+   $Revision: 1.160 $
+   $Date: 2004/01/04 08:09:05 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1102,6 +1102,66 @@ void kodak_yuv_load_raw()
 	  if (rgb[c] > 0) ip[c] = rgb[c];
       }
     }
+}
+
+void sony_decrypt (unsigned *data, int len, int start, int key)
+{
+  static unsigned pad[128], p;
+
+  if (start) {
+    for (p=0; p < 4; p++)
+      pad[p] = key = key * 48828125 + 1;
+    pad[3] = pad[3] << 1 | (pad[0]^pad[2]) >> 31;
+    for (p=4; p < 127; p++)
+      pad[p] = (pad[p-4]^pad[p-2]) << 1 | (pad[p-3]^pad[p-1]) >> 31;
+    for (p=0; p < 127; p++)
+      pad[p] = htonl(pad[p]);
+  }
+  while (len--)
+    *data++ ^= pad[p++ & 127] = pad[(p+1) & 127] ^ pad[(p+65) & 127];
+}
+
+void sony_load_raw()
+{
+  uchar head[40];
+  ushort pixel[3360];
+  unsigned i, key, row, col, icol;
+  INT64 bblack=0;
+
+  fseek (ifp, 200896, SEEK_SET);
+  fseek (ifp, (unsigned) fgetc(ifp)*4 - 1, SEEK_CUR);
+  order = 0x4d4d;
+  key = fget4(ifp);
+  fseek (ifp, 164600, SEEK_SET);
+  fread (head, 1, 40, ifp);
+  sony_decrypt ((void *) head, 10, 1, key);
+  for (i=26; i-- > 22; )
+    key = key << 8 | head[i];
+  fseek (ifp, 862144, SEEK_SET);
+  for (row=0; row < height; row++) {
+    fread (pixel, 2, raw_width, ifp);
+    sony_decrypt ((void *) pixel, raw_width/2, !row, key);
+    for (col=0; col < 3343; col++)
+      if ((icol = col-left_margin) < width)
+	image[row*width+icol][FC(row,icol)] = ntohs(pixel[col]);
+      else
+	bblack += ntohs(pixel[col]);
+  }
+  black = bblack / ((3343 - width) * height);
+}
+
+void sony_rgbe_coeff()
+{
+  int r, g;
+  static const float my_coeff[3][4] =
+  { {  1.321918,  0.000000,  0.149829, -0.471747 },
+    { -0.288764,  1.129213, -0.486517,  0.646067 },
+    {  0.061336, -0.199343,  1.138007,  0.000000 } };
+
+  for (r=0; r < 3; r++)
+    for (g=0; g < 4; g++)
+      coeff[r][g] = my_coeff[r][g];
+  use_coeff = 1;
 }
 
 void foveon_decoder(struct decode *dest, unsigned huff[1024], unsigned code)
@@ -2700,6 +2760,18 @@ coolpix:
     load_raw = packed_12_load_raw;
     pre_mul[0] = 1.366;
     pre_mul[2] = 1.251;
+  } else if (!strcmp(model,"DSC-F828")) {
+    height = 2460;
+    width = 3288;
+    raw_width = 3360;
+    left_margin = 5;
+    load_raw = sony_load_raw;
+    sony_rgbe_coeff();
+    filters = 0xb4b4b4b4;
+    colors = 4;
+    pre_mul[0] = 1.512;
+    pre_mul[1] = 1.020;
+    pre_mul[2] = 1.405;
   } else if (!strcasecmp(make,"KODAK")) {
     filters = 0x61616161;
     black = 400;
@@ -3073,7 +3145,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.40"
+    "\nRaw Photo Decoder v5.42"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
