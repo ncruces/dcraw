@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.157 $
-   $Date: 2003/12/19 05:07:31 $
+   $Revision: 1.158 $
+   $Date: 2003/12/23 04:30:39 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -21,14 +21,14 @@
  */
 
 #define _GNU_SOURCE
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
-#include <errno.h>
-#include <ctype.h>
-#include <fcntl.h>
+#include <values.h>
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -47,6 +47,10 @@ typedef long long INT64;
 #include "proto.h"
 #endif
 
+#ifndef LONG_BIT
+#define LONG_BIT (8 * sizeof (long))
+#endif
+
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
@@ -54,20 +58,18 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-char make[64], model[64], model2[64];
-int timestamp;
-int tiff_data_offset, tiff_data_compression;
-int kodak_data_compression;
-int nef_curve_offset;
+char *ifname, make[64], model[64], model2[64];
+int data_offset, nef_curve_offset, timestamp;
+int tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, colors, black, rgb_max;
 int is_canon, is_cmy, is_foveon, use_coeff, trim, ymag;
 unsigned filters;
-ushort (*image)[4];
+ushort (*image)[4], white[8][8];
 void (*load_raw)();
-float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
-int verbose=0, four_color_rgb=0, use_camera_wb=0;
-int document_mode=0, quick_interpolate=0;
+float gamma_val=0.6, bright=1.0, red_scale=1.0, blue_scale=1.0;
+int four_color_rgb=0, document_mode=0, quick_interpolate=0;
+int verbose=0, use_auto_wb=0, use_camera_wb=0;
 float camera_red, camera_blue;
 float pre_mul[4], coeff[3][4];
 int histogram[0x2000];
@@ -147,6 +149,18 @@ struct decode {
 
  */
 
+#ifndef __GLIBC__
+char *memmem (char *haystack, size_t haystacklen,
+	      char *needle, size_t needlelen)
+{
+  char *c;
+  for (c = haystack; c <= haystack + haystacklen - needlelen; c++)
+    if (!memcmp (c, needle, needlelen))
+      return c;
+  return NULL;
+}
+#endif
+
 void merror (void *ptr, char *where)
 {
   if (ptr) return;
@@ -160,11 +174,6 @@ void canon_600_load_raw()
   ushort pixel[896], *pix;
   int irow, orow, col;
 
-/*
-   Immediately after the 26-byte header come the data rows.  First
-   the even rows 0..612, then the odd rows 1..611.  Each row is 896
-   pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
- */
   for (irow=orow=0; irow < height; irow++)
   {
     fread (data, 1120, 1, ifp);
@@ -179,18 +188,12 @@ void canon_600_load_raw()
       pix[6] = (dp[7] << 2) + (dp[9] >> 4 & 3);
       pix[7] = (dp[8] << 2) + (dp[9] >> 6    );
     }
-/*
-   Copy 854 pixels into the image[] array.  The other 42 pixels
-   are black.  Left-shift by 4 for extra precision in upcoming
-   calculations.
- */
     for (col=0; col < width; col++)
       image[orow*width+col][FC(orow,col)] = pixel[col] << 4;
     for (col=width; col < 896; col++)
       black += pixel[col];
-
-    if ((orow+=2) > height)	/* Once we've read all the even rows, */
-      orow = 1;			/* read the odd rows. */
+    if ((orow+=2) > height)
+      orow = 1;
   }
   black = ((INT64) black << 4) / ((896 - width) * height);
 }
@@ -371,18 +374,18 @@ void init_tables(unsigned table)
  */
 unsigned getbits(int nbits)
 {
-  static unsigned bitbuf=0, ret=0;
+  static unsigned long bitbuf=0;
   static int vbits=0;
-  unsigned char c;
+  unsigned c, ret;
 
   if (nbits == 0) return 0;
   if (nbits == -1)
     ret = bitbuf = vbits = 0;
   else {
-    ret = bitbuf << (8*sizeof(int) - vbits) >> (8*sizeof(int) - nbits);
+    ret = bitbuf << (LONG_BIT - vbits) >> (LONG_BIT - nbits);
     vbits -= nbits;
   }
-  while (vbits < 25) {
+  while (vbits < LONG_BIT - 7) {
     c = fgetc(ifp);
     bitbuf = (bitbuf << 8) + c;
     if (c == 0xff && is_canon)	/* Canon puts an extra 0 after 0xff */
@@ -485,8 +488,8 @@ void canon_compressed_load_raw()
       fseek (ifp, 26 + row*raw_width/4, SEEK_SET);
       for (prow=pixel, i=0; i < raw_width*2; i++) {
 	c = fgetc(ifp);
-	for (r=0; r < 8; r+=2)
-	  *prow++ = (*prow << 2) + ((c >> r) & 3);
+	for (r=0; r < 8; r+=2, prow++)
+	  *prow = (*prow << 2) + ((c >> r) & 3);
       }
       fseek (ifp, save, SEEK_SET);
     }
@@ -542,8 +545,6 @@ void lossless_jpeg_load_raw()
 {
   DecompressInfo dcInfo;
 
-  fseek (ifp, tiff_data_offset, SEEK_SET);
-
   MEMSET(&dcInfo, 0, sizeof(dcInfo));
   ReadFileHeader (&dcInfo);
   ReadScanHeader (&dcInfo);
@@ -582,7 +583,7 @@ void nikon_compressed_load_raw()
   for (i=0; i < csize; i++)
     curve[i] = fget2(ifp);
 
-  fseek (ifp, tiff_data_offset, SEEK_SET);
+  fseek (ifp, data_offset, SEEK_SET);
   getbits(-1);
 
   for (row=0; row < height; row++)
@@ -613,7 +614,6 @@ void nikon_load_raw()
 {
   int irow, row, col, i;
 
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   getbits(-1);
   for (irow=0; irow < height; irow++) {
     row = irow;
@@ -649,7 +649,7 @@ int nikon_is_compressed()
     return 0;
   if (strcmp(model,"D100"))
     return 1;
-  fseek (ifp, tiff_data_offset, SEEK_SET);
+  fseek (ifp, data_offset, SEEK_SET);
   fread (test, 1, 256, ifp);
   for (i=15; i < 256; i+=16)
     if (test[i]) return 1;
@@ -680,7 +680,6 @@ void nikon_e2100_load_raw()
   ushort pixel[1616], *pix;
   int row, col;
 
-  fseek (ifp, 0, SEEK_SET);
   for (row=0; row <= height; row+=2) {
     if (row == height) {
       fseek (ifp, 8792, SEEK_CUR);
@@ -707,7 +706,6 @@ void nikon_e950_load_raw()
 {
   int irow, row, col;
 
-  fseek (ifp, 0, SEEK_SET);
   getbits(-1);
   for (irow=0; irow < height; irow++) {
     row = irow * 2 % height;
@@ -726,7 +724,7 @@ void fuji_s2_load_raw()
   ushort pixel[2944];
   int row, col, r, c;
 
-  fseek (ifp, tiff_data_offset + (2944*24+32)*2, SEEK_SET);
+  fseek (ifp, (2944*24+32)*2, SEEK_CUR);
   for (row=0; row < 2144; row++) {
     fread (pixel, 2, 2944, ifp);
     for (col=0; col < 2880; col++) {
@@ -742,7 +740,6 @@ void fuji_common_load_raw (int ncol, int icol, int nrow)
   ushort pixel[2048];
   int row, col, r, c;
 
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < nrow; row++) {
     fread (pixel, 2, ncol, ifp);
     if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
@@ -757,7 +754,7 @@ void fuji_common_load_raw (int ncol, int icol, int nrow)
 
 void fuji_s5000_load_raw()
 {
-  tiff_data_offset += (1472*4+24)*2;
+  fseek (ifp, (1472*4+24)*2, SEEK_CUR);
   fuji_common_load_raw (1472, 1423, 2152);
 }
 
@@ -776,7 +773,6 @@ void fuji_f700_load_raw()
   ushort pixel[2944];
   int row, col, r, c, val;
 
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < 2168; row++) {
     fread (pixel, 2, 2944, ifp);
     if (ntohs(0xaa55) == 0xaa55)	/* data is little-endian */
@@ -800,7 +796,6 @@ void rollei_load_raw()
   unsigned iten=0, isix, i, buffer=0, row, col, todo[16];
 
   isix = raw_width * raw_height * 5 / 8;
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   while (fread (pixel, 1, 10, ifp) == 10) {
     for (i=0; i < 10; i+=2) {
       todo[i]   = iten++;
@@ -825,11 +820,11 @@ void phase_one_load_raw()
   int row, col, a, b;
   ushort pixel[4134], akey, bkey;
 
-  fseek (ifp, tiff_data_offset + 8, SEEK_SET);
+  fseek (ifp, 8, SEEK_CUR);
   fseek (ifp, fget4(ifp) + 296, SEEK_CUR);
   akey = fget2(ifp);
   bkey = fget2(ifp);
-  fseek (ifp, tiff_data_offset + 12 + top_margin*raw_width*2, SEEK_SET);
+  fseek (ifp, data_offset + 12 + top_margin*raw_width*2, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, raw_width, ifp);
     for (col=0; col < raw_width; col+=2) {
@@ -862,7 +857,6 @@ void packed_12_load_raw()
 {
   int row, col;
 
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   getbits(-1);
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
@@ -876,7 +870,6 @@ void unpacked_load_raw (int order, int rsh)
 
   pixel = calloc (width, sizeof *pixel);
   merror (pixel, "unpacked_load_raw()");
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 2, width, ifp);
     if (order != ntohs(0x55aa))
@@ -922,14 +915,13 @@ void olympus_cseries_load_raw()
   }
 }
 
-void casio_easy_load_raw()
+void eight_bit_load_raw()
 {
   uchar *pixel;
   int row, col;
 
   pixel = calloc (raw_width, sizeof *pixel);
-  merror (pixel, "casio_easy_load_raw()");
-  fseek (ifp, tiff_data_offset, SEEK_SET);
+  merror (pixel, "eight_bit_load_raw()");
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
     for (col=0; col < width; col++)
@@ -944,7 +936,6 @@ void casio_qv5700_load_raw()
   ushort pixel[2576], *pix;
   int row, col;
 
-  fseek (ifp, 0, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (data, 1, 3232, ifp);
     for (dp=data, pix=pixel; dp < data+3220; dp+=5, pix+=4) {
@@ -965,7 +956,6 @@ void nucore_load_raw()
 
   data = calloc (width, 2);
   merror (data, "nucore_load_raw()");
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   for (irow=0; irow < height; irow++) {
     fread (data, 2, width, ifp);
     if (model[0] == 'B' && width == 2598)
@@ -987,7 +977,6 @@ void kodak_easy_load_raw()
     black = 0;
   pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "kodak_easy_load_raw()");
-  fseek (ifp, tiff_data_offset, SEEK_SET);
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
     for (col=0; col < width; col++)
@@ -1007,8 +996,6 @@ void kodak_compressed_load_raw()
   unsigned row, col, len, save, i, israw=0, bits=0, pred[2];
   INT64 bitbuf=0;
   int diff;
-
-  fseek (ifp, tiff_data_offset, SEEK_SET);
 
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
@@ -1072,8 +1059,6 @@ void kodak_yuv_load_raw()
   INT64 bitbuf=0;
   int i, li=0, si, diff, six[6], y[4], cb=0, cr=0, rgb[3];
   ushort *ip;
-
-  fseek (ifp, tiff_data_offset, SEEK_SET);
 
   for (row=0; row < height; row+=2)
     for (col=0; col < width; col+=2) {
@@ -1493,45 +1478,73 @@ void bad_pixels()
   fclose (fp);
 }
 
-/*
-   Automatic color balance, currently used only in Document Mode.
- */
-void auto_scale()
-{
-  int row, col, c, val;
-  int min[4], max[4], count[4];
-  double sum[4], maxd=0;
-
-  for (c=0; c < 4; c++) {
-    min[c] = INT_MAX;
-    sum[c] = max[c] = count[c] = 0;
-  }
-  for (row=0; row < height; row++)
-    for (col=0; col < width; col++)
-      for (c=0; c < colors; c++) {
-	val = image[row*width+col][c];
-	if (!val) continue;
-	val -= black;
-	if (val < 0) val = 0;
-	if (min[c] > val) min[c] = val;
-	if (max[c] < val) max[c] = val;
-	sum[c] += val;
-	count[c]++;
-      }
-  for (c=0; c < colors; c++) {		/* Smallest pre_mul[] value */
-    pre_mul[c] = sum[c]/count[c];	/* should be 1.0 */
-    if (maxd < pre_mul[c])
-	maxd = pre_mul[c];
-  }
-  for (c=0; c < colors; c++)
-    pre_mul[c] = maxd / pre_mul[c];
-}
-
 void scale_colors()
 {
   int row, col, c, val;
+  int min[4], max[4], count[4];
+  double sum[4], dmin, dmax;
 
   rgb_max -= black;
+  if (use_auto_wb || (use_camera_wb && camera_red == -1)) {
+    for (c=0; c < 4; c++) {
+      min[c] = INT_MAX;
+      max[c] = count[c] = sum[c] = 0;
+    }
+    for (row=0; row < height; row++)
+      for (col=0; col < width; col++)
+	for (c=0; c < colors; c++) {
+	  val = image[row*width+col][c];
+	  if (!val) continue;
+	  val -= black;
+	  if (val > rgb_max-100) continue;
+	  if (val < 0) val = 0;
+	  if (min[c] > val) min[c] = val;
+	  if (max[c] < val) max[c] = val;
+	  sum[c] += val;
+	  count[c]++;
+	}
+    for (dmax=c=0; c < colors; c++) {
+      sum[c] /= count[c];
+      if (dmax < sum[c]) dmax = sum[c];
+    }
+    for (c=0; c < colors; c++)
+      pre_mul[c] = dmax / sum[c];
+  }
+  if (use_camera_wb && camera_red != -1) {
+    for (c=0; c < 4; c++)
+      count[c] = sum[c] = 0;
+    for (row=0; row < 8; row++)
+      for (col=0; col < 8; col++) {
+	c = FC(row,col);
+	if ((val = white[row][col] - black) > 0)
+	  sum[c] += val;
+	count[c]++;
+      }
+    for (dmin=DBL_MAX, dmax=c=0; c < colors; c++) {
+      sum[c] /= count[c];
+      if (dmin > sum[c]) dmin = sum[c];
+      if (dmax < sum[c]) dmax = sum[c];
+    }
+    if (dmin > 0)
+      for (c=0; c < colors; c++)
+	pre_mul[c] = dmax / sum[c];
+    else if (camera_red && camera_blue && colors == 3) {
+      pre_mul[0] = camera_red;
+      pre_mul[1] = 1.0;
+      pre_mul[2] = camera_blue;
+    } else
+      fprintf (stderr, "%s: Cannot use camera white balance.\n", ifname);
+  }
+  if (!use_coeff) {
+    pre_mul[0] *= red_scale;
+    pre_mul[2] *= blue_scale;
+  }
+  if (verbose) {
+    fprintf (stderr, "Scaling with black=%d, pre_mul[] =", black);
+    for (c=0; c < colors; c++)
+      fprintf (stderr, " %f", pre_mul[c]);
+    fputc ('\n', stderr);
+  }
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
       for (c=0; c < colors; c++) {
@@ -1773,11 +1786,11 @@ void tiff_parse_subifd(int base)
 	break;
       case 0x111:		/* StripOffset */
 	if (len == 1)
-	  tiff_data_offset = val;
+	  data_offset = val;
 	else {
 	  save = ftell(ifp);
 	  fseek (ifp, val+base, SEEK_SET);
-	  tiff_data_offset = fget4(ifp);
+	  data_offset = fget4(ifp);
 	  fseek (ifp, save, SEEK_SET);
 	}
 	break;
@@ -1928,13 +1941,40 @@ void parse_tiff(int base)
 }
 
 /*
+   CIFF block 0x1030 contains an 8x8 white sample.
+   Load this into white[][] for use in scale_colors().
+ */
+void ciff_block_1030()
+{
+  static const ushort key[] = { 0x410, 0x45f3 };
+  int i, bpp, row, col, vbits=0;
+  unsigned long bitbuf=0;
+
+  fget2(ifp);
+  if (fget4(ifp) != 0x80008) return;
+  if (fget4(ifp) == 0) return;
+  bpp = fget2(ifp);
+  if (bpp != 10 && bpp != 12) return;
+  for (i=row=0; row < 8; row++)
+    for (col=0; col < 8; col++) {
+      if (vbits < bpp) {
+	bitbuf = bitbuf << 16 | (fget2(ifp) ^ key[i++ & 1]);
+	vbits += 16;
+      }
+      white[row][col] =
+	bitbuf << (LONG_BIT - vbits) >> (LONG_BIT - bpp) << (14-bpp);
+      vbits -= bpp;
+    }
+}
+
+/*
    Parse the CIFF structure looking for two pieces of information:
    The camera model, and the decode table number.
  */
 void parse_ciff(int offset, int length)
 {
   int tboff, nrecs, i, type, len, roff, aoff, save;
-  int wbi=0;
+  int wbi=-1, remap[] = { 1,2,3,4,5,1 };
 
   fseek (ifp, offset+length-4, SEEK_SET);
   tboff = fget4(ifp) + offset;
@@ -1957,20 +1997,36 @@ void parse_ciff(int offset, int length)
       wbi = fget2(ifp);
     }
     if (type == 0x102c) {		/* Get white balance (G2) */
-      fseek (ifp, aoff+100, SEEK_SET);	/* could use 100, 108 or 116 */
-      camera_red = fget2(ifp);
-      camera_red = fget2(ifp) / camera_red;
-      camera_blue  = fget2(ifp);
-      camera_blue /= fget2(ifp);
+      if (!strcmp(model,"Canon PowerShot G1") ||
+	  !strcmp(model,"Canon PowerShot Pro90 IS")) {
+	fseek (ifp, aoff+120, SEEK_SET);
+	white[0][1] = fget2(ifp) << 4;
+	white[0][0] = fget2(ifp) << 4;
+	white[1][0] = fget2(ifp) << 4;
+	white[1][1] = fget2(ifp) << 4;
+      } else {
+	fseek (ifp, aoff+100, SEEK_SET);
+	if (wbi == 6 && fget4(ifp) == 0)
+	  wbi = 15;
+	else {
+	  fseek (ifp, aoff+100, SEEK_SET);
+	  goto common;
+	}
+      }
     }
-    if (type == 0x0032 && !strcmp(model,"Canon EOS D30")) {
-      fseek (ifp, aoff+72, SEEK_SET);	/* Get white balance (D30) */
-      camera_red   = fget2(ifp);
-      camera_red   = fget2(ifp) / camera_red;
-      camera_blue  = fget2(ifp);
-      camera_blue /= fget2(ifp);
-      if (wbi==0)			/* AWB doesn't work here */
-	camera_red = camera_blue = 0;
+    if (type == 0x0032) {		/* Get white balance (D30 & G3) */
+      if (!strcmp(model,"Canon EOS D30")) {
+	fseek (ifp, aoff+72, SEEK_SET);
+common:
+	camera_red   = fget2(ifp);
+	camera_red   = fget2(ifp) / camera_red;
+	camera_blue  = fget2(ifp);
+	camera_blue /= fget2(ifp);
+      } else {
+	fseek (ifp, aoff+80 + (wbi < 6 ? remap[wbi]*8 : 0), SEEK_SET);
+	if (!camera_red)
+	  goto common;
+      }
     }
     if (type == 0x10a9) {		/* Get white balance (D60) */
       fseek (ifp, aoff+2 + wbi*8, SEEK_SET);
@@ -1978,6 +2034,10 @@ void parse_ciff(int offset, int length)
       camera_red /= fget2(ifp);
       camera_blue = fget2(ifp);
       camera_blue = fget2(ifp) / camera_blue;
+    }
+    if (type == 0x1030 && wbi > 14) {	/* Get white sample */
+      fseek (ifp, aoff, SEEK_SET);
+      ciff_block_1030();
     }
     if (type == 0x1031) {		/* Get the raw width and height */
       fseek (ifp, aoff+2, SEEK_SET);
@@ -1996,6 +2056,8 @@ void parse_ciff(int offset, int length)
       parse_ciff(aoff, len);
     fseek (ifp, save, SEEK_SET);
   }
+  if (wbi == 0 && !strcmp(model,"Canon EOS D30"))
+    camera_red = -1;			/* Use my auto WB for this photo */
 }
 
 void parse_rollei()
@@ -2011,7 +2073,7 @@ void parse_rollei()
     else
       val = line + strlen(line);
     if (!strcmp(line,"HDR"))
-      tiff_data_offset = atoi(val);
+      data_offset = atoi(val);
     if (!strcmp(line,"X  "))
       raw_width = atoi(val);
     if (!strcmp(line,"Y  "))
@@ -2021,7 +2083,7 @@ void parse_rollei()
     if (!strcmp(line,"TY "))
       ty = atoi(val);
   } while (strncmp(line,"EOHD",4));
-  tiff_data_offset += tx * ty * 2;
+  data_offset += tx * ty * 2;
   strcpy (make, "Rollei");
   strcpy (model,"d530flex");
 }
@@ -2163,7 +2225,7 @@ void gmcy_coeff()
    Identify which camera created this file, and set global variables
    accordingly.  Return nonzero if the file cannot be decoded.
  */
-int identify(char *fname)
+int identify()
 {
   char head[32], *c;
   unsigned hlen, fsize, i;
@@ -2176,6 +2238,7 @@ int identify(char *fname)
     {  4771840, "NIKON",    "E990/995" },
     {  5865472, "NIKON",    "E4500" },
     {  5869568, "NIKON",    "E4300" },
+    {   787456, "Creative", "PC-CAM 600" },
     {  1976352, "Casio",    "QV-2000UX" },
     {  3217760, "Casio",    "QV-3*00EX" },
     {  6218368, "Casio",    "QV-5700" },
@@ -2186,8 +2249,9 @@ int identify(char *fname)
 
   raw_height = raw_width = 0;
   make[0] = model[0] = model2[0] = 0;
+  memset (white, 0, sizeof white);
   camera_red = camera_blue = timestamp = 0;
-  tiff_data_offset = tiff_data_compression = 0;
+  data_offset = tiff_data_compression = 0;
 
   order = fget2(ifp);
   hlen = fget4(ifp);
@@ -2197,27 +2261,27 @@ int identify(char *fname)
   fsize = ftell(ifp);
   if ((c = memmem (head, 32, "MMMMRawT", 8))) {
     strcpy (make, "Phase One");
-    tiff_data_offset = c - head;
-    fseek (ifp, tiff_data_offset + 8, SEEK_SET);
+    data_offset = c - head;
+    fseek (ifp, data_offset + 8, SEEK_SET);
     fseek (ifp, fget4(ifp) + 136, SEEK_CUR);
     raw_width = fget4(ifp);
     fseek (ifp, 12, SEEK_CUR);
     raw_height = fget4(ifp);
   } else if (order == 0x4949 || order == 0x4d4d) {
     if (!memcmp (head+6,"HEAPCCDR",8)) {
+      data_offset = hlen;
       parse_ciff (hlen, fsize - hlen);
-      fseek (ifp, hlen, SEEK_SET);
     } else
       parse_tiff(0);
   } else if (!memcmp (head,"\0MRM",4)) {
     parse_tiff(48);
     fseek (ifp, 4, SEEK_SET);
-    tiff_data_offset = fget4(ifp) + 8;
+    data_offset = fget4(ifp) + 8;
     fseek (ifp, 24, SEEK_SET);
     raw_height = fget2(ifp);
     raw_width  = fget2(ifp);
   } else if (!memcmp (head,"BM",2)) {
-    tiff_data_offset = 0x1000;
+    data_offset = 0x1000;
     order = 0x4949;
     fseek (ifp, 38, SEEK_SET);
     if (fget4(ifp) == 2834 && fget4(ifp) == 2834) {
@@ -2230,13 +2294,13 @@ nucore:
     strcpy (make, "Nucore");
     order = 0x4949;
     fseek (ifp, 10, SEEK_SET);
-    tiff_data_offset += fget4(ifp);
+    data_offset += fget4(ifp);
     fget4(ifp);
     raw_width  = fget4(ifp);
     raw_height = fget4(ifp);
     if (model[0] == 'B' && raw_width == 2597) {
       raw_width++;
-      tiff_data_offset -= 0x1000;
+      data_offset -= 0x1000;
     }
   } else if (!memcmp (head+25,"ARECOYK",7)) {
     strcpy (make, "CONTAX");
@@ -2246,7 +2310,7 @@ nucore:
     parse_tiff (fget4(ifp)+12);
     order = 0x4d4d;
     fseek (ifp, 100, SEEK_SET);
-    tiff_data_offset = fget4(ifp);
+    data_offset = fget4(ifp);
   } else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
   else if (!memcmp (head,"FOVb",4))
@@ -2278,7 +2342,7 @@ nucore:
   while (*--c == ' ') *c = 0;
 
   if (make[0] == 0) {
-    fprintf (stderr, "%s: unsupported file format.\n", fname);
+    fprintf (stderr, "%s: unsupported file format.\n", ifname);
     return 1;
   }
 
@@ -2407,13 +2471,13 @@ nucore:
   } else if (!strcmp(model,"EOS-1D")) {
     height = 1662;
     width  = 2496;
-    tiff_data_offset = 288912;
+    data_offset = 288912;
     pre_mul[0] = 1.976;
     pre_mul[2] = 1.282;
   } else if (!strcmp(model,"EOS-1DS")) {
     height = 2718;
     width  = 4082;
-    tiff_data_offset = 289168;
+    data_offset = 289168;
     pre_mul[0] = 1.66;
     pre_mul[2] = 1.13;
     rgb_max = 14464;
@@ -2535,7 +2599,7 @@ coolpix:
   } else if (!strcmp(model,"*ist D")) {
     height = 2024;
     width  = 3040;
-    tiff_data_offset = 0x10000;
+    data_offset = 0x10000;
     load_raw = be_low_12_load_raw;
     pre_mul[0] = 1.76;
     pre_mul[1] = 1.07;
@@ -2591,28 +2655,28 @@ coolpix:
     height = fget4(ifp);
     width  = fget4(ifp);
     filters = 0x61616161;
-    tiff_data_offset = 68;
+    data_offset = 68;
     load_raw = be_16_load_raw;
     rgb_max = 0xffff;
   } else if (!strcmp(model,"E-1")) {
     height = 1966;
     width  = 2624;
     filters = 0x61616161;
-    tiff_data_offset = 0x54000;
+    data_offset = 0x54000;
     load_raw = le_high_12_load_raw;
     pre_mul[0] = 1.57;
     pre_mul[2] = 1.48;
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
-    tiff_data_offset = 0x4000;
+    data_offset = 0x4000;
     load_raw = be_high_12_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
   } else if (!strncmp(model,"E-20",4)) {
     height = 1924;
     width  = 2576;
-    tiff_data_offset = 0x4000;
+    data_offset = 0x4000;
     load_raw = be_high_12_load_raw;
     pre_mul[0] = 1.43;
     pre_mul[2] = 1.77;
@@ -2631,7 +2695,7 @@ coolpix:
     height = 2047;
     width  = 3072;
     filters = 0x61616161;
-    tiff_data_offset = 0x1a00;
+    data_offset = 0x1a00;
     load_raw = packed_12_load_raw;
     pre_mul[0] = 1.366;
     pre_mul[2] = 1.251;
@@ -2729,7 +2793,7 @@ coolpix:
 	break;
       default:
 	fprintf (stderr, "%s: %s %s uses unsupported compression method %d.\n",
-		fname, make, model, tiff_data_compression);
+		ifname, make, model, tiff_data_compression);
 	return 1;
     }
   } else if (!strcmp(make,"Rollei")) {
@@ -2771,16 +2835,23 @@ coolpix:
     }
     foveon_coeff();
     rgb_max = 5600;
+  } else if (!strcmp(model,"PC-CAM 600")) {
+    height = 768;
+    data_offset = width = 1024;
+    filters = 0x49494949;
+    load_raw = eight_bit_load_raw;
+    pre_mul[0] = 1.14;
+    pre_mul[2] = 2.73;
   } else if (!strcmp(model,"QV-2000UX")) {
     height = 1208;
     width  = 1632;
-    tiff_data_offset = width * 2;
-    load_raw = casio_easy_load_raw;
+    data_offset = width * 2;
+    load_raw = eight_bit_load_raw;
   } else if (!strcmp(model,"QV-3*00EX")) {
     height = 1546;
     width  = 2070;
     raw_width = 2080;
-    load_raw = casio_easy_load_raw;
+    load_raw = eight_bit_load_raw;
   } else if (!strcmp(model,"QV-4000")) {
     height = 1700;
     width  = 2260;
@@ -2795,25 +2866,18 @@ coolpix:
   }
   if (!load_raw) {
     fprintf (stderr, "%s: %s %s is not yet supported.\n",
-	fname, make, model);
+	ifname, make, model);
     return 1;
   }
 #ifndef LJPEG_DECODE
   if (load_raw == lossless_jpeg_load_raw) {
     fprintf (stderr, "%s: %s %s requires lossless JPEG decoder.\n",
-	fname, make, model);
+	ifname, make, model);
     return 1;
   }
 #endif
   if (!raw_height) raw_height = height;
   if (!raw_width ) raw_width  = width;
-  if (use_camera_wb) {
-    if (camera_red && camera_blue && colors == 3) {
-      pre_mul[0] = camera_red;
-      pre_mul[2] = camera_blue;
-    } else
-      fprintf (stderr, "%s: Cannot use camera white balance.\n",fname);
-  }
   if (colors == 4 && !use_coeff)
     gmcy_coeff();
   if (use_coeff)		 /* Apply user-selected color balance */
@@ -2821,10 +2885,6 @@ coolpix:
       coeff[0][i] *= red_scale;
       coeff[2][i] *= blue_scale;
     }
-  else {
-    pre_mul[0] *= red_scale;
-    pre_mul[2] *= blue_scale;
-  }
   if (four_color_rgb && filters && colors == 3) {
     for (i=0; i < 32; i+=4) {
       if ((filters >> i & 15) == 9)
@@ -2837,6 +2897,7 @@ coolpix:
       for (i=0; i < 3; i++)
 	coeff[i][3] = coeff[i][1] /= 2;
   }
+  fseek (ifp, data_offset, SEEK_SET);
   return 0;
 }
 
@@ -3011,7 +3072,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.27"
+    "\nRaw Photo Decoder v5.40"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -3024,9 +3085,10 @@ int main(int argc, char **argv)
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-q        Quick, low-quality color interpolation"
-    "\n-g <num>  Set gamma      (0.8 by default, only for 24-bit output)"
+    "\n-g <num>  Set gamma      (0.6 by default, only for 24-bit output)"
     "\n-b <num>  Set brightness (1.0 by default)"
-    "\n-w        Use camera white balance settings if possible"
+    "\n-a        Use automatic white balance"
+    "\n-w        Use camera white balance, if possible"
     "\n-r <num>  Set red  multiplier (daylight = 1.0)"
     "\n-l <num>  Set blue multiplier (daylight = 1.0)"
     "\n-2        Write 24-bit PPM (default)"
@@ -3056,6 +3118,7 @@ int main(int argc, char **argv)
       case 'f':  four_color_rgb    = 1;  break;
       case 'd':  document_mode     = 1;  break;
       case 'q':  quick_interpolate = 1;  break;
+      case 'a':  use_auto_wb       = 1;  break;
       case 'w':  use_camera_wb     = 1;  break;
 
       case '2':  write_fun = write_ppm;   write_ext = ".ppm";  break;
@@ -3086,17 +3149,18 @@ int main(int argc, char **argv)
 
   for ( ; arg < argc; arg++)
   {
-    ifp = fopen(argv[arg],"rb");
-    if (!ifp) perror(argv[arg]);
+    ifname = argv[arg];
+    ifp = fopen (ifname, "rb");
+    if (!ifp) perror(ifname);
     if (identify_only) {
-      if (!(id = !ifp || identify(argv[arg])))
-	fprintf (stderr, "%s is a %s %s image.\n", argv[arg], make, model);
+      if (!(id = !ifp || identify()))
+	fprintf (stderr, "%s is a %s %s image.\n", ifname, make, model);
       if (ifp) fclose(ifp);
       if (arg+1 < argc) continue;
       exit(id);
     }
     if (!ifp) continue;
-    if (identify(argv[arg])) {
+    if (identify()) {
       fclose(ifp);
       continue;
     }
@@ -3104,7 +3168,7 @@ int main(int argc, char **argv)
     merror (image, "main()");
     if (verbose)
       fprintf (stderr,
-	"Loading %s %s image from %s...\n", make, model, argv[arg]);
+	"Loading %s %s image from %s...\n", make, model, ifname);
     (*load_raw)();
     fclose(ifp);
     if (is_foveon) {
@@ -3113,10 +3177,6 @@ int main(int argc, char **argv)
       foveon_interpolate();
     } else {
       bad_pixels();
-      if (verbose)
-	fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
-      if (document_mode)
-	auto_scale();
       scale_colors();
     }
     trim = 0;
@@ -3130,13 +3190,13 @@ int main(int argc, char **argv)
     if (verbose)
       fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
-    ofname = malloc (strlen(argv[arg]) + 16);
+    ofname = malloc (strlen(ifname) + 16);
     merror (ofname, "main()");
     if (write_to_stdout) {
       strcpy (ofname, "standard output");
       ofp = stdout;
     } else {
-      strcpy (ofname, argv[arg]);
+      strcpy (ofname, ifname);
       if ((cp = strrchr (ofname, '.'))) *cp = 0;
       strcat (ofname, write_ext);
       ofp = fopen (ofname, "wb");
