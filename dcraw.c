@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.184 $
-   $Date: 2004/04/22 16:53:47 $
+   $Revision: 1.185 $
+   $Date: 2004/04/25 04:54:14 $
  */
 
 #define _GNU_SOURCE
@@ -3221,9 +3221,15 @@ coolpix:
     } else if (!strcasecmp(model,"DCS Pro 14n")) {
       pre_mul[1] = 1.0191;
       pre_mul[2] = 1.1567;
+    } else if (!strcasecmp(model,"DCS Pro 14nx")) {
+      pre_mul[0] = 1.25;
+      pre_mul[2] = 1.225;
+    } else if (!strcasecmp(model,"DCS Pro SLR/c")) {
+      pre_mul[0] = 1.24;
+      pre_mul[2] = 1.16;
     } else if (!strcasecmp(model,"DCS Pro SLR/n")) {
-      pre_mul[0] = 1.168;
-      pre_mul[2] = 1.230;
+      pre_mul[0] = 1.273;
+      pre_mul[2] = 1.235;
     }
     switch (tiff_data_compression) {
       case 0:				/* No compression */
@@ -3242,6 +3248,10 @@ coolpix:
 	else {
 	  load_raw = kodak_yuv_load_raw;
 	  filters = 0;
+	  if (pre_mul[1] == 1) {
+	    pre_mul[0] *= 1.05;
+	    pre_mul[2] *= 1.10;
+	  }
 	}
 	break;
       default:
@@ -3586,7 +3596,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.76"
+    "\nRaw Photo Decoder \"dcraw\" v5.77"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
