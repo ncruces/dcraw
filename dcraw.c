@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.178 $
-   $Date: 2004/03/07 02:06:59 $
+   $Revision: 1.179 $
+   $Date: 2004/03/29 19:53:10 $
  */
 
 #define _GNU_SOURCE
@@ -26,6 +26,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+/*
+   By defining NO_JPEG, you lose only the ability to
+   decode compressed .KDC files from the Kodak DC120.
+ */
+#ifndef NO_JPEG
+#include <jpeglib.h>
+#endif
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -981,6 +988,229 @@ void nucore_load_raw()
   free (data);
 }
 
+const int *make_decoder_int (const int *source, int level)
+{
+  struct decode *cur;
+
+  cur = free_decode++;
+  if (level < source[0]) {
+    cur->branch[0] = free_decode;
+    source = make_decoder_int (source, level+1);
+    cur->branch[1] = free_decode;
+    source = make_decoder_int (source, level+1);
+  } else {
+    cur->leaf = source[1];
+    source += 2;
+  }
+  return source;
+}
+
+int radc_token (int tree)
+{
+  int t;
+  static struct decode *dstart[18], *dindex;
+  static const int *s, source[] = {
+    1,1, 2,3, 3,4, 4,2, 5,7, 6,5, 7,6, 7,8,
+    1,0, 2,1, 3,3, 4,4, 5,2, 6,7, 7,6, 8,5, 8,8,
+    2,1, 2,3, 3,0, 3,2, 3,4, 4,6, 5,5, 6,7, 6,8,
+    2,0, 2,1, 2,3, 3,2, 4,4, 5,6, 6,7, 7,5, 7,8,
+    2,1, 2,4, 3,0, 3,2, 3,3, 4,7, 5,5, 6,6, 6,8,
+    2,3, 3,1, 3,2, 3,4, 3,5, 3,6, 4,7, 5,0, 5,8,
+    2,3, 2,6, 3,0, 3,1, 4,4, 4,5, 4,7, 5,2, 5,8,
+    2,4, 2,7, 3,3, 3,6, 4,1, 4,2, 4,5, 5,0, 5,8,
+    2,6, 3,1, 3,3, 3,5, 3,7, 3,8, 4,0, 5,2, 5,4,
+    2,0, 2,1, 3,2, 3,3, 4,4, 4,5, 5,6, 5,7, 4,8,
+    1,0, 2,2, 2,-2,
+    1,-3, 1,3,
+    2,-17, 2,-5, 2,5, 2,17,
+    2,-7, 2,2, 2,9, 2,18,
+    2,-18, 2,-9, 2,-2, 2,7,
+    2,-28, 2,28, 3,-49, 3,-9, 3,9, 4,49, 5,-79, 5,79,
+    2,-1, 2,13, 2,26, 3,39, 4,-16, 5,55, 6,-37, 6,76,
+    2,-26, 2,-13, 2,1, 3,-39, 4,16, 5,-55, 6,-76, 6,37
+  };
+
+  if (free_decode == first_decode)
+    for (s=source, t=0; t < 18; t++) {
+      dstart[t] = free_decode;
+      s = make_decoder_int (s, 0);
+    }
+  if (tree == 18) {
+    if (model[2] == '4')
+      return (getbits(5) << 3) + 4;	/* DC40 */
+    else
+      return (getbits(6) << 2) + 2;	/* DC50 */
+  }
+  for (dindex = dstart[tree]; dindex->branch[0]; )
+    dindex = dindex->branch[getbits(1)];
+  return dindex->leaf;
+}
+
+#define FORYX for (y=1; y < 3; y++) for (x=col+1; x >= col; x--)
+
+#define PREDICTOR (c ? (buf[c][y-1][x] + buf[c][y][x+1]) / 2 \
+: (buf[c][y-1][x+1] + 2*buf[c][y-1][x] + buf[c][y][x+1]) / 4)
+
+void kodak_radc_load_raw()
+{
+  int row, col, tree, nreps, rep, step, i, c, s, r, x, y, val;
+  short last[3] = { 16,16,16 }, mul[3], buf[3][3][386];
+
+  init_decoder();
+  getbits(-1);
+  for (i=0; i < sizeof(buf)/sizeof(short); i++)
+    buf[0][0][i] = 2048;
+  for (row=0; row < height; row+=4) {
+    for (i=0; i < 3; i++)
+      mul[i] = getbits(6);
+    for (c=0; c < 3; c++) {
+      val = ((0x1000000/last[c] + 0x7ff) >> 12) * mul[c];
+      s = val > 65564 ? 10:12;
+      x = ~(-1 << (s-1));
+      val <<= 12-s;
+      for (i=0; i < sizeof(buf[0])/sizeof(short); i++)
+	buf[c][0][i] = (buf[c][0][i] * val + x) >> s;
+      last[c] = mul[c];
+      for (r=0; r <= !c; r++) {
+	buf[c][1][width/2] = buf[c][2][width/2] = mul[c] << 7;
+	for (tree=1, col=width/2; col > 0; ) {
+	  if ((tree = radc_token(tree))) {
+	    col -= 2;
+	    if (tree == 8)
+	      FORYX buf[c][y][x] = radc_token(tree+10) * mul[c];
+	    else
+	      FORYX buf[c][y][x] = radc_token(tree+10) * 16 + PREDICTOR;
+	  } else
+	    do {
+	      nreps = (col > 2) ? radc_token(9) + 1 : 1;
+	      for (rep=0; rep < 8 && rep < nreps && col > 0; rep++) {
+		col -= 2;
+		FORYX buf[c][y][x] = PREDICTOR;
+		if (rep & 1) {
+		  step = radc_token(10) << 4;
+		  FORYX buf[c][y][x] += step;
+		}
+	      }
+	    } while (nreps == 9);
+	}
+	for (y=0; y < 2; y++)
+	  for (x=0; x < width/2; x++) {
+	    val = (buf[c][y+1][x] << 4) / mul[c];
+	    if (val < 0) val = 0;
+	    if (c)
+	      BAYER(row+y*2+c-1,x*2+2-c) = val;
+	    else
+	      BAYER(row+r*2+y,x*2+y) = val;
+	  }
+	memcpy (buf[c][0]+!c, buf[c][2], sizeof buf[c][0]-2*!c);
+      }
+    }
+    for (y=row; y < row+4; y++)
+      for (x=0; x < width; x++)
+	if ((x+y) & 1) {
+	  val = (BAYER(y,x)-2048)*2 + (BAYER(y,x-1)+BAYER(y,x+1))/2;
+	  if (val < 0) val = 0;
+	  BAYER(y,x) = val;
+	}
+  }
+  black = 0;
+}
+
+#undef FORYX
+#undef PREDICTOR
+
+#ifdef NO_JPEG
+void kodak_jpeg_load_raw() {}
+#else
+
+METHODDEF(boolean)
+fill_input_buffer (j_decompress_ptr cinfo)
+{
+  static char jpeg_buffer[4096];
+  size_t nbytes;
+
+  nbytes = fread (jpeg_buffer, 1, 4096, ifp);
+  swab (jpeg_buffer, jpeg_buffer, nbytes);
+  cinfo->src->next_input_byte = jpeg_buffer;
+  cinfo->src->bytes_in_buffer = nbytes;
+  return TRUE;
+}
+
+void kodak_jpeg_load_raw()
+{
+  struct jpeg_decompress_struct cinfo;
+  struct jpeg_error_mgr jerr;
+  JSAMPARRAY buf;
+  JSAMPLE (*pixel)[3];
+  int row, col;
+
+  cinfo.err = jpeg_std_error (&jerr);
+  jpeg_create_decompress (&cinfo);
+  jpeg_stdio_src (&cinfo, ifp);
+  cinfo.src->fill_input_buffer = fill_input_buffer;
+  jpeg_read_header (&cinfo, TRUE);
+  jpeg_start_decompress (&cinfo);
+  if ((cinfo.output_width      != width  ) ||
+      (cinfo.output_height*2   != height ) ||
+      (cinfo.output_components != 3      )) {
+    fprintf (stderr, "%s: incorrect JPEG dimensions\n", ifname);
+    jpeg_destroy_decompress (&cinfo);
+    longjmp (failure, 3);
+  }
+  buf = (*cinfo.mem->alloc_sarray)
+		((j_common_ptr) &cinfo, JPOOL_IMAGE, width*3, 1);
+
+  while (cinfo.output_scanline < cinfo.output_height) {
+    row = cinfo.output_scanline * 2;
+    jpeg_read_scanlines (&cinfo, buf, 1);
+    pixel = (void *) buf[0];
+    for (col=0; col < width; col+=2) {
+      BAYER(row+0,col+0) = pixel[col+0][1] << 6;
+      BAYER(row+1,col+1) = pixel[col+1][1] << 6;
+      BAYER(row+0,col+1) = (pixel[col][0] + pixel[col+1][0]) << 5;
+      BAYER(row+1,col+0) = (pixel[col][2] + pixel[col+1][2]) << 5;
+    }
+  }
+  jpeg_finish_decompress (&cinfo);
+  jpeg_destroy_decompress (&cinfo);
+}
+
+#endif
+
+void kodak_dc120_load_raw()
+{
+  static const int mul[4] = { 162, 192, 187,  92 };
+  static const int add[4] = {   0, 636, 424, 212 };
+  uchar pixel[848];
+  int row, shift, col;
+
+  for (row=0; row < height; row++)
+  {
+    fread (pixel, 848, 1, ifp);
+    shift = row * mul[row & 3] + add[row & 3];
+    for (col=0; col < width; col++)
+      BAYER(row,col) = (ushort) pixel[(col + shift) % 848] << 6;
+  }
+}
+
+void kodak_dc20_coeff (float juice)
+{
+  static const float my_coeff[3][4] =
+  { {  2.25,  0.75, -1.75, -0.25 },
+    { -0.25,  0.75,  0.75, -0.25 },
+    { -0.25, -1.75,  0.75,  2.25 } };
+  static const float flat[3][4] =
+  { {  1, 0,   0,   0 },
+    {  0, 0.5, 0.5, 0 },
+    {  0, 0,   0,   1 } };
+  int r, g;
+
+  for (r=0; r < 3; r++)
+    for (g=0; g < 4; g++)
+      coeff[r][g] = my_coeff[r][g] * juice + flat[r][g] * (1-juice);
+  use_coeff = 1;
+}
+
 void kodak_easy_load_raw()
 {
   uchar *pixel;
@@ -1002,6 +1232,8 @@ void kodak_easy_load_raw()
   }
   if (raw_width > width)
     black = ((INT64) black << 6) / ((raw_width - width) * height);
+  if (!strncmp(model,"DC2",3))
+    black = 0;
   free (pixel);
 }
 
@@ -2353,6 +2585,8 @@ int identify()
     int fsize;
     char make[12], model[16];
   } table[] = {
+    {    62464, "Kodak",    "DC20" },
+    {   124928, "Kodak",    "DC20" },
     {  2465792, "NIKON",    "E950" },
     {  2940928, "NIKON",    "E2100" },
     {  4771840, "NIKON",    "E990/995" },
@@ -2454,6 +2688,8 @@ nucore:
     strcpy (make, "Minolta");
   if (!strncmp(make,"KODAK",5))
     make[16] = model[16] = 0;
+  if (!strcmp(make,"Eastman Kodak Company"))
+    strcpy (make, "Kodak");
   i = strlen(make);
   if (!strncmp(model,make,i++))
     memmove (model, model+i, 64-i);
@@ -2703,6 +2939,10 @@ coolpix:
     pre_mul[0] = 1.300;
     pre_mul[1] = 1.300;
     pre_mul[3] = 1.148;
+  } else if (!strcmp(model,"E8700")) {
+    filters = 0x16161616;
+    pre_mul[0] = 2.131;
+    pre_mul[2] = 1.300;
   } else if (!strcmp(model,"FinePixS2Pro")) {
     height = 3584;
     width  = 3583;
@@ -2953,6 +3193,7 @@ coolpix:
 	break;
       case 7:				/* Lossless JPEG */
 	load_raw = lossless_jpeg_load_raw;
+      case 32867:
 	break;
       case 65000:			/* Kodak DCR compression */
 	black = 0;
@@ -2967,6 +3208,59 @@ coolpix:
 	fprintf (stderr, "%s: %s %s uses unsupported compression method %d.\n",
 		ifname, make, model, tiff_data_compression);
 	return 1;
+    }
+    if (!strcmp(model,"DC20")) {
+      height = 242;
+      if (fsize < 100000) {
+	width = 249;
+	raw_width = 256;
+      } else {
+	width = 501;
+	raw_width = 512;
+      }
+      data_offset = raw_width + 1;
+      colors = 4;
+      filters = 0x8d8d8d8d;
+      kodak_dc20_coeff (0.5);
+      pre_mul[1] = 1.179;
+      pre_mul[2] = 1.209;
+      pre_mul[3] = 1.036;
+      load_raw = kodak_easy_load_raw;
+    } else if (strstr(model,"DC25")) {
+      strcpy (model, "DC25");
+      height = 242;
+      if (fsize < 100000) {
+	width = 249;
+	raw_width = 256;
+	data_offset = 15681;
+      } else {
+	width = 501;
+	raw_width = 512;
+	data_offset = 15937;
+      }
+      colors = 4;
+      filters = 0xb4b4b4b4;
+      load_raw = kodak_easy_load_raw;
+    } else if (!strcmp(model,"Digital Camera 40")) {
+      strcpy (model, "DC40");
+      height = 512;
+      width = 768;
+      data_offset = 1152;
+      load_raw = kodak_radc_load_raw;
+    } else if (strstr(model,"DC50")) {
+      strcpy (model, "DC50");
+      height = 512;
+      width = 768;
+      data_offset = 19712;
+      load_raw = kodak_radc_load_raw;
+    } else if (strstr(model,"DC120")) {
+      strcpy (model, "DC120");
+      height = 976;
+      width = 848;
+      if (tiff_data_compression == 7)
+	load_raw = kodak_jpeg_load_raw;
+      else
+	load_raw = kodak_dc120_load_raw;
     }
   } else if (!strcmp(make,"Rollei")) {
     switch (raw_width) {
@@ -3041,6 +3335,12 @@ coolpix:
 	ifname, make, model);
     return 1;
   }
+#ifdef NO_JPEG
+  if (load_raw == kodak_jpeg_load_raw) {
+    fprintf (stderr, "%s: decoder was not linked with libjpeg.\n", ifname);
+    return 1;
+  }
+#endif
   if (!raw_height) raw_height = height;
   if (!raw_width ) raw_width  = width;
   if (colors == 4 && !use_coeff)
@@ -3239,7 +3539,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.62"
+    "\nRaw Photo Decoder \"dcraw\" v5.70"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
