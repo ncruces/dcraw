@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.16 $
-   $Date: 2000/05/02 12:18:24 $
+   $Revision: 1.17 $
+   $Date: 2000/05/02 13:45:14 $
 */
 
 #include <fcntl.h>
@@ -60,7 +60,6 @@ const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
 /* Default values, which may be modified on the command line */
 
 float gamma_val=0.8, bright=1.0;
-int write_to_files=1;
 
 /* DOS likes to trash binary files!! */
 
@@ -72,20 +71,10 @@ int write_to_files=1;
 
 typedef unsigned char uchar;
 
-/* This 4MB array holds the GMCY values for each pixel */
+/* This array holds the GMCY values for each pixel */
 
 ushort gmcy[H][W][4];
-
-/* Creates a new filename with a different extension */
-exten(char *new, const char *old, const char *ext)
-{
-  char *cp;
-
-  strcpy(new,old);
-  cp=strrchr(new,'.');
-  if (!cp) cp=new+strlen(new);
-  strcpy(cp,ext);
-}
+int histogram[1024];
 
 #ifdef PS_600
 /*
@@ -106,35 +95,22 @@ exten(char *new, const char *old, const char *ext)
    Load CCD pixel values into the gmcy[] array.  Unknown colors
    (such as cyan under a magenta filter) must be set to zero.
 */
-read_crw(const char *fname)
+void read_crw(int row, int fd)
 {
   uchar  data[1120], *dp;
   ushort pixel[896], *pix;
-  int fd, irow, orow, col;
-
-  fd = open(fname,O_RDONLY | O_BINARY);
-  if (fd < 0)
-  { perror(fname);
-    return 0; }
-
-/* Check the header to confirm this is a CRW file */
-
-  read (fd, data, 26);
-  if (memcmp(data,"MM",2) || memcmp(data+6,"HEAPCCDR",8))
-  {
-    fprintf(stderr,"%s is not a Canon PowerShot 600 file.\n",fname);
-    return 0;
-  }
-
-#ifdef DEBUG
-  fprintf(stderr,"Unpacking %s...\n",fname);
-#endif
+  int irow, orow, col;
 
 /*
    Immediately after the 26-byte header come the data rows.  First
    the even rows 0..612, then the odd rows 1..611.  Each row is 896
    pixels, ten bits per pixel, packed into 1120 bytes (8960 bits).
+
+   Since the rows are not stored in top-to-bottom order like the
+   other cameras, we must load all rows before processing can begin.
 */
+
+  if (row) return;
 
   for (irow=orow=0; irow < H; irow++)
   {
@@ -163,8 +139,6 @@ read_crw(const char *fname)
     if ((orow+=2) > H)	      /* Once we've read all the even rows, */
       orow = 1;			/* read the odd rows. */
   }
-  close(fd);
-  return 1;			/* Success */
 }
 
 #elif defined(PS_A5)
@@ -187,59 +161,35 @@ read_crw(const char *fname)
    Load CCD pixel values into the gmcy[] array.  Unknown colors
    (such as cyan under a magenta filter) must be set to zero.
 */
-read_crw(const char *fname)
+void read_crw(int row, int fd)
 {
   uchar  data[1240], *dp;
   ushort pixel[992], *pix;
-  int fd, row, col;
-
-  fd = open(fname,O_RDONLY | O_BINARY);
-  if (fd < 0)
-  { perror(fname);
-    return 0; }
-
-/* Check the header to confirm this is a CRW file */
-
-  read (fd, data, 26);
-  if (memcmp(data,"II",2) || memcmp(data+6,"HEAPCCDR",8))
-  {
-    fprintf(stderr,"%s is not a Canon PowerShot A5 file.\n",fname);
-    return 0;
-  }
-
-#ifdef DEBUG
-  fprintf(stderr,"Unpacking %s...\n",fname);
-#endif
+  int row, col;
 
 /*
-   Immediately after the 26-byte header come the data rows.
-   Each row is 992 pixels, ten bits each, packed into 1240 bytes.
+   Each data row is 992 ten-bit pixels, packed into 1240 bytes.
 */
-  for (row=0; row < H; row++)
+  read(fd,data,1240);
+  for (dp=data, pix=pixel; dp < data+1200; dp+=10, pix+=8)
   {
-    read(fd,data,1240);
-    for (dp=data, pix=pixel; dp < data+1200; dp+=10, pix+=8)
-    {
-      pix[0] = (dp[1] << 2) + (dp[0] >> 6);
-      pix[1] = (dp[0] << 4) + (dp[3] >> 4);
-      pix[2] = (dp[3] << 6) + (dp[2] >> 2);
-      pix[3] = (dp[2] << 8) + (dp[5]     );
-      pix[4] = (dp[4] << 2) + (dp[7] >> 6);
-      pix[5] = (dp[7] << 4) + (dp[6] >> 4);
-      pix[6] = (dp[6] << 6) + (dp[9] >> 2);
-      pix[7] = (dp[9] << 8) + (dp[8]     );
-    }
+    pix[0] = (dp[1] << 2) + (dp[0] >> 6);
+    pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+    pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+    pix[3] = (dp[2] << 8) + (dp[5]     );
+    pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+    pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+    pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+    pix[7] = (dp[9] << 8) + (dp[8]     );
+  }
 /*
    Copy 960 pixels into the gmcy[] array.  The other 32 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
 */
-    memset(gmcy[row], 0, W*8);		/* Set row to zero */
-    for (col=0; col < W; col++)
-      gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
-  }
-  close(fd);
-  return 1;			/* Success */
+  memset(gmcy[row], 0, W*8);		/* Set row to zero */
+  for (col=0; col < W; col++)
+    gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
 }
 
 #elif defined(PS_A50)
@@ -265,133 +215,61 @@ read_crw(const char *fname)
    Load CCD pixel values into the gmcy[] array.  Unknown colors
    (such as cyan under a magenta filter) must be set to zero.
 */
-read_crw(const char *fname)
+void read_crw(int row, int fd)
 {
   uchar  data[1650], *dp;
   ushort pixel[1320], *pix;
-  int fd, row, col;
-
-  fd = open(fname,O_RDONLY | O_BINARY);
-  if (fd < 0)
-  { perror(fname);
-    return 0; }
-
-/* Check the header to confirm this is a CRW file */
-
-  read (fd, data, 26);
-  if (memcmp(data,"II",2) || memcmp(data+6,"HEAPCCDR",8))
-  {
-    fprintf(stderr,"%s is not a Canon PowerShot A50 file.\n",fname);
-    return 0;
-  }
-
-#ifdef DEBUG
-  fprintf(stderr,"Unpacking %s...\n",fname);
-#endif
+  int col;
 
 /*
-   Immediately after the 26-byte header come the data rows.
-   Each row is 1320 pixels, ten bits each, packed into 1650 bytes.
+  Each row is 1320 ten-bit pixels, packed into 1650 bytes.
 */
-  for (row=0; row < H; row++)
+  read(fd,data,1650);
+  for (dp=data, pix=pixel; dp < data+1650; dp+=10, pix+=8)
   {
-    read(fd,data,1650);
-    for (dp=data, pix=pixel; dp < data+1650; dp+=10, pix+=8)
-    {
-      pix[0] = (dp[1] << 2) + (dp[0] >> 6);
-      pix[1] = (dp[0] << 4) + (dp[3] >> 4);
-      pix[2] = (dp[3] << 6) + (dp[2] >> 2);
-      pix[3] = (dp[2] << 8) + (dp[5]     );
-      pix[4] = (dp[4] << 2) + (dp[7] >> 6);
-      pix[5] = (dp[7] << 4) + (dp[6] >> 4);
-      pix[6] = (dp[6] << 6) + (dp[9] >> 2);
-      pix[7] = (dp[9] << 8) + (dp[8]     );
-    }
+    pix[0] = (dp[1] << 2) + (dp[0] >> 6);
+    pix[1] = (dp[0] << 4) + (dp[3] >> 4);
+    pix[2] = (dp[3] << 6) + (dp[2] >> 2);
+    pix[3] = (dp[2] << 8) + (dp[5]     );
+    pix[4] = (dp[4] << 2) + (dp[7] >> 6);
+    pix[5] = (dp[7] << 4) + (dp[6] >> 4);
+    pix[6] = (dp[6] << 6) + (dp[9] >> 2);
+    pix[7] = (dp[9] << 8) + (dp[8]     );
+  }
 /*
    Copy 1290 pixels into the gmcy[] array.  The other 30 pixels
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
 */
-    memset(gmcy[row], 0, W*8);		/* Set row to zero */
-    for (col=0; col < W; col++)
-      gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
-  }
-  close(fd);
-  return 1;			/* Success */
+  memset(gmcy[row], 0, W*8);		/* Set row to zero */
+  for (col=0; col < W; col++)
+    gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
 }
 
 #endif		/* End of model-specific code */
 
 /*
-   When this function is called, we only have one GMCY
-   value for each pixel.  Do linear interpolation to get
-   the other three.
-*/
+   When this function is called, we only have one GMCY value for
+   each pixel.  Do linear interpolation to get the other three.
 
-first_interpolate()
+   first_interpolate(row) must be called after read_crw(row+1)!
+*/
+first_interpolate(int y)
 {
-  int y, x, sy, sx, c;
+  int x, sy, sx, c;
   uchar shift[]={ 2,1,2, 1,16,1, 2,1,2 }, *sp;
 
-#ifdef DEBUG
-  fprintf(stderr,"First interpolation...\n");
-#endif
-
-  for (y=1; y < H-1; y++)
+  for (x=1; x < W-1; x++)
   {
-    for (x=1; x < W-1; x++)
+    sp=shift;
+    for (sy=y-1; sy < y+2; sy++)
     {
-      sp=shift;
-      for (sy=y-1; sy < y+2; sy++)
-	for (sx=x-1; sx < x+2; sx++)
-	{
-	  c=filter(sy,sx);
-	  gmcy[y][x][c] += gmcy[sy][sx][c] >> *sp++;
-	}
+      for (sx=x-1; sx < x+2; sx++)
+      {
+	c=filter(sy,sx);
+	gmcy[y][x][c] += gmcy[sy][sx][c] >> *sp++;
+      }
     }
-  }
-}
-
-/*
-   We now have all four GMCY values for each pixel.  Smooth
-   the color balance to avoid artifacts.  This function may
-   be called more than once.
-*/
-
-second_interpolate()
-{
-  ushort data[2][W][4];
-  ushort (*last_row)[4]=data[0];
-  ushort (*this_row)[4]=data[1];
-  void *tmp;
-
-  int y, x, c, sy, sx, sc;
-  uchar shift[]={ 2,1,2, 1,0,1, 2,1,2 }, *sp;
-
-#ifdef DEBUG
-  fprintf(stderr,"Second interpolation...\n");
-#endif
-
-  for (y=2; y < H-2; y++)
-  {
-    memset(this_row, 0, W*8);
-    for (x=2; x < W-2; x++)
-    {
-      sp=shift;
-      c=filter(y,x);
-      for (sy=y-1; sy < y+2; sy++)
-	for (sx=x-1; sx < x+2; sx++)
-	{
-	  sc=filter(sy,sx);
-	  this_row[x][sc] +=
-	   ( (unsigned long) gmcy[sy][sx][sc] << 16) /
-	      gmcy[sy][sx][c] * gmcy[y][x][c] >> (16 + *sp++);
-	}
-    }
-    if (y > 2) memcpy(gmcy[y-1]+2,last_row+2,(W-4)*8);
-    tmp = last_row;
-    last_row = this_row;
-    this_row = tmp;
   }
 }
 
@@ -434,56 +312,70 @@ get_rgb(float rgb[4], ushort gmcy[4])
 }
 
 /*
-   Convert the GMCY grid to RGB and write it to a PPM file.
+   We now have all four GMCY values for each pixel.  Smooth the color
+   balance to avoid artifacts.  As a side effect, this moves the whole
+   image one pixel up and to the left.  Convert each GMCY value to RGB,
+   and compile a histogram of their magnitudes.  RGB values are discarded
+   and re-calculated in write_ppm().
+
+   second_interpolate(row) must be called after first_interpolate(row+1)!
 */
 
-write_ppm(char *fname)
+second_interpolate(int y)
 {
-  int fd=1, y, x, i;
+  int x, c, sy, sx, sc;
+  ushort this[4];
+  static const uchar shift[]={ 2,1,2, 1,0,1, 2,1,2 }, *sp;
+  float rgb[4];
+  unsigned val;
+
+  if (y==2) memset(histogram,0,sizeof histogram);
+  for (x=2; x < W-2; x++)
+  {
+    memset(this,0,sizeof this);
+    c=filter(y,x);
+    sp=shift;
+    for (sy=y-1; sy < y+2; sy++)
+      for (sx=x-1; sx < x+2; sx++)
+      {
+	sc=filter(sy,sx);
+	this[sc] +=
+	 ( (unsigned long) gmcy[sy][sx][sc] << 16) /
+	    gmcy[sy][sx][c] * gmcy[y][x][c] >> (16 + *sp++);
+      }
+    memcpy(&gmcy[y-1][x-1],this,sizeof this);
+    get_rgb(rgb,this);
+    val = rgb[3]/0x1000000;	/* Collect statistics */
+    if (val > 1023) val=1023;
+    histogram[val]++;
+  }
+}
+
+/*
+   Convert the GMCY grid to RGB and write it to a PPM file.
+*/
+write_ppm(int fd)
+{
+  int y, x, i;
   register unsigned c, val;
   uchar ppm[W][3];
   float rgb[4], max, max2, expo, scale;
   float gymul[4];
-  int histo[1024], total;
+  int total;
   char p6head[32];
 
-#ifdef DEBUG
-  fprintf(stderr,"First pass RGB...\n");
-#endif
-
-/*
-   First pass:  Gather stats on the RGB image
-*/
-  memset(histo,0,sizeof histo);
-  for (y=2; y < H-2; y++)
-  {
-    for (x=2; x < W-2; x++)
-    {
-      get_rgb(rgb,gmcy[y][x]);
-      val = rgb[3]/0x1000000;
-      if (val > 1023) val=1023;
-      histo[val]++;
-    }
-  }
 /*
    Set the maximum magnitude to the 98th percentile
 */
   for (val=1024, total=0; --val; )
-    if ((total+=histo[val]) > (int)(W*H*0.06)) break;
+    if ((total+=histogram[val]) > (int)(W*H*0.06)) break;
   max2 = val << 24;
   max = sqrt(max2);
 
 #ifdef DEBUG
-  fprintf(stderr,"Second pass RGB...\n");
+  fprintf(stderr,"Writing PPM file...\n");
 #endif
 
-  if (write_to_files)
-  {
-    fd = open(fname,WFLAGS,0644);
-    if (fd < 0)
-    { perror(fname);
-      return; }
-  }
   write(fd,p6head,sprintf(p6head,"P6\n%d %d\n255\n",W-2,H-2));
 
 /*
@@ -511,17 +403,28 @@ write_ppm(char *fname)
     }
     write (fd, ppm+1, (W-2)*3);
   }
-  if (write_to_files) close(fd);
 
 #ifdef DEBUG
   fprintf(stderr,"Done!\n");
 #endif
 }
 
+/* Creates a new filename with a different extension */
+exten(char *new, const char *old, const char *ext)
+{
+  char *cp;
+
+  strcpy(new,old);
+  cp=strrchr(new,'.');
+  if (!cp) cp=new+strlen(new);
+  strcpy(cp,ext);
+}
+
 main(int argc, char **argv)
 {
-  char fname[256];
-  int arg;
+  char data[256];
+  int i, arg, fd, write_to_files=1, row;
+  ushort dummy;
 
   if (argc == 1)
   {
@@ -565,12 +468,38 @@ main(int argc, char **argv)
 
   for ( ; arg < argc; arg++)
   {
-    if (read_crw(argv[arg]))
+    fd = open(argv[arg],O_RDONLY | O_BINARY);
+    if (fd < 0)
+    { perror(argv[arg]);
+      continue; }
+
+/* Check the header to confirm this is a CRW file */
+
+    read (fd, data, 26);
+    if (memcmp(data+6,"HEAPCCDR",8))
     {
-      first_interpolate();
-      second_interpolate();
-      exten(fname, argv[arg],".ppm");
-      write_ppm(fname);
+      fprintf(stderr,"%s is not a Canon PowerShot CRW file.\n",argv[arg]);
+      continue;
     }
+    for (row=0; row < H; row++)
+    {
+      for (i=0; i < W; i+=4)
+	dummy=gmcy[row][i][0];
+      read_crw(row,fd);
+      if (row > 1) first_interpolate(row-1);
+      if (row > 3) second_interpolate(row-2);
+    }
+    close(fd);
+    if (write_to_files)
+    {
+      exten(data, argv[arg],".ppm");
+      fd = open(data,WFLAGS,0644);
+      if (fd < 0)
+      { perror(data);
+	return; }
+      write_ppm(fd);
+      close(fd);
+    } else
+      write_ppm(1);
   }
 }
