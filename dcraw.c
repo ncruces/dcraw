@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.180 $
-   $Date: 2004/04/01 18:17:04 $
+   $Revision: 1.181 $
+   $Date: 2004/04/14 19:19:12 $
  */
 
 #define _GNU_SOURCE
@@ -1839,10 +1839,10 @@ void scale_colors()
     if (dmin > 0)
       for (c=0; c < colors; c++)
 	pre_mul[c] = dmax / sum[c];
-    else if (camera_red && camera_blue && colors == 3) {
+    else if (camera_red && camera_blue) {
       pre_mul[0] = camera_red;
-      pre_mul[1] = 1.0;
       pre_mul[2] = camera_blue;
+      pre_mul[1] = pre_mul[3] = 1.0;
     } else
       fprintf (stderr, "%s: Cannot use camera white balance.\n", ifname);
   }
@@ -2254,7 +2254,8 @@ void parse_tiff(int base)
 	    make[0] = 0;
 	  break;
 	case 330:			/* SubIFD tag */
-	  if (len > 2) len=2;
+	  if (len > 2 && !strcmp(make,"Kodak"))
+	      len = 2;
 	  if (len > 1)
 	    while (len--) {
 	      fseek (ifp, val+base, SEEK_SET);
@@ -2343,7 +2344,8 @@ void parse_ciff(int offset, int length)
     if (type == 0x102a) {		/* Find the White Balance index */
       fseek (ifp, aoff+14, SEEK_SET);	/* 0=auto, 1=daylight, 2=cloudy ... */
       wbi = fget2(ifp);
-      if (!strcmp(model,"Canon EOS DIGITAL REBEL") && wbi == 6)
+      if (((!strcmp(model,"Canon EOS DIGITAL REBEL") ||
+	    !strcmp(model,"Canon EOS 300D DIGITAL"))) && wbi == 6)
 	wbi++;
     }
     if (type == 0x102c) {		/* Get white balance (G2) */
@@ -2637,6 +2639,13 @@ int identify()
     fseek (ifp, 24, SEEK_SET);
     raw_height = fget2(ifp);
     raw_width  = fget2(ifp);
+    fseek (ifp, 12, SEEK_SET);			/* PRD */
+    fseek (ifp, fget4(ifp) +  4, SEEK_CUR);	/* TTW */
+    fseek (ifp, fget4(ifp) + 12, SEEK_CUR);	/* WBG */
+    camera_red  = fget2(ifp);
+    camera_red /= fget2(ifp);
+    camera_blue = fget2(ifp);
+    camera_blue = fget2(ifp) / camera_blue;
   } else if (!memcmp (head,"BM",2)) {
     data_offset = 0x1000;
     order = 0x4949;
@@ -2978,8 +2987,8 @@ coolpix:
     load_raw = be_low_12_load_raw;
     if (!strncmp(model,"DiMAGE A",8))
       load_raw = packed_12_load_raw;
-    pre_mul[0] = 1.57;
-    pre_mul[2] = 1.42;
+    pre_mul[0] = 2.00;
+    pre_mul[2] = 1.25;
   } else if (!strcmp(model,"*ist D")) {
     height = 2024;
     width  = 3040;
@@ -3542,7 +3551,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.71"
+    "\nRaw Photo Decoder \"dcraw\" v5.73"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
