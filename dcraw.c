@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.148 $
-   $Date: 2003/11/09 00:44:50 $
+   $Revision: 1.149 $
+   $Date: 2003/11/14 15:53:47 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -1565,7 +1565,7 @@ void foveon_interpolate()
  */
 void bad_pixels()
 {
-  FILE *fp;
+  FILE *fp=NULL;
   char *fname, *cp, line[128];
   int len, time, row, col, r, c, rad, tot, n, fixed=0;
 
@@ -1576,10 +1576,9 @@ void bad_pixels()
     free (fname);
     if (errno != ERANGE) return;
   }
-  if (*fname != '/') return;
   cp = fname + strlen(fname);
   if (cp[-1] == '/') cp--;
-  while (1) {
+  while (*fname == '/') {
     strcpy (cp, "/.badpixels");
     if ((fp = fopen (fname, "r"))) break;
     if (cp == fname) break;
