@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.86 $
-   $Date: 2002/12/18 03:43:08 $
+   $Revision: 1.87 $
+   $Date: 2002/12/19 03:13:42 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -51,19 +51,19 @@ typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
-int height, width, trim, colors, is_cmy, is_canon, black, rgb_max;
-int xmag, ymag;
+char make[64], model[64], model2[64];
 int raw_height, raw_width;	/* Including black borders */
 int tiff_data_offset, tiff_data_compression;
 int nef_curve_offset;
-int use_camera_wb=0;
+int height, width, colors, black, rgb_max;
+int is_canon, is_cmy, is_rgb, trim, xmag, ymag;
 unsigned filters;
-char make[64], model[64], model2[64];
 ushort (*image)[4];
 void (*read_crw)();
 float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
-float rgb_mul[3], camera_red, camera_blue;
-float gmcy_mul[4], coeff[3][4];
+int four_color_rgb=0, use_camera_wb=0;
+float camera_red, camera_blue;
+float pre_mul[4], coeff[3][4];
 
 struct decode {
   struct decode *branch[2];
@@ -75,7 +75,7 @@ struct decode {
    assumption that all filter patterns can be described
    by a repeating pattern of eight rows and two columns
 
-   Return values are either 0/1/2/3 = G/M/C/Y or 0/1/2 = R/G/B
+   Return values are either 0/1/2/3 = G/M/C/Y or 0/1/2/3 = R/G1/B/G2
  */
 #define FC(row,col) \
 	(filters >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
@@ -871,7 +871,6 @@ void kodak_compressed_read_crw()
 void scale_colors()
 {
   int row, col, c, val;
-  float *scale;
 #ifdef STATS
   int min[4], max[4], count[4];
   double sum[4];
@@ -882,7 +881,6 @@ void scale_colors()
   }
 #endif
   rgb_max -= black;
-  scale = (colors == 3) ? rgb_mul:gmcy_mul;
   for (row=0; row < height; row++)
     for (col=0; col < width; col++) {
       c = FC(row,col);
@@ -895,10 +893,10 @@ void scale_colors()
 	count[c]++;
       }
 #endif
-      val *= scale[c];
+      val *= pre_mul[c];
       if (val < 0) val = 0;
-      if (val > rgb_max && (colors != 3 || c == 1 ||
-	  image[row*width+col+(col ? -1:1)][1]+256 > rgb_max))
+      if (val > rgb_max && (!is_rgb || (c & 1) ||
+	  image[row*width+col+(col ? -1:1)][FC(row,col+1)]+256 > rgb_max))
 	val = rgb_max;
       image[row*width+col][c] = val;
     }
@@ -1349,10 +1347,9 @@ void make_coeff();
 int identify(char *fname)
 {
   char head[8], *c;
-  unsigned magic, hlen;
+  unsigned magic, hlen, g;
 
-  rgb_mul[0] = rgb_mul[1] = rgb_mul[2] = 1;
-  gmcy_mul[0] = gmcy_mul[1] = gmcy_mul[2] = gmcy_mul[3] = 1;
+  pre_mul[0] = pre_mul[1] = pre_mul[2] = pre_mul[3] = 1;
   camera_red = camera_blue = 0;
   rgb_max = 0x4000;
   colors = 3;
@@ -1410,61 +1407,61 @@ int identify(char *fname)
     colors = 4;
     filters = 0xe1e4e1e4;
     read_crw = ps600_read_crw;
-    gmcy_mul[0] = 1.377;
-    gmcy_mul[1] = 1.428;
-    gmcy_mul[2] = 1.010;
+    pre_mul[0] = 1.377;
+    pre_mul[1] = 1.428;
+    pre_mul[2] = 1.010;
   } else if (!strcmp(model,"PowerShot A5")) {
     height = 776;
     width  = 960;
     colors = 4;
     filters = 0x1e4e1e4e;
     read_crw = a5_read_crw;
-    gmcy_mul[0] = 1.550;
-    gmcy_mul[1] = 1.354;
-    gmcy_mul[3] = 1.014;
+    pre_mul[0] = 1.550;
+    pre_mul[1] = 1.354;
+    pre_mul[3] = 1.014;
   } else if (!strcmp(model,"PowerShot A50")) {
     height =  968;
     width  = 1290;
     colors = 4;
     filters = 0x1b4e4b1e;
     read_crw = a50_read_crw;
-    gmcy_mul[0] = 1.750;
-    gmcy_mul[1] = 1.381;
-    gmcy_mul[3] = 1.182;
+    pre_mul[0] = 1.750;
+    pre_mul[1] = 1.381;
+    pre_mul[3] = 1.182;
   } else if (!strcmp(model,"PowerShot Pro70")) {
     height = 1024;
     width  = 1552;
     colors = 4;
     filters = 0x1e4b4e1b;
     read_crw = pro70_read_crw;
-    gmcy_mul[0] = 1.389;
-    gmcy_mul[1] = 1.343;
-    gmcy_mul[3] = 1.034;
+    pre_mul[0] = 1.389;
+    pre_mul[1] = 1.343;
+    pre_mul[3] = 1.034;
   } else if (!strcmp(model,"PowerShot Pro90 IS")) {
     height = 1416;
     width  = 1896;
     colors = 4;
     filters = 0xb4b4b4b4;
     read_crw = canon_compressed_read_crw;
-    gmcy_mul[0] = 1.496;
-    gmcy_mul[1] = 1.509;
-    gmcy_mul[3] = 1.009;
+    pre_mul[0] = 1.496;
+    pre_mul[1] = 1.509;
+    pre_mul[3] = 1.009;
   } else if (!strcmp(model,"PowerShot G1")) {
     height = 1550;
     width  = 2088;
     colors = 4;
     filters = 0xb4b4b4b4;
     read_crw = canon_compressed_read_crw;
-    gmcy_mul[0] = 1.446;
-    gmcy_mul[1] = 1.405;
-    gmcy_mul[2] = 1.016;
+    pre_mul[0] = 1.446;
+    pre_mul[1] = 1.405;
+    pre_mul[2] = 1.016;
   } else if (!strcmp(model,"PowerShot S30")) {
     height = 1550;
     width  = 2088;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
-    rgb_mul[0] = 1.785;
-    rgb_mul[2] = 1.266;
+    pre_mul[0] = 1.785;
+    pre_mul[2] = 1.266;
   } else if (!strcmp(model,"PowerShot G2")  ||
 	     !strcmp(model,"PowerShot G3")  ||
 	     !strcmp(model,"PowerShot S40") ||
@@ -1473,22 +1470,22 @@ int identify(char *fname)
     width  = 2312;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
-    rgb_mul[0] = 1.965;
-    rgb_mul[2] = 1.208;
+    pre_mul[0] = 1.965;
+    pre_mul[2] = 1.208;
   } else if (!strcmp(model,"EOS D30")) {
     height = 1448;
     width  = 2176;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
-    rgb_mul[0] = 1.592;
-    rgb_mul[2] = 1.261;
+    pre_mul[0] = 1.592;
+    pre_mul[2] = 1.261;
   } else if (!strcmp(model,"EOS D60")) {
     height = 2056;
     width  = 3088;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
-    rgb_mul[0] = 2.242;
-    rgb_mul[2] = 1.245;
+    pre_mul[0] = 2.242;
+    pre_mul[2] = 1.245;
     rgb_max = 16000;
   } else if (!strcmp(model,"EOS-1D")) {
     height = 1662;
@@ -1496,46 +1493,46 @@ int identify(char *fname)
     filters = 0x61616161;
     read_crw = lossless_jpeg_read_crw;
     tiff_data_offset = 288912;
-    rgb_mul[0] = 1.976;
-    rgb_mul[2] = 1.282;
+    pre_mul[0] = 1.976;
+    pre_mul[2] = 1.282;
   } else if (!strcmp(model,"EOS-1DS")) {
     height = 2718;
     width  = 4082;
     filters = 0x61616161;
     read_crw = lossless_jpeg_read_crw;
     tiff_data_offset = 289168;
-    rgb_mul[0] = 1.66;
-    rgb_mul[2] = 1.13;
+    pre_mul[0] = 1.66;
+    pre_mul[2] = 1.13;
     rgb_max = 14464;
   } else if (!strcmp(model,"D1")) {
     height = 1324;
     width  = 2012;
     filters = 0x16161616;
     read_crw = nikon_read_crw;
-    rgb_mul[0] = 0.838;
-    rgb_mul[2] = 1.095;
+    pre_mul[0] = 0.838;
+    pre_mul[2] = 1.095;
   } else if (!strcmp(model,"D1H")) {
     height = 1324;
     width  = 2012;
     filters = 0x16161616;
     read_crw = nikon_read_crw;
-    rgb_mul[0] = 1.347;
-    rgb_mul[2] = 3.279;
+    pre_mul[0] = 1.347;
+    pre_mul[2] = 3.279;
   } else if (!strcmp(model,"D1X")) {
     height = 1324;
     width  = 4024;
     filters = 0x16161616;
     ymag = 2;
     read_crw = nikon_read_crw;
-    rgb_mul[0] = 1.910;
-    rgb_mul[2] = 1.220;
+    pre_mul[0] = 1.910;
+    pre_mul[2] = 1.220;
   } else if (!strcmp(model,"D100")) {
     height = 2024;
     width  = 3037;
     filters = 0x61616161;
     read_crw = nikon_read_crw;
-    rgb_mul[0] = 2.374;
-    rgb_mul[2] = 1.677;
+    pre_mul[0] = 2.374;
+    pre_mul[2] = 1.677;
     rgb_max = 15632;
   } else if (!strcmp(model,"E5000") || !strcmp(model,"E5700")) {
     height = 1924;
@@ -1543,113 +1540,114 @@ int identify(char *fname)
     colors = 4;
     filters = 0xb4b4b4b4;
     read_crw = nikon_read_crw;
-    gmcy_mul[0] = 1.300;
-    gmcy_mul[1] = 1.300;
-    gmcy_mul[3] = 1.148;
+    pre_mul[0] = 1.300;
+    pre_mul[1] = 1.300;
+    pre_mul[3] = 1.148;
   } else if (!strcmp(model,"FinePixS2Pro")) {
     height = 2880;
     width  = 2144;
     filters = 0x58525852;
     xmag = 2;
     read_crw = fuji_read_crw;
-    rgb_mul[0] = 1.424;
-    rgb_mul[2] = 1.718;
+    pre_mul[0] = 1.424;
+    pre_mul[2] = 1.718;
   } else if (!strcmp(make,"Minolta")) {
     height = raw_height;
     width  = raw_width;
     filters = 0x94949494;
     read_crw = minolta_read_crw;
-    rgb_mul[0] = 1;
-    rgb_mul[2] = 1;
+    pre_mul[0] = 1;
+    pre_mul[2] = 1;
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
     filters = 0x94949494;
     read_crw = olympus_read_crw;
-    rgb_mul[0] = 1.43;
-    rgb_mul[2] = 1.77;
+    pre_mul[0] = 1.43;
+    pre_mul[2] = 1.77;
   } else if (!strncmp(model,"E-20",4)) {
     height = 1924;
     width  = 2576;
     filters = 0x94949494;
     read_crw = olympus_read_crw;
-    rgb_mul[0] = 1.43;
-    rgb_mul[2] = 1.77;
+    pre_mul[0] = 1.43;
+    pre_mul[2] = 1.77;
   } else if (!strcasecmp(make,"KODAK")) {
     height = raw_height;
     width  = raw_width;
     filters = 0x61616161;
     black = 400;
     if (!strcmp(model,"DCS315C")) {
-      rgb_mul[0] = 0.973;
-      rgb_mul[2] = 0.987;
+      pre_mul[0] = 0.973;
+      pre_mul[2] = 0.987;
       black = 0;
     } else if (!strcmp(model,"DCS330C")) {
-      rgb_mul[0] = 0.996;
-      rgb_mul[2] = 1.279;
+      pre_mul[0] = 0.996;
+      pre_mul[2] = 1.279;
       black = 0;
     } else if (!strcmp(model,"DCS420")) {
-      rgb_mul[0] = 1.21;
-      rgb_mul[2] = 1.63;
+      pre_mul[0] = 1.21;
+      pre_mul[2] = 1.63;
       width -= 4;
     } else if (!strcmp(model,"DCS460")) {
-      rgb_mul[0] = 1.46;
-      rgb_mul[2] = 1.84;
+      pre_mul[0] = 1.46;
+      pre_mul[2] = 1.84;
       width -= 4;
     } else if (!strcmp(model,"DCS460A")) {
       colors = 1;
       filters = 0;
       width -= 4;
     } else if (!strcmp(model,"EOSDCS3B")) {
-      rgb_mul[0] = 1.43;
-      rgb_mul[2] = 2.16;
+      pre_mul[0] = 1.43;
+      pre_mul[2] = 2.16;
       width -= 4;
     } else if (!strcmp(model,"EOSDCS1")) {
-      rgb_mul[0] = 1.28;
-      rgb_mul[2] = 2.00;
+      pre_mul[0] = 1.28;
+      pre_mul[2] = 2.00;
       width -= 4;
     } else if (!strcmp(model,"DCS520C")) {
-      rgb_mul[0] = 1.00;
-      rgb_mul[2] = 1.20;
+      pre_mul[0] = 1.00;
+      pre_mul[2] = 1.20;
     } else if (!strcmp(model,"DCS560C")) {
-      rgb_mul[0] = 0.985;
-      rgb_mul[2] = 1.15;
+      pre_mul[0] = 0.985;
+      pre_mul[2] = 1.15;
     } else if (!strcmp(model,"DCS620C")) {
-      rgb_mul[0] = 1.00;
-      rgb_mul[2] = 1.20;
+      pre_mul[0] = 1.00;
+      pre_mul[2] = 1.20;
     } else if (!strcmp(model,"DCS620X")) {
-      rgb_mul[0] = 1.12;
-      rgb_mul[2] = 1.07;
+      pre_mul[0] = 1.12;
+      pre_mul[2] = 1.07;
       is_cmy = 1;
     } else if (!strcmp(model,"DCS660C")) {
-      rgb_mul[0] = 1.05;
-      rgb_mul[2] = 1.17;
+      pre_mul[0] = 1.05;
+      pre_mul[2] = 1.17;
     } else if (!strcmp(model,"DCS660M")) {
       colors = 1;
       filters = 0;
     } else if (!strcmp(model,"DCS720X")) {
-      rgb_mul[0] = 1.35;
-      rgb_mul[2] = 1.18;
+      pre_mul[0] = 1.35;
+      pre_mul[2] = 1.18;
       is_cmy = 1;
     } else if (!strcmp(model,"DCS760C")) {
-      rgb_mul[0] = 1.06;
-      rgb_mul[2] = 1.72;
+      pre_mul[0] = 1.06;
+      pre_mul[2] = 1.72;
     } else if (!strcmp(model,"DCS760M")) {
       colors = 1;
       filters = 0;
     } else if (!strcmp(model,"ProBack")) {
-      rgb_mul[0] = 1.06;
-      rgb_mul[2] = 1.385;
+      pre_mul[0] = 1.06;
+      pre_mul[2] = 1.385;
     } else if (!strncmp(model2,"PB645M",6)) {
-      rgb_mul[0] = 1.06;
-      rgb_mul[2] = 1.50;
+      pre_mul[0] = 1.06;
+      pre_mul[2] = 1.50;
     } else if (!strncmp(model2,"PB645H",6)) {
-      rgb_mul[0] = 1.20;
-      rgb_mul[2] = 1.52;
+      pre_mul[0] = 1.20;
+      pre_mul[2] = 1.52;
     }
     switch (tiff_data_compression) {
       case 0:				/* No compression */
       case 1:
+	rgb_max = 0x3fc0;
 	read_crw = kodak_easy_read_crw;  break;
       case 7:				/* Lossless JPEG */
 	read_crw = lossless_jpeg_read_crw;  break;
@@ -1674,14 +1672,31 @@ int identify(char *fname)
 #endif
   if (use_camera_wb) {
     if (camera_red && camera_blue && colors == 3) {
-      rgb_mul[0] = camera_red;
-      rgb_mul[2] = camera_blue;
+      pre_mul[0] = camera_red;
+      pre_mul[2] = camera_blue;
     } else
       fprintf (stderr, "%s: Cannot use camera white balance.\n",fname);
   }
-  rgb_mul[0] *= red_scale;	/* Apply user-selected color balance */
-  rgb_mul[2] *= blue_scale;
-  if (colors == 4) make_coeff();
+  if ((is_rgb = colors == 3)) {
+    pre_mul[0] *= red_scale;	/* Apply user-selected color balance */
+    pre_mul[2] *= blue_scale;
+    if (four_color_rgb) {		/* Use two types of green */
+      magic = filters;
+      for (g=0; g < 32; g+=4) {
+	if ((filters >> g & 15) == 9)
+	  filters |= 2 << g;
+	if ((filters >> g & 15) == 6)
+	  filters |= 8 << g;
+      }
+      if (filters != magic) colors++;
+    }
+  } else if (colors == 4) {
+    make_coeff();
+    for (g=0; g < 4; g++) {
+      coeff[0][g] *= red_scale;
+      coeff[2][g] *= blue_scale;
+    }
+  }
   return 0;
 }
 
@@ -1730,10 +1745,10 @@ void make_coeff()
     }
   }
   for (r=0; r < 3; r++) {		/* Normalize such that:		*/
-    for (num=g=0; g < 4; g++)		/* (1,1,1,1) x coeff = rgb_mul[] */
+    for (num=g=0; g < 4; g++)		/* (1,1,1,1) x coeff = (1,1,1) */
       num += coeff[r][g];
     for (g=0; g < 4; g++)
-      coeff[r][g] *= rgb_mul[r]/num;
+      coeff[r][g] /= num;
   }
 }
 
@@ -1747,9 +1762,12 @@ void get_rgb(float rgb[4], ushort image[4])
     for (r=0; r < 3; r++)		/* RGB from grayscale */
       rgb[r] = image[0];
     rgb[3] = 3 * rgb[0]*rgb[0];
-  } else if (colors == 3)
+  } else if (is_rgb)
     for (r=0; r < 3; r++) {		/* RGB from RGB */
-      rgb[r] = image[r];
+      if (r == 1 && colors == 4)
+	rgb[1] = (image[1] + image[3]) >> 1;
+      else
+	rgb[r] = image[r];
       rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
     }
   else
@@ -1969,7 +1987,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.21"
+    "\nRaw Photo Decoder v4.25"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -1977,6 +1995,7 @@ int main(int argc, char **argv)
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
     "\n-c        Write to standard output"
+    "\n-f        Interpolate RGB as four colors"
     "\n-g <num>  Set gamma value (%5.3f by default, only for 24-bit output)"
     "\n-b <num>  Set brightness  (%5.3f by default)"
     "\n-w        Use camera white balance settings if possible"
@@ -1999,6 +2018,8 @@ int main(int argc, char **argv)
     {
       case 'c':
 	write_to_files = 0;  break;
+      case 'f':
+	four_color_rgb = 1;  break;
       case 'g':
 	gamma_val = atof(argv[++arg]);  break;
       case 'b':
