@@ -3,8 +3,8 @@
    by Dave Coffin <dcoffin@shore.net>
    http://www.shore.net/~dcoffin/
 
-   $Revision: 1.1 $
-   $Date: 2003/03/30 19:39:40 $
+   $Revision: 1.2 $
+   $Date: 2003/05/28 22:04:13 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -30,7 +30,7 @@
 #include <libgimp/gimpui.h>
 #include <libgimp/gimpintl.h>
 
-#define PLUG_IN_VERSION  "1.0.0 - 30 Mar 2003"
+#define PLUG_IN_VERSION  "1.0.1 - 28 May 2003"
 
 static void query(void);
 static void run(gchar *name,
@@ -51,10 +51,10 @@ GimpPlugInInfo PLUG_IN_INFO =
 };
 
 static struct {
-  gboolean check_val[2];
+  gboolean check_val[3];
   gfloat    spin_val[4];
 } cfg = {
-  { FALSE, FALSE },
+  { FALSE, FALSE, FALSE },
   { 0.8, 1, 1, 1 }
 };
 
@@ -93,7 +93,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-		"crw,dcr,jpg,mrw,nef,orf,raf,tif,x3f", "");
+		"bay,bmq,crw,dcr,jpg,mrw,nef,orf,raf,raw,tif,x3f", "");
 }
 
 static void run (gchar *name,
@@ -172,8 +172,10 @@ static gint32 load_image (gchar *filename)
 
   command = g_malloc (strlen(filename)+100);
   if (!command) return -1;
-  sprintf (command, "dcraw -c%s%s -g %0.2f -b %0.2f -r %0.2f -l %0.2f %s\n",
-	cfg.check_val[0] ? " -f":"", cfg.check_val[1] ? " -w":"",
+  sprintf (command, "dcraw -c%s%s%s -g %0.2f -b %0.2f -r %0.2f -l %0.2f %s\n",
+	cfg.check_val[0] ? " -f":"",
+	cfg.check_val[1] ? " -w":"",
+	cfg.check_val[2] ? " -d":"",
 	cfg.spin_val[0], cfg.spin_val[1], cfg.spin_val[2], cfg.spin_val[3],
 	filename );
   fputs (command, stderr);
@@ -247,8 +249,9 @@ gint load_dialog (gchar * name)
   GtkObject *adj;
   GtkWidget *widget;
   int i;
-  static const char *label[6] =
+  static const char *label[7] =
   { "Interpolate RGB as four colors", "Use camera white balance",
+    "Grayscale Document Mode",
     "Gamma", "Brightness", "Red Multiplier", "Blue Multiplier" };
 
   gimp_ui_init ("rawphoto", TRUE);
@@ -263,13 +266,13 @@ gint load_dialog (gchar * name)
   gtk_signal_connect
 	(GTK_OBJECT(dialog), "destroy", GTK_SIGNAL_FUNC(gtk_main_quit), NULL);
 
-  table = gtk_table_new (6, 2, FALSE);
+  table = gtk_table_new (7, 2, FALSE);
   gtk_container_set_border_width (GTK_CONTAINER(table), 6);
   gtk_box_pack_start
 	(GTK_BOX(GTK_DIALOG(dialog)->vbox), table, FALSE, FALSE, 0);
   gtk_widget_show (table);
 
-  for (i=0; i < 2; i++) {
+  for (i=0; i < 3; i++) {
     widget = gtk_check_button_new_with_label
 	(_(label[i]));
     gtk_toggle_button_set_active
@@ -282,7 +285,7 @@ gint load_dialog (gchar * name)
     gtk_widget_show (widget);
   }
 
-  for (i=2; i < 6; i++) {
+  for (i=3; i < 7; i++) {
     widget = gtk_label_new (_(label[i]));
     gtk_misc_set_alignment (GTK_MISC (widget), 1.0, 0.5);
     gtk_misc_set_padding   (GTK_MISC (widget), 10, 0);
@@ -290,12 +293,12 @@ gint load_dialog (gchar * name)
 	(GTK_TABLE(table), widget, 0, 1, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
     gtk_widget_show (widget);
     widget = gimp_spin_button_new
-	(&adj, cfg.spin_val[i-2], 0.01, 4.0, 0.01, 0.1, 0.1, 0.1, 2);
+	(&adj, cfg.spin_val[i-3], 0.01, 4.0, 0.01, 0.1, 0.1, 0.1, 2);
     gtk_table_attach
 	(GTK_TABLE(table), widget, 1, 2, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
     gtk_signal_connect (GTK_OBJECT (adj), "value_changed",
 			GTK_SIGNAL_FUNC (gimp_float_adjustment_update),
-			&cfg.spin_val[i-2]);
+			&cfg.spin_val[i-3]);
     gtk_widget_show (widget);
   }
 
