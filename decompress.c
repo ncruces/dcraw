@@ -2,8 +2,8 @@
    Simple reference decompresser for Canon digital cameras.
    Outputs raw 16-bit CCD data, no header, native byte order.
 
-   $Revision: 1.5 $
-   $Date: 2001/10/28 01:20:20 $
+   $Revision: 1.6 $
+   $Date: 2001/11/03 22:25:57 $
 */
 
 #include <stdio.h>
@@ -315,7 +315,7 @@ main(int argc, char **argv)
   if (open_and_id(argv[1]))
     exit(1);
 
-  init_tables();
+  init_tables(table);
 
   if (!strcmp(name,"Canon EOS D30"))
     fseek (ifp, 810076, SEEK_SET);
