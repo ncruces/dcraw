@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.150 $
-   $Date: 2003/11/14 23:42:33 $
+   $Revision: 1.151 $
+   $Date: 2003/11/16 08:39:38 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -26,6 +26,7 @@
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
+#include <ctype.h>
 #include <fcntl.h>
 
 #ifdef WIN32
@@ -3083,15 +3084,15 @@ void write_ppm16(FILE *ofp)
 
 int main(int argc, char **argv)
 {
-  char data[256], *cp;
-  int arg, id, identify_only=0, write_to_stdout=0, minuso=0;
+  int arg, id, identify_only=0, write_to_stdout=0;
+  char opt, *ofname, *cp;
   const char *write_ext = ".ppm";
   FILE *ofp;
 
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.17"
+    "\nRaw Photo Decoder v5.18"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -3100,7 +3101,6 @@ int main(int argc, char **argv)
     "\nValid options:"
     "\n-i        Identify files but don't decode them"
     "\n-c        Write to standard output"
-    "\n-o file   Write output to this file"
     "\n-f        Interpolate RGBG as four colors"
     "\n-d        Document Mode (no color, no interpolation)"
     "\n-q        Quick, low-quality color interpolation"
@@ -3116,48 +3116,40 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-  for (arg=1; argv[arg][0] == '-'; arg++)
-    switch (argv[arg][1])
+  argv[argc] = "";
+  for (arg=1; argv[arg][0] == '-'; ) {
+    opt = argv[arg++][1];
+    if (strchr ("gbrl", opt) && !isdigit(argv[arg][0])) {
+      fprintf (stderr, "\"-%c\" requires a numeric argument.\n", opt);
+      exit(1);
+    }
+    switch (opt)
     {
-      case 'i':
-	identify_only = 1;  break;
-      case 'c':
-	write_to_stdout = 1;  break;
-      case 'o':
-	minuso = ++arg;  break;
-      case 'f':
-	four_color_rgb = 1;  break;
-      case 'd':
-	document_mode = 1;  break;
-      case 'q':
-	quick_interpolate = 1;  break;
-      case 'g':
-	gamma_val = atof(argv[++arg]);  break;
-      case 'b':
-	bright = atof(argv[++arg]);  break;
-      case 'w':
-	use_camera_wb = 1;  break;
-      case 'r':
-	red_scale = atof(argv[++arg]);  break;
-      case 'l':
-	blue_scale = atof(argv[++arg]);  break;
-      case '2':
-	write_fun = write_ppm;
-	write_ext = ".ppm";
-	break;
-      case '3':
-	write_fun = write_psd;
-	write_ext = ".psd";
-	break;
-      case '4':
-	write_fun = write_ppm16;
-	write_ext = ".ppm";
-	break;
+      case 'g':  gamma_val   = atof(argv[arg++]);  break;
+      case 'b':  bright      = atof(argv[arg++]);  break;
+      case 'r':  red_scale   = atof(argv[arg++]);  break;
+      case 'l':  blue_scale  = atof(argv[arg++]);  break;
+
+      case 'i':  identify_only     = 1;  break;
+      case 'c':  write_to_stdout   = 1;  break;
+      case 'f':  four_color_rgb    = 1;  break;
+      case 'd':  document_mode     = 1;  break;
+      case 'q':  quick_interpolate = 1;  break;
+      case 'w':  use_camera_wb     = 1;  break;
+
+      case '2':  write_fun = write_ppm;   write_ext = ".ppm";  break;
+      case '3':  write_fun = write_psd;   write_ext = ".psd";  break;
+      case '4':  write_fun = write_ppm16; write_ext = ".ppm";  break;
+
       default:
-	fprintf (stderr, "Unknown option \"%s\"\n", argv[arg]);
+	fprintf (stderr, "Unknown option \"-%c\".\n", opt);
 	exit(1);
     }
-
+  }
+  if (arg == argc) {
+    fprintf (stderr, "No files to process.\n");
+    exit(1);
+  }
   if (write_to_stdout) {
     if (isatty(1)) {
       fprintf (stderr, "Will not write an image to the terminal!\n");
@@ -3212,26 +3204,27 @@ int main(int argc, char **argv)
     }
     fprintf (stderr, "Converting to RGB colorspace...\n");
     convert_to_rgb();
+    ofname = malloc (strlen(argv[arg]) + 16);
+    merror (ofname, "main()");
     if (write_to_stdout) {
-      strcpy (data, "standard output");
+      strcpy (ofname, "standard output");
       ofp = stdout;
     } else {
-      strcpy (data, argv[arg]);
-      if ((cp = strrchr (data, '.'))) *cp = 0;
-      strcat (data, write_ext);
-      if (minuso)
-	strcpy (data, argv[minuso]);
-      ofp = fopen (data, "wb");
+      strcpy (ofname, argv[arg]);
+      if ((cp = strrchr (ofname, '.'))) *cp = 0;
+      strcat (ofname, write_ext);
+      ofp = fopen (ofname, "wb");
       if (!ofp) {
-	perror(data);
-	continue;
+	perror (ofname);
+	goto cleanup;
       }
     }
-    fprintf (stderr, "Writing data to %s...\n", data);
+    fprintf (stderr, "Writing data to %s...\n", ofname);
     (*write_fun)(ofp);
     if (ofp != stdout)
       fclose(ofp);
-
+cleanup:
+    free (ofname);
     free (image);
   }
   return 0;
