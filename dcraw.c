@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.244 $
-   $Date: 2005/03/25 19:39:58 $
+   $Revision: 1.245 $
+   $Date: 2005/03/28 04:56:02 $
  */
 
 #define _GNU_SOURCE
@@ -776,7 +776,7 @@ void CLASS nikon_load_raw()
     row = irow;
     if (model[0] == 'E') {
       row = irow * 2 % height + irow / (height/2);
-      if (row == 1 && atoi(model+1) < 5000) {
+      if (row == 1 && data_offset == 0) {
 	fseek (ifp, 0, SEEK_END);
 	fseek (ifp, ftell(ifp)/2, SEEK_SET);
 	getbits(-1);
@@ -879,6 +879,23 @@ int CLASS minolta_z2()
   return 0;
 }
 
+/* Here raw_width is in bytes, not pixels. */
+void CLASS nikon_e900_load_raw()
+{
+  int offset=0, irow, row, col;
+
+  for (irow=0; irow < height; irow++) {
+    row = irow * 2 % height;
+    if (row == 1)
+      offset = - (-offset & -4096);
+    fseek (ifp, offset, SEEK_SET);
+    offset += raw_width;
+    getbits(-1);
+    for (col=0; col < width; col++)
+      BAYER(row,col) = getbits(10);
+  }
+}
+
 void CLASS nikon_e2100_load_raw()
 {
   uchar   data[3432], *dp;
@@ -904,21 +921,6 @@ void CLASS nikon_e2100_load_raw()
     for (col=0; col < width; col++)
       BAYER(row,col) = (pixel[col] & 0xfff);
   }
-}
-
-void CLASS nikon_e950_load_raw()
-{
-  int irow, row, col;
-
-  getbits(-1);
-  for (irow=0; irow < height; irow++) {
-    row = irow * 2 % height;
-    for (col=0; col < width; col++)
-      BAYER(row,col) = getbits(10);
-    for (col=28; col--; )
-      getbits(8);
-  }
-  maximum = 0x3dd;
 }
 
 /*
@@ -1085,9 +1087,7 @@ void CLASS leaf_load_raw()
   free (pixel);
 }
 
-/*
-   For this function only, raw_width is in bytes, not pixels!
- */
+/* Here raw_width is in bytes, not pixels. */
 void CLASS packed_12_load_raw()
 {
   int row, col;
@@ -2666,17 +2666,11 @@ void CLASS parse_exif (int base)
 
 void CLASS dng_coeff (double cc[4][4], double cm[4][3], double xyz[3])
 {
-  static const double rgb_xyz[3][3] = {		/* RGB from XYZ */
-	{  3.240479, -1.537150, -0.498535 },
-	{ -0.969256,  1.875992,  0.041556 },
-	{  0.055648, -0.204043,  1.057311 } };
-#if 0
   static const double xyz_rgb[3][3] = {		/* XYZ from RGB */
 	{ 0.412453, 0.357580, 0.180423 },
 	{ 0.212671, 0.715160, 0.072169 },
 	{ 0.019334, 0.119193, 0.950227 } };
-#endif
-  double cam_xyz[4][3], xyz_cam[3][4], invert[3][6], num;
+  double cam_xyz[4][3], cam_rgb[4][3], invert[3][6], num;
   int i, j, k;
 
   memset (cam_xyz, 0, sizeof cam_xyz);
@@ -2685,19 +2679,28 @@ void CLASS dng_coeff (double cc[4][4], double cm[4][3], double xyz[3])
       for (k=0; k < colors; k++)
 	cam_xyz[i][j] += cc[i][k] * cm[k][j] * xyz[j];
 
-  for (i=0; i < colors; i++) {
-    for (num=j=0; j < 3; j++)
-      num += cam_xyz[i][j];
+  memset (cam_rgb, 0, sizeof cam_rgb);	/* Multiply out XYZ colorspace */
+  for (i=0; i < colors; i++)
     for (j=0; j < 3; j++)
-      cam_xyz[i][j] /= num;
+      for (k=0; k < 3; k++)
+	cam_rgb[i][j] += cam_xyz[i][k] * xyz_rgb[k][j];
+
+  for (i=0; i < colors; i++) {		/* Normalize cam_rgb so that */
+    for (num=j=0; j < 3; j++)		/* cam_rgb * (1,1,1) is (1,1,1,1) */
+      num += cam_rgb[i][j];
+    for (j=0; j < 3; j++)
+      cam_rgb[i][j] /= num;
     pre_mul[i] = 1 / num;
   }
+/* Compute coeff = pseudoinverse(cam_rgb), or
+	coeff = inverse (transpose(cam_rgb) * cam_rgb) * transpose(cam_rgb)
+ */
   for (i=0; i < 3; i++) {
     for (j=0; j < 6; j++)
       invert[i][j] = j == i+3;
     for (j=0; j < 3; j++)
       for (k=0; k < colors; k++)
-	invert[i][j] += cam_xyz[k][i] * cam_xyz[k][j];
+	invert[i][j] += cam_rgb[k][i] * cam_rgb[k][j];
   }
   for (i=0; i < 3; i++) {
     num = invert[i][i];
@@ -2710,24 +2713,12 @@ void CLASS dng_coeff (double cc[4][4], double cm[4][3], double xyz[3])
 	invert[k][j] -= invert[i][j] * num;
     }
   }
-  memset (xyz_cam, 0, sizeof xyz_cam);
-  for (i=0; i < 3; i++)
-    for (j=0; j < colors; j++)
-      for (k=0; k < 3; k++)
-	xyz_cam[i][j] += invert[i][k+3] * cam_xyz[j][k];
-
+  use_coeff = 1;
   memset (coeff, 0, sizeof coeff);
   for (i=0; i < 3; i++)
     for (j=0; j < colors; j++)
       for (k=0; k < 3; k++)
-	coeff[i][j] += rgb_xyz[i][k] * xyz_cam[k][j];
-
-  for (num=j=0; j < colors; j++)
-    num += coeff[1][j];
-  for (i=0; i < 3; i++)
-    for (j=0; j < colors; j++)
-      coeff[i][j] /= num;
-  use_coeff = 1;
+	coeff[i][j] += invert[i][k+3] * cam_rgb[j][k];
 }
 
 int CLASS parse_tiff_ifd (int base, int level)
@@ -3540,17 +3531,20 @@ int CLASS identify()
     {   124928, "Kodak",    "DC20"            ,0 },
     {   311696, "ST Micro", "STV680 VGA"      ,0 },  /* SPYz */
     {   787456, "Creative", "PC-CAM 600"      ,0 },
+    {  1581060, "NIKON",    "E900"            ,1 },  /* or E900s,E910 */
     {  2465792, "NIKON",    "E950"            ,1 },  /* or E800,E700 */
     {  2940928, "NIKON",    "E2100"           ,1 },  /* or E2500 */
     {  4771840, "NIKON",    "E990"            ,1 },  /* or E995 */
     {  4775936, "NIKON",    "E3700"           ,1 },  /* or Optio 33WR */
     {  5869568, "NIKON",    "E4300"           ,1 },  /* or DiMAGE Z2 */
     {  5865472, "NIKON",    "E4500"           ,0 },
+    {  7438336, "NIKON",    "E5000"           ,1 },  /* or E5700 */
     {  1976352, "CASIO",    "QV-2000UX"       ,0 },
     {  3217760, "CASIO",    "QV-3*00EX"       ,0 },
     {  6218368, "CASIO",    "QV-5700"         ,0 },
     {  7530816, "CASIO",    "QV-R51"          ,1 },
     {  7684000, "CASIO",    "QV-4000"         ,0 },
+    {  7542528, "CASIO",    "EX-Z50"          ,1 },
     {  7753344, "CASIO",    "EX-Z55"          ,1 },
     {  9313536, "CASIO",    "EX-P600"         ,1 },
     { 10979200, "CASIO",    "EX-P700"         ,1 },
@@ -3838,6 +3832,7 @@ canon_cr2:
   } else if (!strcmp(model,"D100")) {
     if (tiff_data_compression == 34713 && load_raw == nikon_load_raw)
       raw_width = (width += 3) + 3;
+    maximum = 0xd2c;
   } else if (!strcmp(model,"D2H")) {
     width  = 2482;
     left_margin = 6;
@@ -3845,13 +3840,27 @@ canon_cr2:
     width  = 4312;
     pre_mul[0] = 1.514;
     pre_mul[2] = 1.727;
+  } else if (fsize == 1581060) {
+    height = 963;
+    width = 1287;
+    raw_width = 1632;
+    load_raw = nikon_e900_load_raw;
+    maximum = 0x3f4;
+    colors = 4;
+    filters = 0x1e1e1e1e;
+    simple_coeff(2);
+    pre_mul[0] = 1.2085;
+    pre_mul[1] = 1.0943;
+    pre_mul[3] = 1.1103;
   } else if (fsize == 2465792) {
     height = 1203;
     width  = 1616;
+    raw_width = 2048;
+    load_raw = nikon_e900_load_raw;
+    maximum = 0x3dd;
     colors = 4;
     filters = 0x4b4b4b4b;
     simple_coeff(2);
-    load_raw = nikon_e950_load_raw;
     pre_mul[0] = 1.18193;
     pre_mul[2] = 1.16452;
     pre_mul[3] = 1.17250;
@@ -3874,16 +3883,16 @@ cp_e995:
     filters = 0xe1e1e1e1;
   } else if (!strcmp(model,"E2100")) {
     if (!timestamp && !nikon_e2100()) goto cp_e2500;
-    width = 1616;
     height = 1206;
+    width  = 1616;
     load_raw = nikon_e2100_load_raw;
     pre_mul[0] = 1.945;
     pre_mul[2] = 1.040;
   } else if (!strcmp(model,"E2500")) {
 cp_e2500:
     strcpy (model, "E2500");
-    width = 1616;
     height = 1204;
+    width  = 1616;
     colors = 4;
     filters = 0x4b4b4b4b;
   } else if (!strcmp(model,"E3700")) {
@@ -3926,6 +3935,11 @@ dimage_z2:
   } else if (!strcmp(model,"E4500")) {
     height = 1708;
     width  = 2288;
+    colors = 4;
+    filters = 0xb4b4b4b4;
+  } else if (fsize == 7438336) {
+    height = 1924;
+    width  = 2576;
     colors = 4;
     filters = 0xb4b4b4b4;
   } else if (!strcmp(model,"R-D1")) {
@@ -4296,19 +4310,19 @@ konica_400z:
     } else if (!strcmp(model,"Digital Camera 40")) {
       strcpy (model, "DC40");
       height = 512;
-      width = 768;
+      width  = 768;
       data_offset = 1152;
       load_raw = kodak_radc_load_raw;
     } else if (strstr(model,"DC50")) {
       strcpy (model, "DC50");
       height = 512;
-      width = 768;
+      width  = 768;
       data_offset = 19712;
       load_raw = kodak_radc_load_raw;
     } else if (strstr(model,"DC120")) {
       strcpy (model, "DC120");
       height = 976;
-      width = 848;
+      width  = 848;
       if (tiff_data_compression == 7)
 	load_raw = kodak_jpeg_load_raw;
       else
@@ -4365,6 +4379,13 @@ konica_400z:
     load_raw = packed_12_load_raw;
     pre_mul[0] = 1.340;
     pre_mul[2] = 1.672;
+  } else if (!strcmp(model,"EX-Z50")) {
+    height = 1932;
+    width  = 2602;
+    raw_width = 3904;
+    load_raw = packed_12_load_raw;
+    pre_mul[0] = 1.969;
+    pre_mul[2] = 1.570;
   } else if (!strcmp(model,"EX-Z55")) {
     height = 1960;
     width  = 2570;
@@ -4713,7 +4734,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.06"
+    "\nRaw Photo Decoder \"dcraw\" v7.08"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
