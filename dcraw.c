@@ -1,5 +1,5 @@
 /*
-   Canon PowerShot Converter v0.96
+   Canon PowerShot Converter v1.00
 
    by Dave Coffin (dcoffin@shore.net)
 
@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.17 $
-   $Date: 2000/05/02 13:45:14 $
+   $Revision: 1.18 $
+   $Date: 2000/05/05 04:21:40 $
 */
 
 #include <fcntl.h>
@@ -16,8 +16,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define DEBUG
 
 #ifdef PS_600
 
@@ -54,7 +52,8 @@ const float ymul[4] = { 1.0005, 1.0056, 0.9980, 0.9959 };
 const float ymul[4] = { 1.0, 1.0, 1.0, 1.0 };
 
 #else
-#error You must compile with -DPS_600, -DPS_A5, or -DPS_A50
+#error You must compile with exactly one of the following:
+#error	-DPS_600 -DPS_A5 -DPS_A50 -DPS_PRO70
 #endif
 
 /* Default values, which may be modified on the command line */
@@ -87,7 +86,6 @@ int histogram[1024];
 	2 M G M G M G		 G  M  C  Y
 	3 C Y C Y C Y
 */
-
 #define filter(row,col) \
 	(0xe1e4 >> ((((row) << 1 & 6) + ((col) & 1)) << 1) & 3)
 
@@ -109,7 +107,6 @@ void read_crw(int row, int fd)
    Since the rows are not stored in top-to-bottom order like the
    other cameras, we must load all rows before processing can begin.
 */
-
   if (row) return;
 
   for (irow=orow=0; irow < H; irow++)
@@ -132,7 +129,6 @@ void read_crw(int row, int fd)
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
 */
-    memset(gmcy[orow], 0, W*8);		/* Set row to zero */
     for (col=0; col < W; col++)
       gmcy[orow][col][filter(orow,col)] = pixel[col] << 4;
 
@@ -153,7 +149,6 @@ void read_crw(int row, int fd)
 	2 C Y C Y C Y		 G  M  C  Y
 	3 M G M G M G
 */
-
 #define filter(row,col) \
 	(0x1e4e >> ((((row) << 1 & 6) + ((col) & 1)) << 1) & 3)
 
@@ -187,7 +182,6 @@ void read_crw(int row, int fd)
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
 */
-  memset(gmcy[row], 0, W*8);		/* Set row to zero */
   for (col=0; col < W; col++)
     gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
 }
@@ -241,7 +235,6 @@ void read_crw(int row, int fd)
    are blank.  Left-shift by 4 for extra precision in upcoming
    calculations.
 */
-  memset(gmcy[row], 0, W*8);		/* Set row to zero */
   for (col=0; col < W; col++)
     gmcy[row][col][filter(row,col)] = (pixel[col] & 0x3ff) << 4;
 }
@@ -252,7 +245,9 @@ void read_crw(int row, int fd)
    When this function is called, we only have one GMCY value for
    each pixel.  Do linear interpolation to get the other three.
 
-   first_interpolate(row) must be called after read_crw(row+1)!
+   read_crw(row+1) must happen before first_interpolate(row).
+   first_interpolate() is non-destructive, so this row can be
+   referenced while interpolating the next row.
 */
 first_interpolate(int y)
 {
@@ -302,7 +297,7 @@ get_rgb(float rgb[4], ushort gmcy[4])
        3.521597 * BLU_MUL, -2.249256 * BLU_MUL }
   };
 
-  memset(rgb,0,16);
+  memset(rgb,0,4 * sizeof (float));
   for (r=0; r < 3; r++)			/* RGB colors */
   {
     for (g=0; g < 4; g++)		/* GMCY colors */
@@ -312,15 +307,21 @@ get_rgb(float rgb[4], ushort gmcy[4])
 }
 
 /*
-   We now have all four GMCY values for each pixel.  Smooth the color
-   balance to avoid artifacts.  As a side effect, this moves the whole
-   image one pixel up and to the left.  Convert each GMCY value to RGB,
-   and compile a histogram of their magnitudes.  RGB values are discarded
-   and re-calculated in write_ppm().
+   Now that we have four GMCY values for each pixel (one known, three
+   interpolated), adjust each interpolated value so that its ratio to
+   the known value approximates that of neighboring pixels.
 
-   second_interpolate(row) must be called after first_interpolate(row+1)!
+   second_interpolate(row) must be called after first_interpolate(row+1)
+   A copy of the original row is needed to interpolating the next row.
+   Therefore, second_interpolate() writes the modified row one pixel
+   above and to the left of the original.
+
+   Edge pixels are discarded.  Pixels one in from the edge get memcpy'd
+   to their new locations.
+
+   Convert each GMCY value to RGB, and compile a histogram of their
+   magnitudes.  Discard the RGB values.
 */
-
 second_interpolate(int y)
 {
   int x, c, sy, sx, sc;
@@ -329,13 +330,19 @@ second_interpolate(int y)
   float rgb[4];
   unsigned val;
 
+  if (y==1 || y==H-2)	/* y is never outside this range */
+  {
+    memcpy(&gmcy[y-1][0],&gmcy[y][1],(W-2)*sizeof this);
+    return;
+  }
   if (y==2) memset(histogram,0,sizeof histogram);
+  memcpy(&gmcy[y-1][0],&gmcy[y][1],sizeof this);
   for (x=2; x < W-2; x++)
   {
     memset(this,0,sizeof this);
     c=filter(y,x);
     sp=shift;
-    for (sy=y-1; sy < y+2; sy++)
+    for (sy=y-1; sy < y+2; sy++)	/* 28% of run-time is this loop */
       for (sx=x-1; sx < x+2; sx++)
       {
 	sc=filter(sy,sx);
@@ -349,6 +356,7 @@ second_interpolate(int y)
     if (val > 1023) val=1023;
     histogram[val]++;
   }
+  memcpy(&gmcy[y-1][x-1],&gmcy[y][x],sizeof this);
 }
 
 /*
@@ -358,7 +366,7 @@ write_ppm(int fd)
 {
   int y, x, i;
   register unsigned c, val;
-  uchar ppm[W][3];
+  uchar ppm[W-2][3];
   float rgb[4], max, max2, expo, scale;
   float gymul[4];
   int total;
@@ -372,23 +380,15 @@ write_ppm(int fd)
   max2 = val << 24;
   max = sqrt(max2);
 
-#ifdef DEBUG
-  fprintf(stderr,"Writing PPM file...\n");
-#endif
-
   write(fd,p6head,sprintf(p6head,"P6\n%d %d\n255\n",W-2,H-2));
-
-/*
-   Second pass:  Scale RGB and write to PPM file
-*/
 
   expo = (gamma_val-1)/2;		/* Pull these out of the loop */
   for (y=0; y < 4; y++)
     gymul[y] = bright * 362 / max * pow(ymul[y],gamma_val);
 
-  for (y=1; y < H-1; y++)
+  for (y=0; y < H-2; y++)
   {
-    for (x=1; x < W-1; x++)
+    for (x=0; x < W-2; x++)
     {
       get_rgb(rgb,gmcy[y][x]);
       scale = gymul[y&3] * pow(rgb[3]/max2,expo);
@@ -401,12 +401,8 @@ write_ppm(int fd)
 	ppm[x][c]=val;
       }
     }
-    write (fd, ppm+1, (W-2)*3);
+    write (fd, ppm, sizeof ppm);
   }
-
-#ifdef DEBUG
-  fprintf(stderr,"Done!\n");
-#endif
 }
 
 /* Creates a new filename with a different extension */
@@ -424,7 +420,6 @@ main(int argc, char **argv)
 {
   char data[256];
   int i, arg, fd, write_to_files=1, row;
-  ushort dummy;
 
   if (argc == 1)
   {
@@ -437,7 +432,7 @@ main(int argc, char **argv)
 #elif defined(PS_A50)
     "A50"
 #endif
-    " Converter v0.96"
+    " Converter v1.00"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
@@ -481,14 +476,16 @@ main(int argc, char **argv)
       fprintf(stderr,"%s is not a Canon PowerShot CRW file.\n",argv[arg]);
       continue;
     }
-    for (row=0; row < H; row++)
-    {
-      for (i=0; i < W; i+=4)
-	dummy=gmcy[row][i][0];
+    for (row=0; row < 3; row++)
       read_crw(row,fd);
-      if (row > 1) first_interpolate(row-1);
-      if (row > 3) second_interpolate(row-2);
+    first_interpolate(1);
+    for (row=3; row < H; row++)
+    {
+      read_crw(row,fd);
+      first_interpolate(row-1);
+      second_interpolate(row-2);
     }
+    second_interpolate(H-2);
     close(fd);
     if (write_to_files)
     {
