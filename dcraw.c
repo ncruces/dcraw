@@ -7,8 +7,8 @@
    but I accept no responsibility for any consequences
    of its (mis)use.
 
-   $Revision: 1.11 $
-   $Date: 1999/04/12 22:57:06 $
+   $Revision: 1.12 $
+   $Date: 1999/04/15 19:57:55 $
 */
 
 #include <ctype.h>
@@ -287,7 +287,7 @@ write_ppm(char *fname)
    Set the maximum to the 96th percentile
 */
   for (val=512, total=0; --val; )
-    if ((total+=histo[val]) > 60000) break;
+    if ((total+=histo[val]) > (int)(W*H*0.11)) break;
   max = val << 10;
   max2 = max*max;
 
