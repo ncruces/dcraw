@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.61 $
-   $Date: 2002/06/23 20:39:42 $
+   $Revision: 1.62 $
+   $Date: 2002/06/24 14:58:04 $
 
    The Canon EOS-1D digital camera compresses its data with
    lossless JPEG.  To read EOS-1D images, you must also download:
@@ -1406,7 +1406,7 @@ void write_psd(FILE *ofp)
   memcpy (head+14, hw, sizeof hw);
   fwrite (head, 40, 1, ofp);
 
-  psize = hw[0] * hw[1];
+  psize = (height-trim*2) * (width-trim*2);
   buffer = calloc (6, psize);
   if (!buffer) {
     perror("psd calloc failed");
@@ -1515,7 +1515,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v3.00"
+    "\nCanon PowerShot Converter v3.01"
 #ifdef LJPEG_DECODE
     " with EOS-1D support"
 #endif
