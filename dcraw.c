@@ -1,6 +1,6 @@
 /*
    Canon PowerShot Converter
-   Copyright (c)1997-2001 by Dave Coffin <dcoffin@shore.net>
+   Copyright 1997-2001 by Dave Coffin <dcoffin@shore.net>
 
    A portable ANSI C program to convert raw CRW files from Canon
    digital cameras into PPM or PNG format.
@@ -12,8 +12,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.37 $
-   $Date: 2001/11/25 21:39:22 $
+   $Revision: 1.38 $
+   $Date: 2001/12/06 04:18:11 $
 */
 
 #include <math.h>
@@ -822,6 +822,8 @@ open_and_id(char *fname)
     colors = 3;
     filters = 0x94949494;
     read_crw = g2_read_crw;
+    rgb_mul[0] = 2.156;
+    rgb_mul[2] = 1.043;
   } else if (!strcmp(name,"Canon EOS D30")) {
     height = 1448;
     width  = 2176;
@@ -1075,7 +1077,7 @@ main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf(stderr,
-    "\nCanon PowerShot Converter v2.50"
+    "\nCanon PowerShot Converter v2.51"
     "\nby Dave Coffin (dcoffin@shore.net)"
     "\n\nUsage:  %s [options] file1.crw file2.crw ...\n"
     "\nValid options:"
