@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.154 $
-   $Date: 2003/12/08 07:09:16 $
+   $Revision: 1.155 $
+   $Date: 2003/12/09 20:35:40 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -3066,7 +3066,7 @@ int main(int argc, char **argv)
       fprintf (stderr, "Will not write an image to the terminal!\n");
       exit(1);
     }
-#ifdef WIN32
+#if defined(WIN32) || defined(DJGPP)
     if (setmode(1,O_BINARY) < 0) {
       perror ("setmode()");
       exit(1);
