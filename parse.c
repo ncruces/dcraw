@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.24 $
-   $Date: 2004/12/22 20:48:54 $
+   $Revision: 1.25 $
+   $Date: 2005/01/10 07:04:46 $
  */
 
 #include <stdio.h>
@@ -139,7 +139,9 @@ void nef_parse_makernote (base)
   } else if (!strncmp (buf,"FUJIFILM",8)) {
     order = 0x4949;
     fseek (ifp,  2, SEEK_CUR);
-  } else if (!strcmp(buf,"OLYMP") || !strcmp(buf,"LEICA"))
+  } else if (!strcmp (buf,"OLYMP") ||
+	     !strcmp (buf,"LEICA") ||
+	     !strcmp (buf,"EPSON"))
     fseek (ifp, -2, SEEK_CUR);
   else if (!strcmp (buf,"AOC"))
     fseek (ifp, -4, SEEK_CUR);
@@ -158,6 +160,11 @@ void nef_parse_makernote (base)
     if (tag == 0x100 && type == 7 && !strncmp(make,"OLYMPUS",7)) {
       thumb_offset = base+val;
       thumb_length = count;
+    }
+    if (tag == 0x280 && type == 1) {	/* EPSON */
+      strcpy (thumb_head, "\xff");
+      thumb_offset = base+val+1;
+      thumb_length = count-1;
     }
     if (strstr(make,"Minolta") || strstr(make,"MINOLTA")) {
       switch (tag) {
