@@ -4,12 +4,14 @@
 
    No restrictions on this code -- use and distribute freely.
 
-   $Revision: 1.3 $
-   $Date: 2002/08/15 17:22:53 $
+   $Revision: 1.4 $
+   $Date: 2002/11/09 05:40:02 $
 */
 
 #include <stdio.h>
 #include <string.h>
+
+typedef unsigned char uchar;
 
 /* Global Variables */
 
