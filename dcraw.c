@@ -11,13 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.167 $
-   $Date: 2004/02/16 01:01:44 $
-
-   The Canon EOS-1D and some Kodak cameras compress their raw data
-   with lossless JPEG.  To read such images, you must also download:
-
-	http://www.cybercom.net/~dcoffin/dcraw/ljpeg_decode.tar.gz
+   $Revision: 1.168 $
+   $Date: 2004/02/18 20:29:52 $
  */
 
 #define _GNU_SOURCE
@@ -43,9 +38,8 @@ typedef long long INT64;
 #endif
 
 #ifdef LJPEG_DECODE
-#include "jpeg.h"
-#include "mcu.h"
-#include "proto.h"
+#error Please compile dcraw.c by itself.
+#error Do not link it with ljpeg_decode.
 #endif
 
 #ifndef LONG_BIT
@@ -290,7 +284,7 @@ void make_decoder(struct decode *dest, const uchar *source, int level)
   for (i=next=0; i <= leaf && next < 16; )
     i += source[next++];
 
-  if (level < next) {		/* Are we there yet? */
+  if (level < next && i > leaf) {
     dest->branch[0] = free;
     make_decoder (free, source, level+1);
     dest->branch[1] = free;
@@ -511,56 +505,46 @@ void canon_compressed_load_raw()
   black = ((INT64) black << shift) / ((raw_width - width) * height);
 }
 
-#ifdef LJPEG_DECODE
 /*
-   Lossless JPEG code calls this function to get data.
+   Not a full implementation of Lossless JPEG,
+   just enough to decode Canon and Kodak images.
  */
-int ReadJpegData (char *buffer, int numBytes)
+void lossless_jpeg_load_raw()
 {
-  return fread(buffer, 1, numBytes, ifp);
-}
+  uchar head[64];
+  int jwide, trick, row, col, len, diff;
+  int vpred[2] = { 0x800, 0x800 }, hpred[2];
+  struct decode *dindex;
 
-/*
-   Called from DecodeImage() in huffd.c to write one row.
-   Notice that one row of the JPEG data is two rows for us.
-   Canon did this so that the predictors could work against
-   like colors.  Quite clever!
-
-   Kodak didn't think of that.  8-/
- */
-void PmPutRow(ushort **buf, int numComp, int numCol, int row)
-{
-  int r, col, trick=1;
-
-  trick = numComp * numCol / width;
-  row *= trick;
-  for (r = row; r < row+trick; r++)
-    for (col=0; col < width; col+=2) {
-      image[r*width+col+0][FC(r,col+0)] = buf[0][0] << 2;
-      image[r*width+col+1][FC(r,col+1)] = buf[0][1] << 2;
-      buf++;
+  fread (head, 1, 64, ifp);
+  memset (first_decode, 0, sizeof first_decode);
+  make_decoder (first_decode, head+7, 0);
+  jwide = (head[43] << 8) + head[44];
+  trick = 2 * jwide / width;
+  is_canon = 1;
+  getbits(-1);
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++)
+    {
+      for (dindex=first_decode; dindex->branch[0]; )
+	dindex = dindex->branch[getbits(1)];
+      len = dindex->leaf;
+      diff = getbits(len);
+      if ((diff & (1 << (len-1))) == 0)
+	diff -= (1 << len) - 1;
+      if (col < 2 && (row % trick == 0)) {
+	vpred[col] += diff;
+	hpred[col] = vpred[col];
+      } else
+	hpred[col & 1] += diff;
+      diff = hpred[col & 1];
+      if (diff < 0) diff = 0;
+      image[row*width+col][FC(row,col)] = diff << 2;
     }
 }
 
-void lossless_jpeg_load_raw()
-{
-  DecompressInfo dcInfo;
-
-  MEMSET(&dcInfo, 0, sizeof(dcInfo));
-  ReadFileHeader (&dcInfo);
-  ReadScanHeader (&dcInfo);
-  DecoderStructInit (&dcInfo);
-  HuffDecoderInit (&dcInfo);
-  DecodeImage (&dcInfo);
-  FreeArray2D (mcuROW1);
-  FreeArray2D (mcuROW2);
-}
-#else
-void lossless_jpeg_load_raw() { }
-#endif /* LJPEG_DECODE */
-
-ushort fget2 (FILE *f);
-int    fget4 (FILE *f);
+ushort fget2 (FILE *);
+int    fget4 (FILE *);
 
 void nikon_compressed_load_raw()
 {
@@ -599,7 +583,7 @@ void nikon_compressed_load_raw()
       if (col < 2) {
 	i = 2*(row & 1) + (col & 1);
 	vpred[i] += diff;
-	hpred[col & 1] = vpred[i];
+	hpred[col] = vpred[i];
       } else
 	hpred[col & 1] += diff;
       if ((unsigned) (col-left_margin) >= width) continue;
@@ -2989,13 +2973,6 @@ coolpix:
 	ifname, make, model);
     return 1;
   }
-#ifndef LJPEG_DECODE
-  if (load_raw == lossless_jpeg_load_raw) {
-    fprintf (stderr, "%s: %s %s requires lossless JPEG decoder.\n",
-	ifname, make, model);
-    return 1;
-  }
-#endif
   if (!raw_height) raw_height = height;
   if (!raw_width ) raw_width  = width;
   if (colors == 4 && !use_coeff)
@@ -3193,10 +3170,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.47"
-#ifdef LJPEG_DECODE
-    " with Lossless JPEG support"
-#endif
+    "\nRaw Photo Decoder v5.50"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
