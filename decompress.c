@@ -2,8 +2,8 @@
    Simple reference decompresser for Canon digital cameras.
    Outputs raw 16-bit CCD data, no header, native byte order.
 
-   $Revision: 1.6 $
-   $Date: 2001/11/03 22:25:57 $
+   $Revision: 1.7 $
+   $Date: 2002/04/17 20:50:54 $
 */
 
 #include <stdio.h>
@@ -303,7 +303,7 @@ unsigned long getbits(int nbits)
 main(int argc, char **argv)
 {
   struct decode *decode, *dindex;
-  int i, j, leaf, len, sign, diff, diffbuf[64], r, save;
+  int i, j, leaf, len, sign, diff, diffbuf[64], r, save, nbits;
   int carry=0, column=0, base[2];
   unsigned short outbuf[64];
   uchar c;
@@ -317,10 +317,8 @@ main(int argc, char **argv)
 
   init_tables(table);
 
-  if (!strcmp(name,"Canon EOS D30"))
-    fseek (ifp, 810076, SEEK_SET);
-  else
-    fseek (ifp, 540, SEEK_SET);
+  nbits = strncmp(name,"Canon EOS ",10) ? 10:12;
+  fseek (ifp, 540 + (nbits-10)*height*width/8, SEEK_SET);
   getbits(-1);			/* Prime the bit buffer */
 
   while (column < width * height) {
@@ -353,7 +351,7 @@ main(int argc, char **argv)
 	base[0] = base[1] = 512;
       outbuf[i] = ( base[i & 1] += diffbuf[i] );
     }
-    if (!strcmp(name,"Canon EOS D30")) {
+    if (nbits == 12) {
       save = ftell(ifp);
       fseek (ifp, (column-64)/4 + 26, SEEK_SET);
       for (i=j=0; j < 64/4; j++ ) {
