@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.214 $
-   $Date: 2004/10/26 02:28:46 $
+   $Revision: 1.215 $
+   $Date: 2004/11/05 06:48:50 $
  */
 
 #define _GNU_SOURCE
@@ -569,7 +569,7 @@ void CLASS lossless_jpeg_load_raw()
   uchar data[256], *dp;
   int vpred[2] = { 0x800, 0x800 }, hpred[2];
   struct decode *dstart[2], *dindex;
-  ushort curve[0x10000];
+  ushort curve[0x1000];
   INT64 bblack=0;
   int min=INT_MAX;
 
@@ -614,6 +614,7 @@ void CLASS lossless_jpeg_load_raw()
 	hpred[jcol & 1] += diff;
       diff = hpred[jcol & 1];
       if (diff < 0) diff = 0;
+      if (diff > 0xfff) diff = 0xfff;
       jidx = jrow*jwide + jcol;
       if (raw_width == 5108) {
 	i = jidx / (1680*jhigh);
@@ -3912,7 +3913,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.10"
+    "\nRaw Photo Decoder \"dcraw\" v6.11"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
