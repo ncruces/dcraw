@@ -1,7 +1,7 @@
 /*
-   CRW to PPM converter Version 0.8
+   CRW to PPM converter Version 0.85
 
-   by Dave Coffin (dcoffin at shore dot net)  8/23/97
+   by Dave Coffin (dcoffin at shore dot net)  8/30/97
 
    No rights reserved.  Do what you want with this code,
    but I accept no responsibility for any consequences
@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define DEBUG
@@ -19,10 +20,12 @@
 /* Use these to adjust the final color balance */
 
 #define RED_MUL 1.0
-#define GRN_MUL 0.535
-#define BLU_MUL 0.709
+#define GRN_MUL 0.6
+#define BLU_MUL 1.0
 
-#define GAMMA 0.75
+/* Default values, which may be modified on the command line */
+
+float gamma=0.8, bright=1.0;
 
 /* DOS likes to trash binary files!! */
 
@@ -31,6 +34,8 @@
 #endif
 
 #define WFLAGS O_WRONLY | O_CREAT | O_TRUNC | O_BINARY
+
+int write_to_files=1;
 
 typedef unsigned char  uchar;
 
@@ -221,7 +226,7 @@ to the three primary colors, on a scale of 0-100.
    get_rgb() is based on this table.
 */
 
-get_rgb(float rgb[3], ushort gmcy[4])		/* 3.70 seconds */
+get_rgb(float rgb[4], ushort gmcy[4])		/* 3.70 seconds */
 {
   int r, g;
   static const float coeff[3][4] =
@@ -234,10 +239,13 @@ get_rgb(float rgb[3], ushort gmcy[4])		/* 3.70 seconds */
        3.521597 * BLU_MUL, -2.249256 * BLU_MUL }
   };
 
-  memset(rgb,0,12);
-  for (r=0; r < 3; r++)		/* RGB colors */
-    for (g=0; g < 4; g++)	/* GMCY colors */
+  memset(rgb,0,16);
+  for (r=0; r < 3; r++)			/* RGB colors */
+  {
+    for (g=0; g < 4; g++)		/* GMCY colors */
       rgb[r] += coeff[r][g] * gmcy[g];
+    rgb[3] += rgb[r]*rgb[r];		/* Compute magnitude */
+  }
 }
 
 /*
@@ -246,19 +254,21 @@ get_rgb(float rgb[3], ushort gmcy[4])		/* 3.70 seconds */
 
 write_ppm(char *fname)
 {
-  int fd, y, x, i;
+  int fd=1, y, x, i;
   register c, val;
   uchar ppm[854][3];
-  float rgb[3], max, gamma, gamtab[257];
-  int histo[256], total, bot, mid, top;
+  float rgb[4], max, max2, expo, mult, scale;
+  int histo[512], total;
+
+/* Use this to remove an annoying horizontal pattern */
+  float ymul[4]={ 0.9866, 1.0, 1.0125, 1.0 };
 
 #ifdef DEBUG
   fprintf(stderr,"First pass RGB...\n");
 #endif
 
 /*
-   First pass:  Needed to find the maximum color value.
-   Construct a histogram with binning of 1024.
+   First pass:  Gather stats on the RGB image
 */
   memset(histo,0,sizeof histo);
   for (y=2; y < 611; y++)
@@ -268,55 +278,58 @@ write_ppm(char *fname)
       get_rgb(rgb,gmcy[y][x]);
       for (c=0; c < 3; c++)
       {
-	histo [(int)rgb[c] >> 10] ++;
+	histo [(int)rgb[c] >> 10]++;
       }
     }
   }
 /*
-   Set the maximum to the 95th percentile
+   Set the maximum to the 96th percentile
 */
-  for (val=256, total=0; --val; )
-    if ((total+=histo[val]) > 80000) break;
+  for (val=512, total=0; --val; )
+    if ((total+=histo[val]) > 60000) break;
   max = val << 10;
-
-  gamma = GAMMA;
-  for (i=0; i < 257; i++)
-    gamtab[i] = pow(i/256.0,1/gamma) * max;
+  max2 = max*max;
 
 #ifdef DEBUG
   fprintf(stderr,"Second pass RGB...\n");
 #endif
 
-  fd = open(fname,WFLAGS,0644);
-  if (fd < 0)
-  { perror(fname);
-    return; }
+  if (write_to_files)
+  {
+    fd = open(fname,WFLAGS,0644);
+    if (fd < 0)
+    { perror(fname);
+      return; }
+  }
   write(fd,"P6\n852 611\n255\n",15);
 
 /*
    Second pass:  Scale RGB and write to PPM file
 */
-  for (y=1; y < 612; y++)		/* 4.93 seconds */
+
+  expo = (gamma-1)/2;			/* Pull these out of the loop */
+  mult = bright * 362 / max;
+  for (y=0; y < 4; y++)
+    ymul[y] = pow(ymul[y],gamma);
+
+  for (y=1; y < 612; y++)
   {
     for (x=1; x < 853; x++)
     {
       get_rgb(rgb,gmcy[y][x]);
+      scale = mult * ymul[y&3] * pow(rgb[3]/max2,expo);
+
       for (c=0; c < 3; c++)
       {
-	for (bot=0,top=256; top-bot > 1; )	/* 3.00 seconds */
-	{
-	  mid = bot+top >> 1;		/* Do a binary search */
-	  if (rgb[c] > gamtab[mid])
-	    bot=mid;
-	  else
-	    top=mid;
-	}
-	ppm[x][c]=bot;
+	val=rgb[c]*scale;
+	if (val < 0) val=0;
+	if (val > 255) val=255;
+	ppm[x][c]=val;
       }
     }
     write (fd, ppm+1, 852 * 3);
   }
-  close(fd);
+  if (write_to_files) close(fd);
 
 #ifdef DEBUG
   fprintf(stderr,"Done!\n");
@@ -328,15 +341,39 @@ main(int argc, char **argv)
   char fname[256];
   int arg;
 
-  if (argc < 2)
+  if (argc == 1)
   {
-    puts("\nCRW to PPM converter by Dave Coffin (dcoffin@shore.net)");
-    puts("Version 0.8, last modified 8/23/97\n");
-    printf("Usage:  %s file1.crw file2.crw ...\n\n",argv[0]);
+    fprintf(stderr,
+    "\nCRW to PPM converter by Dave Coffin (dcoffin@shore.net)"
+    "\nVersion 0.85, last modified 8/30/97\n"
+    "\nUsage:  %s [options] file1.crw file2.crw ...\n"
+    "\nValid options:"
+    "\n-c        Write to standard output"
+    "\n-g <num>  Set gamma value (%5.3f by default)"
+    "\n-b <num>  Set brightness  (%5.3f by default)\n\n",
+      argv[0], gamma, bright);
     exit(1);
   }
 
-  for (arg=1; arg < argc; arg++)
+/* Parse out the options */
+
+  for (arg=1; argv[arg][0] == '-'; arg++)
+    switch (argv[arg][1])
+    {
+      case 'c':
+	write_to_files = 0;  break;
+      case 'g':
+	gamma=atof(argv[++arg]);  break;
+      case 'b':
+	bright = atof(argv[++arg]);  break;
+      default:
+	fprintf(stderr,"Unknown option \"%s\"\n",argv[arg]);
+	exit(1);
+    }
+
+/* Process the named files */
+
+  for ( ; arg < argc; arg++)
   {
     if (read_crw(argv[arg]))
     {
