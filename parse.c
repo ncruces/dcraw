@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.22 $
-   $Date: 2004/11/27 07:51:39 $
+   $Revision: 1.23 $
+   $Date: 2004/12/01 21:54:52 $
  */
 
 #include <stdio.h>
@@ -38,7 +38,7 @@ FILE *ifp;
 short order;
 char *fname;
 char make[128], model[128], model2[128], thumb_head[128];
-int width, height, offset, bps;
+int width, height, offset, length, bps;
 int thumb_offset, thumb_length, thumb_layers;
 
 struct decode {
@@ -193,7 +193,7 @@ void nef_parse_exif(int base)
 void parse_tiff (int base, int level)
 {
   int entries, tag, type, count, slen, save, save2, val, i;
-  int comp=0, length=0;
+  int comp=0;
 
   entries = fget2(ifp);
   while (entries--) {
@@ -279,16 +279,16 @@ void parse_tiff (int base, int level)
  */
 void parse_tiff_file (int base)
 {
-  int doff, spp=3;
+  int doff, spp=3, ifd=0;
 
-  width = height = offset = bps = 0;
+  width = height = offset = length = bps = 0;
   fseek (ifp, base, SEEK_SET);
   order = fget2(ifp);
   fget2(ifp);			/* Should be 42 for standard TIFF */
   while ((doff = fget4(ifp))) {
     fseek (ifp, doff+base, SEEK_SET);
+    printf ("IFD #%d:\n", ifd++);
     parse_tiff (base, 0);
-    if (!strcmp(make,"Canon")) break;
   }
   if (strncmp(make,"KODAK",5))
     thumb_layers = 0;
