@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.202 $
-   $Date: 2004/09/06 05:50:09 $
+   $Revision: 1.203 $
+   $Date: 2004/09/07 17:25:15 $
  */
 
 #define _GNU_SOURCE
@@ -3017,8 +3017,8 @@ nucore:
     pre_mul[2] = 1.2;
   } else if (!strcmp(model,"D70")) {
     filters = 0x16161616;
-    pre_mul[0] = 2.8;
-    pre_mul[2] = 1.2;
+    pre_mul[0] = 2.043;
+    pre_mul[2] = 1.625;
   } else if (!strcmp(model,"E950")) {
     height = 1203;
     width  = 1616;
