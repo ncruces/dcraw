@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.152 $
-   $Date: 2003/11/25 02:25:27 $
+   $Revision: 1.153 $
+   $Date: 2003/12/04 01:23:06 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -2187,12 +2187,12 @@ void foveon_coeff()
     {  2.0343955, -0.727533, -0.3067457 },
     { -0.2287194,  1.231793, -0.0028293 },
     { -0.0086152, -0.153336,  1.1617814 }
-  }, mul[3] = { 1.179, 1.0, 0.713 };
+  };
   int i, j;
 
   for (i=0; i < 3; i++)
     for (j=0; j < 3; j++)
-      coeff[i][j] = foveon[i][j] * mul[i];
+      coeff[i][j] = foveon[i][j] * pre_mul[i];
   use_coeff = 1;
 }
 
@@ -2840,7 +2840,7 @@ coolpix:
     load_raw = rollei_load_raw;
     pre_mul[0] = 1.8;
     pre_mul[2] = 1.3;
-  } else if (!strcmp(model,"SD9")) {
+  } else if (!strcmp(make,"SIGMA")) {
     switch (height = raw_height) {
       case  763: height =  756;  break;
       case 1531: height = 1514;  break;
@@ -2853,6 +2853,12 @@ coolpix:
     filters = 0;
     load_raw = foveon_load_raw;
     is_foveon = 1;
+    pre_mul[0] = 1.179;
+    pre_mul[2] = 0.713;
+    if (!strcmp(model,"SD10")) {
+      pre_mul[0] *= 2.07;
+      pre_mul[2] *= 2.30;
+    }
     foveon_coeff();
     rgb_max = 5600;
   } else if (!strcmp(model,"QV-2000UX")) {
@@ -3097,7 +3103,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v5.19"
+    "\nRaw Photo Decoder v5.20"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
