@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.111 $
-   $Date: 2003/05/27 18:17:16 $
+   $Revision: 1.112 $
+   $Date: 2003/05/28 14:10:08 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -607,9 +607,9 @@ void PmPutRow(ushort **buf, int numComp, int numCol, int row)
   if (make[0] == 'C') trick=2;		/* Canon */
   row *= trick;
   for (r = row; r < row+trick; r++)
-    for (col=0; col < width; ) {
-      image[r*width+col++][FC(r,col)] = buf[0][0] << 2;
-      image[r*width+col++][FC(r,col)] = buf[0][1] << 2;
+    for (col=0; col < width; col+=2) {
+      image[r*width+col+0][FC(r,col+0)] = buf[0][0] << 2;
+      image[r*width+col+1][FC(r,col+1)] = buf[0][1] << 2;
       buf++;
     }
 }
