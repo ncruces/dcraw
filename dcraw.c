@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.96 $
-   $Date: 2003/02/16 05:01:06 $
+   $Revision: 1.97 $
+   $Date: 2003/02/17 04:23:32 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -815,7 +815,7 @@ void olympus2_read_crw()
       getbits(-1);
     }
     for (col=0; col < width; col++)
-      image[row*width+col][FC(row,col)] = getbits(12);
+      image[row*width+col][FC(row,col)] = getbits(12) << 2;
   }
 }
 
