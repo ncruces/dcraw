@@ -4,8 +4,8 @@
 
    No restrictions on this code -- use and distribute freely.
 
-   $Revision: 1.2 $
-   $Date: 2001/10/28 00:52:34 $
+   $Revision: 1.3 $
+   $Date: 2002/08/15 17:22:53 $
 */
 
 #include <stdio.h>
@@ -19,13 +19,18 @@ char jpgname[1024];
 
 /*
    Get a 2-byte integer, making no assumptions about CPU byte order.
+   Nor should we assume that the compiler evaluates left-to-right.
  */
 short fget2 (FILE *f)
 {
+  register uchar a, b;
+
+  a = fgetc(f);
+  b = fgetc(f);
   if (order == 0x4d4d)		/* "MM" means big-endian */
-    return (fgetc(f) << 8) + fgetc(f);
-  else
-    return fgetc(f) + (fgetc(f) << 8);
+    return (a << 8) + b;
+  else				/* "II" means little-endian */
+    return a + (b << 8);
 }
 
 /*
@@ -33,10 +38,16 @@ short fget2 (FILE *f)
  */
 int fget4 (FILE *f)
 {
+  register uchar a, b, c, d;
+
+  a = fgetc(f);
+  b = fgetc(f);
+  c = fgetc(f);
+  d = fgetc(f);
   if (order == 0x4d4d)
-    return (fgetc(f) << 24) + (fgetc(f) << 16) + (fgetc(f) << 8) + fgetc(f);
+    return (a << 24) + (b << 16) + (c << 8) + d;
   else
-    return fgetc(f) + (fgetc(f) << 8) + (fgetc(f) << 16) + (fgetc(f) << 24);
+    return a + (b << 8) + (c << 16) + (d << 24);
 }
 
 /*
