@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.196 $
-   $Date: 2004/06/29 02:23:39 $
+   $Revision: 1.197 $
+   $Date: 2004/06/29 22:56:42 $
  */
 
 #define _GNU_SOURCE
@@ -971,7 +971,7 @@ void unpacked_load_raw (int order, int rsh)
   ushort *pixel;
   int row, col;
 
-  pixel = calloc (width, sizeof *pixel);
+  pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "unpacked_load_raw()");
   for (row=0; row < height; row++) {
     fread (pixel, 2, raw_width, ifp);
