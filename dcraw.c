@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.197 $
-   $Date: 2004/06/29 22:56:42 $
+   $Revision: 1.198 $
+   $Date: 2004/07/06 18:36:13 $
  */
 
 #define _GNU_SOURCE
@@ -2729,8 +2729,11 @@ int identify()
     if (!memcmp (head+6,"HEAPCCDR",8)) {
       data_offset = hlen;
       parse_ciff (hlen, fsize - hlen);
-    } else
+    } else {
       parse_tiff(0);
+      if (!strncmp(make,"NIKON",5) && raw_width == 0)
+	make[0] = 0;
+    }
   } else if (!memcmp (head,"\0MRM",4)) {
     parse_tiff(48);
     fseek (ifp, 4, SEEK_SET);
@@ -3741,7 +3744,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v5.86"
+    "\nRaw Photo Decoder \"dcraw\" v5.87"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
