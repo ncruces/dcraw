@@ -12,12 +12,14 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments and questions are welcome.
 
-   $Revision: 1.38 $
-   $Date: 2001/12/06 04:18:11 $
+   $Revision: 1.39 $
+   $Date: 2001/12/08 22:59:44 $
 */
 
 #include <math.h>
+#ifndef NO_PNG
 #include <png.h>
+#endif
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -990,6 +992,7 @@ void write_psd(FILE *ofp)
   free (buffer);
 }
 
+#ifndef NO_PNG
 /*
    Write the image to a 48-bit PNG file.
  */
@@ -1052,6 +1055,7 @@ void write_png(FILE *ofp)
   png_write_end(png_ptr, NULL);
   png_destroy_write_struct(&png_ptr, &info_ptr);
 }
+#endif
 
 /*
    Creates a new filename with a different extension
@@ -1086,7 +1090,10 @@ main(int argc, char **argv)
     "\n-b <num>  Set brightness  (%5.3f by default)"
     "\n-2        Write 24-bit PPM (default)"
     "\n-3        Write 48-bit PSD (Adobe Photoshop)"
-    "\n-4        Write 48-bit PNG\n\n",
+#ifndef NO_PNG
+    "\n-4        Write 48-bit PNG"
+#endif
+    "\n\n",
       argv[0], gamma_val, bright);
     exit(1);
   }
@@ -1110,10 +1117,12 @@ main(int argc, char **argv)
 	write_fun = write_psd;
 	write_ext = ".psd";
 	break;
+#ifndef NO_PNG
       case '4':
 	write_fun = write_png;
 	write_ext = ".png";
 	break;
+#endif
       default:
 	fprintf(stderr,"Unknown option \"%s\"\n",argv[arg]);
 	exit(1);
