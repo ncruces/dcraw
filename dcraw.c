@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.84 $
-   $Date: 2002/12/17 01:45:16 $
+   $Revision: 1.85 $
+   $Date: 2002/12/17 19:52:52 $
 
    The Canon EOS-1D and some Kodak cameras compress their raw data
    with lossless JPEG.  To read such images, you must also download:
@@ -63,7 +63,7 @@ ushort (*image)[4];
 void (*read_crw)();
 float gamma_val=0.8, bright=1.0, red_scale=1.0, blue_scale=1.0;
 float rgb_mul[3], camera_red, camera_blue;
-float coeff[3][4];
+float gmcy_mul[4], coeff[3][4];
 
 struct decode {
   struct decode *branch[2];
@@ -868,37 +868,43 @@ void kodak_compressed_read_crw()
     }
 }
 
-void subtract_black()
-{
-  ushort *img;
-  int size;
-
-  img = image[0];
-  size = width * height * 4;
-  while (size--)
-    if (*img > black)
-      *img++ -= black;
-    else
-      *img++ = 0;
-  rgb_max -= black;
-}
-
 void scale_colors()
 {
   int row, col, c, val;
+  float *scale;
+#ifdef STATS
+  int min[4], max[4], count[4];
+  double sum[4];
 
-  if (colors != 3) return;
+  for (c=0; c < 4; c++) {
+    min[c] = INT_MAX;
+    sum[c] = max[c] = count[c] = 0;
+  }
+#endif
+  scale = (colors == 3) ? rgb_mul:gmcy_mul;
   for (row=0; row < height; row++)
     for (col=0; col < width; col++) {
       c = FC(row,col);
-      if (c != 1) {
-	val = image[row*width+col][c] * rgb_mul[c];
-	if (val > rgb_max &&
-	  image[row*width+col+(col ? -1:1)][1]+256 > rgb_max)
-	    val = rgb_max;
-	image[row*width+col][c] = val;
+      val = image[row*width+col][c] - black;
+#ifdef STATS
+      if ((unsigned) row-186 < 10 && (unsigned) col-465 < 104) {
+	if (min[c] > val) min[c] = val;
+	if (max[c] < val) max[c] = val;
+	sum[c] += val;
+	count[c]++;
       }
+#endif
+      val *= scale[c];
+      if (val < 0) val = 0;
+      if (val > rgb_max && (colors != 3 || c == 1 ||
+	  image[row*width+col+(col ? -1:1)][1]+256 > rgb_max))
+	val = rgb_max;
+      image[row*width+col][c] = val;
     }
+#ifdef STATS
+  for (c=0; c < colors; c++)
+    fprintf (stderr, "%6d%6d %f\n", min[c], max[c], sum[c]/count[c]);
+#endif
 }
 
 /*
@@ -1336,20 +1342,19 @@ void parse_ciff(int offset, int length)
 void make_coeff();
 
 /*
-   Open a CRW file, identify which camera created it, and set
-   global variables accordingly.  Returns nonzero if an error occurs.
+   Identify which camera created this file, and set global variables
+   accordingly.  Return nonzero if the file cannot be decoded.
  */
 int identify(char *fname)
 {
   char head[8], *c;
   unsigned magic, hlen;
 
-  rgb_mul[0] = 1.592;
-  rgb_mul[1] = 1.0;
-  rgb_mul[2] = 1.261;
+  rgb_mul[0] = rgb_mul[1] = rgb_mul[2] = 1;
+  gmcy_mul[0] = gmcy_mul[1] = gmcy_mul[2] = gmcy_mul[3] = 1;
   camera_red = camera_blue = 0;
   rgb_max = 0x4000;
-  colors = 4;
+  colors = 3;
   is_cmy = 0;
   xmag = ymag = 1;
 
@@ -1401,45 +1406,60 @@ int identify(char *fname)
   if (!strcmp(model,"PowerShot 600")) {
     height = 613;
     width  = 854;
+    colors = 4;
     filters = 0xe1e4e1e4;
     read_crw = ps600_read_crw;
-    rgb_mul[0] = 1.667;
-    rgb_mul[2] = 1.667;
+    gmcy_mul[0] = 1.377;
+    gmcy_mul[1] = 1.428;
+    gmcy_mul[2] = 1.010;
   } else if (!strcmp(model,"PowerShot A5")) {
     height = 776;
     width  = 960;
+    colors = 4;
     filters = 0x1e4e1e4e;
     read_crw = a5_read_crw;
-    rgb_mul[0] = 1.111;
-    rgb_mul[2] = 0.978;
+    gmcy_mul[0] = 1.550;
+    gmcy_mul[1] = 1.354;
+    gmcy_mul[3] = 1.014;
   } else if (!strcmp(model,"PowerShot A50")) {
     height =  968;
     width  = 1290;
+    colors = 4;
     filters = 0x1b4e4b1e;
     read_crw = a50_read_crw;
-    rgb_mul[0] = 1.316;
-    rgb_mul[2] = 0.776;
+    gmcy_mul[0] = 1.750;
+    gmcy_mul[1] = 1.381;
+    gmcy_mul[3] = 1.182;
   } else if (!strcmp(model,"PowerShot Pro70")) {
     height = 1024;
     width  = 1552;
+    colors = 4;
     filters = 0x1e4b4e1b;
     read_crw = pro70_read_crw;
+    gmcy_mul[0] = 1.389;
+    gmcy_mul[1] = 1.343;
+    gmcy_mul[3] = 1.034;
   } else if (!strcmp(model,"PowerShot Pro90 IS")) {
     height = 1416;
     width  = 1896;
+    colors = 4;
     filters = 0xb4b4b4b4;
     read_crw = canon_compressed_read_crw;
+    gmcy_mul[0] = 1.496;
+    gmcy_mul[1] = 1.509;
+    gmcy_mul[3] = 1.009;
   } else if (!strcmp(model,"PowerShot G1")) {
     height = 1550;
     width  = 2088;
+    colors = 4;
     filters = 0xb4b4b4b4;
     read_crw = canon_compressed_read_crw;
-    rgb_mul[0] = 1.469;
-    rgb_mul[2] = 1.327;
+    gmcy_mul[0] = 1.446;
+    gmcy_mul[1] = 1.405;
+    gmcy_mul[2] = 1.016;
   } else if (!strcmp(model,"PowerShot S30")) {
     height = 1550;
     width  = 2088;
-    colors = 3;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
     rgb_mul[0] = 1.785;
@@ -1450,21 +1470,20 @@ int identify(char *fname)
 	     !strcmp(model,"PowerShot S45")) {
     height = 1720;
     width  = 2312;
-    colors = 3;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
-    rgb_mul[0] = 1.966;
+    rgb_mul[0] = 1.965;
     rgb_mul[2] = 1.208;
   } else if (!strcmp(model,"EOS D30")) {
     height = 1448;
     width  = 2176;
-    colors = 3;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
+    rgb_mul[0] = 1.592;
+    rgb_mul[2] = 1.261;
   } else if (!strcmp(model,"EOS D60")) {
     height = 2056;
     width  = 3088;
-    colors = 3;
     filters = 0x94949494;
     read_crw = canon_compressed_read_crw;
     rgb_mul[0] = 2.242;
@@ -1473,7 +1492,6 @@ int identify(char *fname)
   } else if (!strcmp(model,"EOS-1D")) {
     height = 1662;
     width  = 2496;
-    colors = 3;
     filters = 0x61616161;
     read_crw = lossless_jpeg_read_crw;
     tiff_data_offset = 288912;
@@ -1482,7 +1500,6 @@ int identify(char *fname)
   } else if (!strcmp(model,"EOS-1DS")) {
     height = 2718;
     width  = 4082;
-    colors = 3;
     filters = 0x61616161;
     read_crw = lossless_jpeg_read_crw;
     tiff_data_offset = 289168;
@@ -1492,7 +1509,6 @@ int identify(char *fname)
   } else if (!strcmp(model,"D1")) {
     height = 1324;
     width  = 2012;
-    colors = 3;
     filters = 0x16161616;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 0.838;
@@ -1500,7 +1516,6 @@ int identify(char *fname)
   } else if (!strcmp(model,"D1H")) {
     height = 1324;
     width  = 2012;
-    colors = 3;
     filters = 0x16161616;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 1.347;
@@ -1508,7 +1523,6 @@ int identify(char *fname)
   } else if (!strcmp(model,"D1X")) {
     height = 1324;
     width  = 4024;
-    colors = 3;
     filters = 0x16161616;
     ymag = 2;
     read_crw = nikon_read_crw;
@@ -1517,7 +1531,6 @@ int identify(char *fname)
   } else if (!strcmp(model,"D100")) {
     height = 2024;
     width  = 3037;
-    colors = 3;
     filters = 0x61616161;
     read_crw = nikon_read_crw;
     rgb_mul[0] = 2.374;
@@ -1526,14 +1539,15 @@ int identify(char *fname)
   } else if (!strcmp(model,"E5000") || !strcmp(model,"E5700")) {
     height = 1924;
     width  = 2576;
+    colors = 4;
     filters = 0xb4b4b4b4;
     read_crw = nikon_read_crw;
-    rgb_mul[0] = 2.126;
-    rgb_mul[2] = 1.197;
+    gmcy_mul[0] = 1.300;
+    gmcy_mul[1] = 1.300;
+    gmcy_mul[3] = 1.148;
   } else if (!strcmp(model,"FinePixS2Pro")) {
     height = 2880;
     width  = 2144;
-    colors = 3;
     filters = 0x58525852;
     xmag = 2;
     read_crw = fuji_read_crw;
@@ -1542,7 +1556,6 @@ int identify(char *fname)
   } else if (!strcmp(make,"Minolta")) {
     height = raw_height;
     width  = raw_width;
-    colors = 3;
     filters = 0x94949494;
     read_crw = minolta_read_crw;
     rgb_mul[0] = 1;
@@ -1550,7 +1563,6 @@ int identify(char *fname)
   } else if (!strcmp(model,"E-10")) {
     height = 1684;
     width  = 2256;
-    colors = 3;
     filters = 0x94949494;
     read_crw = olympus_read_crw;
     rgb_mul[0] = 1.43;
@@ -1558,7 +1570,6 @@ int identify(char *fname)
   } else if (!strncmp(model,"E-20",4)) {
     height = 1924;
     width  = 2576;
-    colors = 3;
     filters = 0x94949494;
     read_crw = olympus_read_crw;
     rgb_mul[0] = 1.43;
@@ -1566,10 +1577,7 @@ int identify(char *fname)
   } else if (!strcasecmp(make,"KODAK")) {
     height = raw_height;
     width  = raw_width;
-    colors = 3;
     filters = 0x61616161;
-    rgb_mul[0] = 1;
-    rgb_mul[2] = 1;
     black = 400;
     if (!strcmp(model,"DCS315C")) {
       rgb_mul[0] = 0.973;
@@ -1720,9 +1728,12 @@ void make_coeff()
 	coeff[r][g] += invert[r][j+3];
     }
   }
-  for (r=0; r < 3; r++)			/* Multiply coeff[][] by rgb_mul[] */
+  for (r=0; r < 3; r++) {		/* Normalize such that:		*/
+    for (num=g=0; g < 4; g++)		/* (1,1,1,1) x coeff = rgb_mul[] */
+      num += coeff[r][g];
     for (g=0; g < 4; g++)
-      coeff[r][g] *= rgb_mul[r];
+      coeff[r][g] *= rgb_mul[r]/num;
+  }
 }
 
 void get_rgb(float rgb[4], ushort image[4])
@@ -1745,6 +1756,7 @@ void get_rgb(float rgb[4], ushort image[4])
       for (g=0; g < 4; g++)
 	rgb[r] += image[g] * coeff[r][g];
       if (rgb[r] < 0) rgb[r] = 0;
+      if (rgb[r] > rgb_max) rgb[r] = rgb_max;
       rgb[3] += rgb[r]*rgb[r];
     }
   if (is_cmy) {
@@ -1956,7 +1968,7 @@ int main(int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder v4.10"
+    "\nRaw Photo Decoder v4.20"
 #ifdef LJPEG_DECODE
     " with Lossless JPEG support"
 #endif
@@ -2038,10 +2050,7 @@ int main(int argc, char **argv)
 	make, model, argv[arg]);
     (*read_crw)();
     fclose(ifp);
-    if (black) {
-      fprintf (stderr, "Subtracting thermal noise (%d)...\n", black);
-      subtract_black();
-    }
+    fprintf (stderr, "Scaling raw data (black=%d)...\n", black);
     scale_colors();
     trim = 0;
     if (filters) {
