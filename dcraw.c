@@ -1,6 +1,6 @@
 /*
    dcraw.c -- Dave Coffin's raw photo decoder
-   Copyright 1997-2004 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 1997-2005 by Dave Coffin, dcoffin a cybercom o net
 
    This is a portable ANSI C program to convert raw image files from
    any digital camera into PPM format.  TIFF and CIFF parsing are
@@ -11,8 +11,8 @@
    This code is freely licensed for all uses, commercial and
    otherwise.  Comments, questions, and encouragement are welcome.
 
-   $Revision: 1.223 $
-   $Date: 2004/12/31 09:07:44 $
+   $Revision: 1.224 $
+   $Date: 2005/01/04 23:08:52 $
  */
 
 #define _GNU_SOURCE
@@ -1016,7 +1016,12 @@ void CLASS be_low_10_load_raw()
   unpacked_load_raw (0x55aa,-4);
 }
 
-void CLASS le_high_12_load_raw()	/* "le" = "little-endian" */
+void CLASS le_16_load_raw()		/* "le" = "little-endian" */
+{
+  unpacked_load_raw (0xaa55, 0);
+}
+
+void CLASS le_high_12_load_raw()
 {
   unpacked_load_raw (0xaa55, 2);
 }
@@ -2542,6 +2547,7 @@ void CLASS parse_ciff (int offset, int length)
   int tboff, nrecs, i, type, len, roff, aoff, save, wbi=-1;
   static const int remap[] = { 1,2,3,4,5,1 };
   static const int remap_10d[] = { 0,1,3,4,5,6,0,0,2,8 };
+  static const int remap_s70[] = { 0,1,2,9,4,3,6,7,8,9,10,0,0,0,7,0,0,8 };
   ushort key[] = { 0x410, 0x45f3 };
 
   if (strcmp(model,"Canon PowerShot G6") &&
@@ -2594,7 +2600,7 @@ common:
 	camera_blue /= fget2(ifp) ^ key[1];
       } else if (!strcmp(model,"Canon PowerShot G6") ||
 		 !strcmp(model,"Canon PowerShot S70")) {
-	fseek (ifp, aoff+104 + wbi*8, SEEK_SET);
+	fseek (ifp, aoff+96 + remap_s70[wbi]*8, SEEK_SET);
 	goto common;
       } else if (!strcmp(model,"Canon PowerShot Pro1")) {
 	fseek (ifp, aoff+96 + wbi*8, SEEK_SET);
@@ -2614,7 +2620,7 @@ common:
       camera_blue = fget2(ifp);
       camera_blue = fget2(ifp) / camera_blue;
     }
-    if (type == 0x1030 && (wbi == 6 || wbi > 14)) {
+    if (type == 0x1030 && (wbi == 6 || wbi == 15)) {
       fseek (ifp, aoff, SEEK_SET);	/* Get white sample */
       ciff_block_1030();
     }
@@ -3451,6 +3457,11 @@ konica_400z:
   } else if (!strcmp(model,"E-300")) {
     width -= 21;
     load_raw = olympus_e300_load_raw;
+    if (fsize > 15728640) {
+      load_raw = le_16_load_raw;
+      rgb_max = 64560;
+    } else
+      black = 248;
     pre_mul[0] = 1.718;
     pre_mul[2] = 1.235;
   } else if (!strcmp(model,"C5050Z")) {
@@ -3899,9 +3910,8 @@ void CLASS write_ppm (FILE *ofp)
   ushort *rgb;
   uchar (*ppm)[3];
 
-/*
-   Set the white point to the 99th percentile
- */
+/* Set the white point to the 99th percentile. */
+
   i = width * height * 0.01;
   if (!strcmp(make,"FUJIFILM") && abs(width-height) < 2) i /= 2;
   for (val=0x2000, total=0; --val; )
@@ -4026,7 +4036,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v6.20"
+    "\nRaw Photo Decoder \"dcraw\" v6.21"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
