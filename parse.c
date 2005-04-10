@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.27 $
-   $Date: 2005/03/10 05:53:21 $
+   $Revision: 1.28 $
+   $Date: 2005/04/10 21:39:05 $
  */
 
 #include <stdio.h>
@@ -816,6 +816,24 @@ void kodak_yuv_decode (FILE *tfp)
   free(out);
 }
 
+void parse_fuji (int offset)
+{
+  int entries, tag, len;
+
+  fseek (ifp, offset, SEEK_SET);
+  fseek (ifp, get4(), SEEK_SET);
+  entries = get4();
+  if (entries > 60) return;
+  while (entries--) {
+    tag = get2();
+    len = get2();
+    printf ("Fuji tag=0x%x, len=%d, data =",tag,len);
+    while (len--)
+      printf (" %02x",fgetc(ifp));
+    putchar ('\n');
+  }
+}
+
 /*
    Identify which camera created this file, and set global variables
    accordingly.	 Return nonzero if the file cannot be decoded.
@@ -851,6 +869,8 @@ int identify()
     fseek (ifp, 84, SEEK_SET);
     toff = get4();
     tlen = get4();
+    parse_fuji (92);
+    if (toff > 120) parse_fuji (120);
     parse_tiff (toff+12);
     thumb_offset = toff;
     thumb_length = tlen;
