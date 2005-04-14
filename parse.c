@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.28 $
-   $Date: 2005/04/10 21:39:05 $
+   $Revision: 1.29 $
+   $Date: 2005/04/14 01:42:39 $
  */
 
 #include <stdio.h>
@@ -178,6 +178,8 @@ void nef_parse_makernote (base)
       }
     }
     tiff_dump (base, tag, type, count, 2);
+    if (!strcmp (buf,"OLYMP") && tag >> 8 == 0x20)
+      parse_tiff_ifd (base, 3);
     fseek (ifp, save+12, SEEK_SET);
   }
   order = sorder;
@@ -228,6 +230,15 @@ int parse_tiff_ifd (int base, int level)
     if (tag > 50700 && tag < 50800)
       is_dng = 1;
 
+    if (level == 3) {			/* Olympus E-1 and E-300 */
+      if (type == 4) {
+	if (tag == 0x101)
+	  thumb_offset = val;
+	else if (tag == 0x102)
+	  thumb_length = val;
+      }
+      goto cont;
+    }
     switch (tag) {
       case 0x100:			/* ImageWidth */
 	if (!width)  width = val;
@@ -271,10 +282,12 @@ int parse_tiff_ifd (int base, int level)
 	}
 	break;
       case 0x201:
-	thumb_offset = val;
+	if (strncmp(make,"OLYMPUS",7) || !thumb_offset)
+	  thumb_offset = val;
 	break;
       case 0x202:
-	thumb_length = val;
+	if (strncmp(make,"OLYMPUS",7) || !thumb_length)
+	  thumb_length = val;
 	break;
       case 34665:
 	fseek (ifp, get4()+base, SEEK_SET);
@@ -283,6 +296,7 @@ int parse_tiff_ifd (int base, int level)
       case 50706:
 	is_dng = 1;
     }
+cont:
     fseek (ifp, save+12, SEEK_SET);
   }
   if ((comp == 6 && !strcmp(make,"Canon")) ||
@@ -844,7 +858,7 @@ int identify()
   unsigned hlen, fsize, toff, tlen, lsize, i;
   FILE *tfp;
 
-  make[0] = model[0] = model2[0] = 0;
+  make[0] = model[0] = model2[0] = is_dng = 0;
   thumb_head[0] = thumb_offset = thumb_length = thumb_layers = 0;
   order = get2();
   hlen = get4();
