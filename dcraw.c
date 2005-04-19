@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.250 $
-   $Date: 2005/04/18 03:18:57 $
+   $Revision: 1.251 $
+   $Date: 2005/04/19 16:00:41 $
  */
 
 #define _GNU_SOURCE
@@ -2594,13 +2594,13 @@ void CLASS parse_makernote()
 	case 0x103:
 	  fseek (ifp, 16, SEEK_CUR);
 	  FORC4 cam_mul[c] = get2();
-	  break;
-	case 0x204:
-	  fseek (ifp, 280, SEEK_CUR);
-	  fread (buf97, 324, 1, ifp);
+      }
+      if (ver97 >> 8 == 2) {
+	fseek (ifp, 280, SEEK_CUR);
+	fread (buf97, 324, 1, ifp);
       }
     }
-    if (tag == 0xa7 && ver97 == 0x204) {
+    if (tag == 0xa7 && ver97 >> 8 == 2) {
       ci = xlat[0][serial & 0xff];
       cj = xlat[1][fgetc(ifp)^fgetc(ifp)^fgetc(ifp)^fgetc(ifp)];
       ck = 0x60;
@@ -4786,7 +4786,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.13"
+    "\nRaw Photo Decoder \"dcraw\" v7.14"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
