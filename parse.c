@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.30 $
-   $Date: 2005/04/18 03:18:57 $
+   $Revision: 1.31 $
+   $Date: 2005/04/19 16:00:41 $
  */
 
 #include <stdio.h>
@@ -116,7 +116,7 @@ void tiff_dump(int base, int tag, int type, int count, int level)
   fseek (ifp, save, SEEK_SET);
 }
 
-void nikon_decrypt (uchar ci, uchar cj, int tag, int i, int size, uchar *buf, uchar *ver)
+void nikon_decrypt (uchar ci, uchar cj, int tag, int i, int size, uchar *buf)
 {
   static const uchar xlat[2][256] = {
   { 0xc1,0xbf,0x6d,0x0d,0x59,0xc5,0x13,0x9d,0x83,0x61,0x6b,0x4f,0xc7,0x7f,0x3d,0x3d,
@@ -153,7 +153,7 @@ void nikon_decrypt (uchar ci, uchar cj, int tag, int i, int size, uchar *buf, uc
     0xc6,0x67,0x4a,0xf5,0xa5,0x12,0x65,0x7e,0xb0,0xdf,0xaf,0x4e,0xb3,0x61,0x7f,0x2f } };
   uchar ck=0x60;
 
-  if (strncmp (buf, ver, 4)) return;
+  if (strncmp (buf, "02", 2)) return;
   ci = xlat[0][ci];
   cj = xlat[1][cj];
   printf("Decrypted tag 0x%x:\n%*s", tag, (i & 31)*3, "");
@@ -243,9 +243,9 @@ void nef_parse_makernote (base)
       parse_tiff_ifd (base, 3);
     fseek (ifp, save+12, SEEK_SET);
   }
-  nikon_decrypt (serial, key, 0x91,   4, sizeof buf91, buf91, "0204");
-  nikon_decrypt (serial, key, 0x97, 284, sizeof buf97, buf97, "0204");
-  nikon_decrypt (serial, key, 0x98,   4, sizeof buf98, buf98, "0201");
+  nikon_decrypt (serial, key, 0x91,   4, sizeof buf91, buf91);
+  nikon_decrypt (serial, key, 0x97, 284, sizeof buf97, buf97);
+  nikon_decrypt (serial, key, 0x98,   4, sizeof buf98, buf98);
   order = sorder;
 }
 
