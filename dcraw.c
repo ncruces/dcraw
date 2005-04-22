@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.251 $
-   $Date: 2005/04/19 16:00:41 $
+   $Revision: 1.252 $
+   $Date: 2005/04/22 16:03:53 $
  */
 
 #define _GNU_SOURCE
@@ -1037,11 +1037,10 @@ void CLASS phase_one_load_raw()
   int row, col, a, b;
   ushort *pixel, akey, bkey;
 
-  fseek (ifp, 8, SEEK_CUR);
-  fseek (ifp, get4() + 296, SEEK_CUR);
+  fseek (ifp, nikon_curve_offset, SEEK_SET);
   akey = get2();
   bkey = get2();
-  fseek (ifp, data_offset + 12 + top_margin*raw_width*2, SEEK_SET);
+  fseek (ifp, data_offset + top_margin*raw_width*2, SEEK_SET);
   pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "phase_one_load_raw()");
   for (row=0; row < height; row++) {
@@ -3248,6 +3247,34 @@ void CLASS parse_mos (int offset)
   }
 }
 
+void CLASS parse_phase_one (int base)
+{
+  unsigned entries, tag, type, len, data;
+
+  fseek (ifp, base+8, SEEK_SET);
+  fseek (ifp, get4()+base, SEEK_SET);
+  entries = get4();
+  get4();
+  while (entries--) {
+    tag  = get4();
+    type = get4();
+    len  = get4();
+    data = get4();
+    switch (tag) {
+      case 0x108:  raw_width   = data;  break;
+      case 0x109:  raw_height  = data;  break;
+      case 0x10a:  left_margin = data;  break;
+      case 0x10b:  top_margin  = data;  break;
+      case 0x10c:  width       = data;  break;
+      case 0x10d:  height      = data;  break;
+      case 0x10f:  data_offset = data+base;  break;
+      case 0x112:
+	nikon_curve_offset = ftell(ifp) - 4;
+    }
+  }
+  strcpy (make, "Phase One");
+}
+
 void CLASS parse_fuji (int offset)
 {
   int entries, tag, len, save, c;
@@ -3606,6 +3633,7 @@ int CLASS identify()
 /*  What format is this file?  Set make[] if we recognize it. */
 
   raw_height = raw_width = fuji_width = flip = 0;
+  height = width = top_margin = left_margin = 0;
   make[0] = model[0] = model2[0] = 0;
   memset (white, 0, sizeof white);
   timestamp = tiff_samples = 0;
@@ -3630,15 +3658,10 @@ int CLASS identify()
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  if ((cp = memmem (head, 32, "MMMMRawT", 8))) {
-    strcpy (make, "Phase One");
-    data_offset = cp - head;
-    fseek (ifp, data_offset + 8, SEEK_SET);
-    fseek (ifp, get4() + 136, SEEK_CUR);
-    raw_width = get4();
-    fseek (ifp, 12, SEEK_CUR);
-    raw_height = get4();
-  } else if (order == 0x4949 || order == 0x4d4d) {
+  if ((cp = memmem (head, 32, "MMMMRawT", 8)) ||
+      (cp = memmem (head, 32, "IIIITwaR", 8)))
+    parse_phase_one (cp-head);
+  else if (order == 0x4949 || order == 0x4d4d) {
     if (!memcmp (head+6,"HEAPCCDR",8)) {
       data_offset = hlen;
       parse_ciff (hlen, fsize - hlen);
@@ -3731,11 +3754,10 @@ nucore:
 /*  File format is OK.  Do we support this camera? */
 /*  Start with some useful defaults:		   */
 
-  top_margin = left_margin = 0;
   if ((raw_height | raw_width) < 0)
        raw_height = raw_width  = 0;
-  height = raw_height;
-  width  = raw_width;
+  if (!height) height = raw_height;
+  if (!width)  width  = raw_width;
   if (fuji_width) {
     width = height + fuji_width;
     height = width - 1;
@@ -4144,39 +4166,22 @@ konica_400z:
     switch (raw_height) {
       case 2060:
 	strcpy (model, "LightPhase");
-	height = 2048;
-	width  = 3080;
-	top_margin  = 5;
-	left_margin = 22;
 	pre_mul[0] = 1.331;
 	pre_mul[2] = 1.154;
 	break;
       case 2682:
 	strcpy (model, "H10");
-	height = 2672;
-	width  = 4012;
-	top_margin  = 5;
-	left_margin = 26;
 	break;
       case 4128:
 	strcpy (model, "H20");
-	height = 4098;
-	width  = 4098;
-	top_margin  = 20;
-	left_margin = 26;
 	pre_mul[0] = 1.963;
 	pre_mul[2] = 1.430;
 	break;
       case 5488:
 	strcpy (model, "H25");
-	height = 5458;
-	width  = 4098;
-	top_margin  = 20;
-	left_margin = 26;
 	pre_mul[0] = 2.80;
 	pre_mul[2] = 1.20;
     }
-    filters = top_margin & 1 ? 0x94949494 : 0x49494949;
     load_raw = phase_one_load_raw;
     maximum = 0xffff;
   } else if (!strcmp(make,"Imacon")) {
@@ -4786,7 +4791,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.14"
+    "\nRaw Photo Decoder \"dcraw\" v7.15"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
