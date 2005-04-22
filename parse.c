@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.31 $
-   $Date: 2005/04/19 16:00:41 $
+   $Revision: 1.32 $
+   $Date: 2005/04/22 16:03:53 $
  */
 
 #include <stdio.h>
@@ -912,13 +912,55 @@ void parse_fuji (int offset)
   }
 }
 
+void parse_phase_one (int base)
+{
+  unsigned entries, tag, type, len, data, save;
+  char str[256];
+
+  fseek (ifp, base+8, SEEK_SET);
+  fseek (ifp, base+get4(), SEEK_SET);
+  entries = get4();
+  get4();
+  while (entries--) {
+    tag  = get4();
+    type = get4();
+    len  = get4();
+    data = get4();
+    save = ftell(ifp);
+    printf ("Phase One tag=0x%x, type=%d, len=%2d, data = 0x%x\n",
+		tag, type, len, data);
+    if (type == 1 && len < 256) {
+      fseek (ifp, base + data, SEEK_SET);
+      fread (str, 256, 1, ifp);
+      puts (str);
+    }
+    if (tag == 0x110) {
+      thumb_offset = data + base;
+      thumb_length = len;
+    }
+    fseek (ifp, save, SEEK_SET);
+  }
+  strcpy (make, "Phase One");
+  strcpy (model, "unknown");
+}
+
+char *memmem (char *haystack, size_t haystacklen,
+              char *needle, size_t needlelen)
+{
+  char *c;
+  for (c = haystack; c <= haystack + haystacklen - needlelen; c++)
+    if (!memcmp (c, needle, needlelen))
+      return c;
+  return NULL;
+}
+
 /*
    Identify which camera created this file, and set global variables
    accordingly.	 Return nonzero if the file cannot be decoded.
  */
 int identify()
 {
-  char head[32], thumb_name[256], *thumb, *rgb;
+  char head[32], thumb_name[256], *thumb, *rgb, *cp;
   unsigned hlen, fsize, toff, tlen, lsize, i;
   FILE *tfp;
 
@@ -930,8 +972,10 @@ int identify()
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  if (!memcmp (head,"MMMMRawT",8)) {
-  } else if (order == 0x4949 || order == 0x4d4d) {
+  if ((cp = memmem (head, 32, "MMMMRawT", 8)) ||
+      (cp = memmem (head, 32, "IIIITwaR", 8)))
+    parse_phase_one (cp-head);
+  else if (order == 0x4949 || order == 0x4d4d) {
     if (!memcmp(head+6,"HEAPCCDR",8)) {
       parse_ciff (hlen, fsize - hlen, 0);
       fseek (ifp, hlen, SEEK_SET);
