@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.252 $
-   $Date: 2005/04/22 16:03:53 $
+   $Revision: 1.253 $
+   $Date: 2005/04/26 00:46:33 $
  */
 
 #define _GNU_SOURCE
@@ -3620,6 +3620,7 @@ int CLASS identify()
     {  7684000, "CASIO",    "QV-4000"         ,0 },
     {  7542528, "CASIO",    "EX-Z50"          ,1 },
     {  7753344, "CASIO",    "EX-Z55"          ,1 },
+    {  7426656, "CASIO",    "EX-P505"         ,1 },
     {  9313536, "CASIO",    "EX-P600"         ,1 },
     { 10979200, "CASIO",    "EX-P700"         ,1 },
     {  3178560, "PENTAX",   "Optio S"         ,1 },
@@ -4455,6 +4456,13 @@ konica_400z:
     load_raw = packed_12_load_raw;
     pre_mul[0] = 1.520;
     pre_mul[2] = 1.316;
+  } else if (!strcmp(model,"EX-P505")) {
+    height = 1928;
+    width  = 2568;
+    raw_width = 3852;
+    load_raw = packed_12_load_raw;
+    pre_mul[0] = 2.07;
+    pre_mul[2] = 1.88;
   } else if (!strcmp(model,"EX-P600")) {
     height = 2142;
     width  = 2844;
@@ -4791,7 +4799,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.15"
+    "\nRaw Photo Decoder \"dcraw\" v7.16"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
