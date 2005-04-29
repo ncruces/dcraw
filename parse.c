@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.33 $
-   $Date: 2005/04/27 19:51:22 $
+   $Revision: 1.34 $
+   $Date: 2005/04/29 16:38:16 $
  */
 
 #include <stdio.h>
@@ -443,6 +443,7 @@ void parse_ciff (int offset, int length, int level)
   tboff = get4() + offset;
   fseek (ifp, tboff, SEEK_SET);
   nrecs = get2();
+  if (nrecs > 100) return;
   printf ("%*s%d records:\n", level*2, "", nrecs);
   for (i = 0; i < nrecs; i++) {
     save = ftell(ifp);
