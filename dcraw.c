@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.254 $
-   $Date: 2005/04/27 20:10:40 $
+   $Revision: 1.255 $
+   $Date: 2005/04/29 16:38:16 $
  */
 
 #define _GNU_SOURCE
@@ -3085,6 +3085,7 @@ void CLASS parse_ciff (int offset, int length)
   tboff = get4() + offset;
   fseek (ifp, tboff, SEEK_SET);
   nrecs = get2();
+  if (nrecs > 100) return;
   for (i=0; i < nrecs; i++) {
     type = get2();
     len  = get4();
@@ -4789,7 +4790,7 @@ void CLASS write_ppm16 (FILE *ofp)
 int CLASS main (int argc, char **argv)
 {
   int arg, status=0, user_flip=-1;
-  int identify_only=0, write_to_stdout=0, half_size=0;
+  int identify_only=0, write_to_stdout=0, half_size=0, use_fuji_rotate=1;
   char opt, *ofname, *cp;
   const char *write_ext = ".ppm";
   FILE *ofp = stdout;
@@ -4800,7 +4801,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.16"
+    "\nRaw Photo Decoder \"dcraw\" v7.17"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -4821,6 +4822,7 @@ int CLASS main (int argc, char **argv)
     "\n-q        Quick, low-quality color interpolation"
     "\n-h        Half-size color image (3x faster than -q)"
     "\n-f        Interpolate RGGB as four colors"
+    "\n-j        Show Fuji Super CCD images tilted 45 degrees"
     "\n-s        Use secondary pixels (Fuji Super CCD SR only)"
     "\n-t [0-7]  Flip image (0 = none, 3 = 180, 5 = 90CCW, 6 = 90CW)"
     "\n-2        Write  8-bit PPM with 0.45 gamma (default)"
@@ -4855,6 +4857,7 @@ int CLASS main (int argc, char **argv)
       case 'q':  quick_interpolate = 1;  break;
       case 'a':  use_auto_wb       = 1;  break;
       case 'w':  use_camera_wb     = 1;  break;
+      case 'j':  use_fuji_rotate   = 0;  break;
       case 's':  use_secondary     = 1;  break;
       case 'n':  clip_color        = 0;  break;
       case 'm':  use_camera_rgb    = 1;  break;
@@ -4944,7 +4947,7 @@ int CLASS main (int argc, char **argv)
 	  quick_interpolate ? "Bilinear":"VNG");
       vng_interpolate();
     }
-    fuji_rotate();
+    if (use_fuji_rotate) fuji_rotate();
 #ifdef USE_LCMS
     apply_profile (profile);
 #endif
