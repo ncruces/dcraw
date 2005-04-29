@@ -3,10 +3,12 @@
 
    UNIX filter to correct the 45-degree rotation in images from
    Fuji digital cameras.  Compile with -D_16BIT to rotate 48-bit
-   PPM images.
+   PPM images.  Sample usage:
 
-   $Revision: 1.5 $
-   $Date: 2004/04/24 03:18:57 $
+   dcraw -c -j dscf0000.raf | fujiturn | pnmscale 0.70710678 > dscf0000.ppm
+
+   $Revision: 1.6 $
+   $Date: 2005/04/29 16:35:42 $
 
  */
 
