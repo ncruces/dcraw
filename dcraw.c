@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.255 $
-   $Date: 2005/04/29 16:38:16 $
+   $Revision: 1.256 $
+   $Date: 2005/05/03 04:16:09 $
  */
 
 #define _GNU_SOURCE
@@ -2224,6 +2224,145 @@ void CLASS bad_pixels()
   fclose (fp);
 }
 
+#ifdef COLORCHECK
+void CLASS dng_coeff (double[4][4], double[4][3], double[3]);
+
+void CLASS colorcheck()
+{
+#define NSQ 24
+// Coordinates of the GretagMacbeth ColorChecker squares
+// width, height, 1st_column, 1st_row
+  int cut[NSQ][4] = {
+    { 241, 231, 234, 274 },
+    { 251, 235, 534, 274 },
+    { 255, 239, 838, 272 },
+    { 255, 240, 1146, 274 },
+    { 251, 237, 1452, 278 },
+    { 243, 238, 1758, 288 },
+    { 253, 253, 218, 558 },
+    { 255, 249, 524, 562 },
+    { 261, 253, 830, 562 },
+    { 260, 255, 1144, 564 },
+    { 261, 255, 1450, 566 },
+    { 247, 247, 1764, 576 },
+    { 255, 251, 212, 862 },
+    { 259, 259, 518, 862 },
+    { 263, 261, 826, 864 },
+    { 265, 263, 1138, 866 },
+    { 265, 257, 1450, 872 },
+    { 257, 255, 1762, 874 },
+    { 257, 253, 212, 1164 },
+    { 262, 251, 516, 1172 },
+    { 263, 257, 826, 1172 },
+    { 263, 255, 1136, 1176 },
+    { 255, 252, 1452, 1182 },
+    { 257, 253, 1760, 1180 } };
+// ColorChecker Chart under 6500-kelvin illumination
+  float gmb_xyz[NSQ][3] = {
+    { 11.078,  9.870,  6.738 },		// Dark Skin
+    { 37.471, 35.004, 26.057 },		// Light Skin
+    { 18.187, 19.306, 35.425 },		// Blue Sky
+    { 10.825, 13.827,  7.600 },		// Foliage
+    { 24.769, 23.304, 43.943 },		// Blue Flower
+    { 31.174, 42.684, 45.277 },		// Bluish Green
+    { 36.238, 29.188,  6.222 },		// Orange
+    { 13.661, 11.845, 38.929 },		// Purplish Blue
+    { 27.999, 19.272, 14.265 },		// Moderate Red
+    {  8.398,  6.309, 14.211 },		// Purple
+    { 33.692, 44.346, 11.288 },		// Yellow Green
+    { 45.000, 42.144,  8.429 },		// Orange Yellow
+    {  8.721,  6.130, 31.181 },		// Blue
+    { 14.743, 24.049,  9.778 },		// Green
+    { 19.777, 11.530,  5.101 },		// Red
+    { 55.978, 59.599, 10.047 },		// Yellow
+    { 29.421, 19.271, 31.167 },		// Magenta
+    { 13.972, 18.952, 37.646 },		// Cyan
+    { 82.819, 87.727, 94.479 },		// White
+    { 55.950, 58.959, 64.375 },		// Neutral 8
+    { 32.877, 34.536, 38.097 },		// Neutral 6.5
+    { 18.556, 19.701, 21.487 },		// Neutral 5
+    {  8.353,  8.849,  9.812 },		// Neutral 3.5
+    {  2.841,  2.980,  3.332 } };	// Black
+  int b, c, i, j, k, sq, row, col, count[4];
+  double invert[3][6], num, error, minerr=DBL_MAX;
+  double gmb_cam[NSQ][4], xyz_gmb[3][NSQ], cam_xyz[4][3];
+  double cc[4][4], cm[4][3], xyz[] = { 1,1,1 };
+
+  for (i=0; i < 4; i++)
+    for (j=0; j < 4; j++)
+      cc[i][j] = i == j;
+  memset (gmb_cam, 0, sizeof gmb_cam);
+  for (sq=0; sq < NSQ; sq++) {
+    FORCC count[c] = 0;
+    for   (row=cut[sq][3]; row < cut[sq][3]+cut[sq][1]; row++)
+      for (col=cut[sq][2]; col < cut[sq][2]+cut[sq][0]; col++)
+	FORCC if (image[row*width+col][c]) {
+	  gmb_cam[sq][c] += image[row*width+col][c];
+	  count[c]++;
+	}
+    FORCC gmb_cam[sq][c] /= count[c];
+  }
+  for (b=0; b < 2000; b++) {
+/*
+  Compute:
+    xyz_gmb = inverse(transpose(gmb_xyz)*gmb_xyz) * transpose(gmb_xyz)
+    cam_xyz = transpose(gmb_cam) * transpose(xyz_gmb)
+ */
+    for (i=0; i < 3; i++) {
+      for (j=0; j < 6; j++)
+	invert[i][j] = j == i+3;
+      for (j=0; j < 3; j++)
+	for (k=0; k < NSQ; k++)
+	  invert[i][j] += gmb_xyz[k][i] * gmb_xyz[k][j];
+    }
+    for (i=0; i < 3; i++) {
+      num = invert[i][i];
+      for (j=0; j < 6; j++)		// Normalize row i
+	invert[i][j] /= num;
+      for (k=0; k < 3; k++) {		// Subtract it from the other rows
+	if (k==i) continue;
+	num = invert[k][i];
+	for (j=0; j < 6; j++)
+	  invert[k][j] -= invert[i][j] * num;
+      }
+    }
+    memset (xyz_gmb, 0, sizeof xyz_gmb);
+    for (i=0; i < 3; i++)
+      for (j=0; j < NSQ; j++)
+	for (k=0; k < 3; k++)
+	  xyz_gmb[i][j] += invert[i][k+3] * gmb_xyz[j][k];
+    memset (cam_xyz, 0, sizeof cam_xyz);
+    for (i=0; i < colors; i++)
+      for (j=0; j < 3; j++)
+	for (k=0; k < NSQ; k++)
+	  cam_xyz[i][j] += gmb_cam[k][i] * xyz_gmb[j][k];
+
+    for (error=sq=0; sq < NSQ; sq++)
+      FORCC {
+	for (num=j=0; j < 3; j++)
+	  num += cam_xyz[c][j] * gmb_xyz[sq][j];
+	if (num < 0) num=0;
+	error += pow (num - gmb_cam[sq][c], 2);
+	gmb_cam[sq][c]--;		// for the next black value
+      }
+    if (error < minerr) {
+      black = b;
+      minerr = error;
+      memcpy (cm, cam_xyz, sizeof cm);
+    }
+  }
+  dng_coeff (cc, cm, xyz);
+  if (verbose) {
+    fprintf (stderr, "    { \"%s %s\",\n\t{ ", make, model);
+    num = 10000 / (cm[1][0] + cm[1][1] + cm[1][2]);
+    FORCC for (j=0; j < 3; j++)
+      fprintf (stderr, "%d,", (int) (cm[c][j] * num + 0.5));
+    fprintf (stderr, "\b } },\n");
+  }
+#undef NSQ
+}
+#endif
+
 void CLASS scale_colors()
 {
   int row, col, c, val, shift=0;
@@ -3497,6 +3636,8 @@ void CLASS adobe_coeff()
 	{ 8560,-2487,-986,-8112,15535,2771,-1209,1324,7743 } },
     { "Minolta DiMAGE A2",
 	{ 9097,-2726,-1053,-8073,15506,2762,-966,981,7763 } },
+    { "MINOLTA DiMAGE Z2",	/* DJC */
+	{ 11222,-3449,-1675,-5789,13566,2225,-2339,2670,5549 } },
     { "MINOLTA DYNAX 7D",
 	{ 10239,-3104,-1099,-8037,15727,2451,-927,925,6871 } },
     { "NIKON D100",
@@ -4002,9 +4143,7 @@ dimage_z2:
     width  = 2288;
     filters = 0x16161616;
     load_raw = nikon_e2100_load_raw;
-    pre_mul[0] = 508;
-    pre_mul[1] = 256;
-    pre_mul[2] = 450;
+    black = 68;
   } else if (!strcmp(model,"E4500")) {
     height = 1708;
     width  = 2288;
@@ -4801,7 +4940,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.17"
+    "\nRaw Photo Decoder \"dcraw\" v7.18"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -4936,6 +5075,9 @@ int CLASS main (int argc, char **argv)
 	fprintf (stderr, "Foveon interpolation...\n");
       foveon_interpolate();
     } else {
+#ifdef COLORCHECK
+      colorcheck();
+#endif
       scale_colors();
     }
     if (shrink) filters = 0;
