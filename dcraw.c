@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.256 $
-   $Date: 2005/05/03 04:16:09 $
+   $Revision: 1.257 $
+   $Date: 2005/05/03 18:50:30 $
  */
 
 #define _GNU_SOURCE
@@ -2224,15 +2224,70 @@ void CLASS bad_pixels()
   fclose (fp);
 }
 
-#ifdef COLORCHECK
-void CLASS dng_coeff (double[4][4], double[4][3], double[3]);
+void CLASS pseudoinverse (const double (*in)[3], double (*out)[3], int size)
+{
+  double work[3][6], num;
+  int i, j, k;
 
+  for (i=0; i < 3; i++) {
+    for (j=0; j < 6; j++)
+      work[i][j] = j == i+3;
+    for (j=0; j < 3; j++)
+      for (k=0; k < size; k++)
+	work[i][j] += in[k][i] * in[k][j];
+  }
+  for (i=0; i < 3; i++) {
+    num = work[i][i];
+    for (j=0; j < 6; j++)
+      work[i][j] /= num;
+    for (k=0; k < 3; k++) {
+      if (k==i) continue;
+      num = work[k][i];
+      for (j=0; j < 6; j++)
+	work[k][j] -= work[i][j] * num;
+    }
+  }
+  for (i=0; i < size; i++)
+    for (j=0; j < 3; j++)
+      for (out[i][j]=k=0; k < 3; k++)
+	out[i][j] += work[j][k+3] * in[i][k];
+}
+
+void CLASS cam_xyz_coeff (double cam_xyz[4][3])
+{
+  static const double xyz_rgb[3][3] = {		/* XYZ from RGB */
+	{ 0.412453, 0.357580, 0.180423 },
+	{ 0.212671, 0.715160, 0.072169 },
+	{ 0.019334, 0.119193, 0.950227 } };
+  double cam_rgb[4][3], inverse[4][3], num;
+  int i, j, k;
+
+  for (i=0; i < colors; i++)		/* Multiply out XYZ colorspace */
+    for (j=0; j < 3; j++)
+      for (cam_rgb[i][j] = k=0; k < 3; k++)
+	cam_rgb[i][j] += cam_xyz[i][k] * xyz_rgb[k][j];
+
+  for (i=0; i < colors; i++) {		/* Normalize cam_rgb so that */
+    for (num=j=0; j < 3; j++)		/* cam_rgb * (1,1,1) is (1,1,1,1) */
+      num += cam_rgb[i][j];
+    for (j=0; j < 3; j++)
+      cam_rgb[i][j] /= num;
+    pre_mul[i] = 1 / num;
+  }
+  pseudoinverse ((void *) cam_rgb, inverse, colors);
+  for (i=0; i < 3; i++)
+    for (j=0; j < colors; j++)
+      coeff[i][j] = inverse[j][i];
+  use_coeff = 1;
+}
+
+#ifdef COLORCHECK
 void CLASS colorcheck()
 {
 #define NSQ 24
 // Coordinates of the GretagMacbeth ColorChecker squares
 // width, height, 1st_column, 1st_row
-  int cut[NSQ][4] = {
+  static const int cut[NSQ][4] = {
     { 241, 231, 234, 274 },
     { 251, 235, 534, 274 },
     { 255, 239, 838, 272 },
@@ -2258,7 +2313,7 @@ void CLASS colorcheck()
     { 255, 252, 1452, 1182 },
     { 257, 253, 1760, 1180 } };
 // ColorChecker Chart under 6500-kelvin illumination
-  float gmb_xyz[NSQ][3] = {
+  static const double gmb_xyz[NSQ][3] = {
     { 11.078,  9.870,  6.738 },		// Dark Skin
     { 37.471, 35.004, 26.057 },		// Light Skin
     { 18.187, 19.306, 35.425 },		// Blue Sky
@@ -2283,14 +2338,10 @@ void CLASS colorcheck()
     { 18.556, 19.701, 21.487 },		// Neutral 5
     {  8.353,  8.849,  9.812 },		// Neutral 3.5
     {  2.841,  2.980,  3.332 } };	// Black
+  double inverse[NSQ][3], gmb_cam[NSQ][4], cam_xyz[4][3];
+  double num, error, minerr=DBL_MAX, best[4][3];
   int b, c, i, j, k, sq, row, col, count[4];
-  double invert[3][6], num, error, minerr=DBL_MAX;
-  double gmb_cam[NSQ][4], xyz_gmb[3][NSQ], cam_xyz[4][3];
-  double cc[4][4], cm[4][3], xyz[] = { 1,1,1 };
 
-  for (i=0; i < 4; i++)
-    for (j=0; j < 4; j++)
-      cc[i][j] = i == j;
   memset (gmb_cam, 0, sizeof gmb_cam);
   for (sq=0; sq < NSQ; sq++) {
     FORCC count[c] = 0;
@@ -2303,39 +2354,11 @@ void CLASS colorcheck()
     FORCC gmb_cam[sq][c] /= count[c];
   }
   for (b=0; b < 2000; b++) {
-/*
-  Compute:
-    xyz_gmb = inverse(transpose(gmb_xyz)*gmb_xyz) * transpose(gmb_xyz)
-    cam_xyz = transpose(gmb_cam) * transpose(xyz_gmb)
- */
-    for (i=0; i < 3; i++) {
-      for (j=0; j < 6; j++)
-	invert[i][j] = j == i+3;
-      for (j=0; j < 3; j++)
-	for (k=0; k < NSQ; k++)
-	  invert[i][j] += gmb_xyz[k][i] * gmb_xyz[k][j];
-    }
-    for (i=0; i < 3; i++) {
-      num = invert[i][i];
-      for (j=0; j < 6; j++)		// Normalize row i
-	invert[i][j] /= num;
-      for (k=0; k < 3; k++) {		// Subtract it from the other rows
-	if (k==i) continue;
-	num = invert[k][i];
-	for (j=0; j < 6; j++)
-	  invert[k][j] -= invert[i][j] * num;
-      }
-    }
-    memset (xyz_gmb, 0, sizeof xyz_gmb);
-    for (i=0; i < 3; i++)
-      for (j=0; j < NSQ; j++)
-	for (k=0; k < 3; k++)
-	  xyz_gmb[i][j] += invert[i][k+3] * gmb_xyz[j][k];
-    memset (cam_xyz, 0, sizeof cam_xyz);
+    pseudoinverse (gmb_xyz, inverse, NSQ);
     for (i=0; i < colors; i++)
       for (j=0; j < 3; j++)
-	for (k=0; k < NSQ; k++)
-	  cam_xyz[i][j] += gmb_cam[k][i] * xyz_gmb[j][k];
+	for (cam_xyz[i][j] = k=0; k < NSQ; k++)
+	  cam_xyz[i][j] += gmb_cam[k][i] * inverse[k][j];
 
     for (error=sq=0; sq < NSQ; sq++)
       FORCC {
@@ -2348,15 +2371,15 @@ void CLASS colorcheck()
     if (error < minerr) {
       black = b;
       minerr = error;
-      memcpy (cm, cam_xyz, sizeof cm);
+      memcpy (best, cam_xyz, sizeof best);
     }
   }
-  dng_coeff (cc, cm, xyz);
+  cam_xyz_coeff (best);
   if (verbose) {
     fprintf (stderr, "    { \"%s %s\",\n\t{ ", make, model);
-    num = 10000 / (cm[1][0] + cm[1][1] + cm[1][2]);
+    num = 10000 / (best[1][0] + best[1][1] + best[1][2]);
     FORCC for (j=0; j < 3; j++)
-      fprintf (stderr, "%d,", (int) (cm[c][j] * num + 0.5));
+      fprintf (stderr, "%d,", (int) (best[c][j] * num + 0.5));
     fprintf (stderr, "\b } },\n");
   }
 #undef NSQ
@@ -2831,63 +2854,6 @@ void CLASS parse_exif (int base)
   }
 }
 
-void CLASS dng_coeff (double cc[4][4], double cm[4][3], double xyz[3])
-{
-  static const double xyz_rgb[3][3] = {		/* XYZ from RGB */
-	{ 0.412453, 0.357580, 0.180423 },
-	{ 0.212671, 0.715160, 0.072169 },
-	{ 0.019334, 0.119193, 0.950227 } };
-  double cam_xyz[4][3], cam_rgb[4][3], invert[3][6], num;
-  int i, j, k;
-
-  memset (cam_xyz, 0, sizeof cam_xyz);
-  for (i=0; i < colors; i++)
-    for (j=0; j < 3; j++)
-      for (k=0; k < colors; k++)
-	cam_xyz[i][j] += cc[i][k] * cm[k][j] * xyz[j];
-
-  memset (cam_rgb, 0, sizeof cam_rgb);	/* Multiply out XYZ colorspace */
-  for (i=0; i < colors; i++)
-    for (j=0; j < 3; j++)
-      for (k=0; k < 3; k++)
-	cam_rgb[i][j] += cam_xyz[i][k] * xyz_rgb[k][j];
-
-  for (i=0; i < colors; i++) {		/* Normalize cam_rgb so that */
-    for (num=j=0; j < 3; j++)		/* cam_rgb * (1,1,1) is (1,1,1,1) */
-      num += cam_rgb[i][j];
-    for (j=0; j < 3; j++)
-      cam_rgb[i][j] /= num;
-    pre_mul[i] = 1 / num;
-  }
-/* Compute coeff = pseudoinverse(cam_rgb), or
-	coeff = inverse (transpose(cam_rgb) * cam_rgb) * transpose(cam_rgb)
- */
-  for (i=0; i < 3; i++) {
-    for (j=0; j < 6; j++)
-      invert[i][j] = j == i+3;
-    for (j=0; j < 3; j++)
-      for (k=0; k < colors; k++)
-	invert[i][j] += cam_rgb[k][i] * cam_rgb[k][j];
-  }
-  for (i=0; i < 3; i++) {
-    num = invert[i][i];
-    for (j=0; j < 6; j++)		/* Normalize row i */
-      invert[i][j] /= num;
-    for (k=0; k < 3; k++) {		/* Subtract it from other rows */
-      if (k==i) continue;
-      num = invert[k][i];
-      for (j=0; j < 6; j++)
-	invert[k][j] -= invert[i][j] * num;
-    }
-  }
-  use_coeff = 1;
-  memset (coeff, 0, sizeof coeff);
-  for (i=0; i < 3; i++)
-    for (j=0; j < colors; j++)
-      for (k=0; k < 3; k++)
-	coeff[i][j] += invert[i][k+3] * cam_rgb[j][k];
-}
-
 int CLASS parse_tiff_ifd (int base, int level)
 {
   unsigned entries, tag, type, len, plen=16, save;
@@ -2897,7 +2863,7 @@ int CLASS parse_tiff_ifd (int base, int level)
   static const int flip_map[] = { 0,1,3,2,4,6,7,5 };
   uchar cfa_pat[16], cfa_pc[] = { 0,1,2,3 }, tab[256];
   ushort scale[4];
-  double dblack, cc[4][4], cm[4][3];
+  double dblack, cc[4][4], cm[4][3], cam_xyz[4][3];
   double ab[]={ 1,1,1,1 }, asn[] = { 0,0,0,0 }, xyz[] = { 1,1,1 };
 
   for (j=0; j < 4; j++)
@@ -3064,8 +3030,12 @@ guess_cfa_pc:
   }
   for (i=0; i < colors; i++)
     FORCC cc[i][c] *= ab[i];
-  if (use_cm)
-    dng_coeff (cc, cm, xyz);
+  if (use_cm) {
+    FORCC for (i=0; i < 3; i++)
+      for (cam_xyz[c][i]=j=0; j < colors; j++)
+	cam_xyz[c][i] += cc[c][j] * cm[j][i] * xyz[i];
+    cam_xyz_coeff (cam_xyz);
+  }
   if (asn[0])
     FORCC pre_mul[c] = 1 / asn[c];
   if (!use_cm)
@@ -3695,19 +3665,16 @@ void CLASS adobe_coeff()
     { "SONY DSC-V3",
 	{ 9877,-3775,-871,-7613,14807,3072,-1448,1305,7485 } },
   };
-  double cc[4][4], cm[4][3], xyz[] = { 1,1,1 };
+  double cam_xyz[4][3];
   char name[130];
   int i, j;
 
-  for (i=0; i < 4; i++)
-    for (j=0; j < 4; j++)
-      cc[i][j] = i == j;
   sprintf (name, "%s %s", make, model);
   for (i=0; i < sizeof table / sizeof *table; i++)
     if (!strncmp (name, table[i].prefix, strlen(table[i].prefix))) {
       for (j=0; j < 12; j++)
-	cm[0][j] = table[i].trans[j];
-      dng_coeff (cc, cm, xyz);
+	cam_xyz[0][j] = table[i].trans[j];
+      cam_xyz_coeff (cam_xyz);
       break;
     }
 }
@@ -4940,7 +4907,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.18"
+    "\nRaw Photo Decoder \"dcraw\" v7.19"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
