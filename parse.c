@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.34 $
-   $Date: 2005/04/29 16:38:16 $
+   $Revision: 1.35 $
+   $Date: 2005/05/05 06:34:32 $
  */
 
 #include <stdio.h>
@@ -945,6 +945,26 @@ void parse_phase_one (int base)
   strcpy (model, "unknown");
 }
 
+void parse_jpeg (int offset)
+{
+  int len, save, hlen;
+
+  fseek (ifp, offset, SEEK_SET);
+  if (fgetc(ifp) != 0xff || fgetc(ifp) != 0xd8) return;
+
+  while (fgetc(ifp) == 0xff && fgetc(ifp) >> 4 != 0xd) {
+    order = 0x4d4d;
+    len   = get2() - 2;
+    save  = ftell(ifp);
+    order = get2();
+    hlen  = get4();
+    if (get4() == 0x48454150)		/* "HEAP" */
+      parse_ciff (save+hlen, len-hlen, 0);
+    parse_tiff (save+6);
+    fseek (ifp, save+len, SEEK_SET);
+  }
+}
+
 char *memmem (char *haystack, size_t haystacklen,
               char *needle, size_t needlelen)
 {
@@ -1005,6 +1025,7 @@ int identify()
   parse_mos(0);
   fseek (ifp, 3472, SEEK_SET);
   parse_mos(0);
+  parse_jpeg(0);
   if (model[0] == 0) {
     fprintf (stderr, "%s: unsupported file format.\n", fname);
     return 1;
