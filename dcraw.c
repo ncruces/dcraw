@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.257 $
-   $Date: 2005/05/03 18:50:30 $
+   $Revision: 1.258 $
+   $Date: 2005/05/05 06:35:59 $
  */
 
 #define _GNU_SOURCE
@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <utime.h>
 /*
    By defining NO_JPEG, you lose only the ability to
    decode compressed .KDC files from the Kodak DC120.
@@ -2815,12 +2816,19 @@ quit:
    Since the TIFF DateTime string has no timezone information,
    assume that the camera's clock was set to Universal Time.
  */
-void CLASS get_timestamp()
+void CLASS get_timestamp (int reversed)
 {
   struct tm t;
   time_t ts;
+  char str[20];
+  int i;
 
-  if (fscanf (ifp, "%d:%d:%d %d:%d:%d", &t.tm_year, &t.tm_mon,
+  str[19] = 0;
+  if (reversed)
+    for (i=19; i--; ) str[i] = fgetc(ifp);
+  else
+    fread (str, 19, 1, ifp);
+  if (sscanf (str, "%d:%d:%d %d:%d:%d", &t.tm_year, &t.tm_mon,
 	&t.tm_mday, &t.tm_hour, &t.tm_min, &t.tm_sec) != 6)
     return;
   t.tm_year -= 1900;
@@ -2843,7 +2851,7 @@ void CLASS parse_exif (int base)
     save = ftell(ifp);
     fseek (ifp, base+val, SEEK_SET);
     if (tag == 0x9003 || tag == 0x9004)
-      get_timestamp();
+      get_timestamp(0);
     if (tag == 0x927c) {
       if (!strncmp(make,"SONY",4))
 	data_offset = base+val+len;
@@ -2925,7 +2933,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	  make[0] = 0;
 	break;
       case 0x132:			/* DateTime tag */
-	get_timestamp();
+	get_timestamp(0);
 	break;
       case 0x144:			/* TileOffsets */
 	if (level) {
@@ -3402,6 +3410,27 @@ void CLASS parse_fuji (int offset)
   }
 }
 
+void CLASS parse_jpeg (int offset)
+{
+  int len, save, hlen;
+
+  fseek (ifp, offset, SEEK_SET);
+  if (fgetc(ifp) != 0xff || fgetc(ifp) != 0xd8) return;
+
+  while (fgetc(ifp) == 0xff && fgetc(ifp) >> 4 != 0xd) {
+    order = 0x4d4d;
+    len   = get2() - 2;
+    save  = ftell(ifp);
+    order = get2();
+    hlen  = get4();
+    if (get4() == 0x48454150)		/* "HEAP" */
+      parse_ciff (save+hlen, len-hlen);
+    parse_tiff (save+6);
+    fseek (ifp, save+len, SEEK_SET);
+  }
+  strcat (model," JPEG");
+}
+
 char * CLASS foveon_gets (int offset, char *str, int len)
 {
   int i;
@@ -3702,7 +3731,7 @@ void CLASS simple_coeff (int index)
    Identify which camera created this file, and set global variables
    accordingly.  Return nonzero if the file cannot be decoded.
  */
-int CLASS identify()
+int CLASS identify (int will_decode)
 {
   char head[32], *cp;
   unsigned hlen, fsize, i, c;
@@ -3780,9 +3809,7 @@ int CLASS identify()
       if (!strncmp(make,"NIKON",5) && filters == 0)
 	make[0] = 0;
     }
-  } else if (!memcmp (head,"\0MRM",4))
-    parse_minolta();
-    else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
+  } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
 	     !memcmp (head+6,"Exif",4)) {
     fseek (ifp, 4, SEEK_SET);
     fseek (ifp, 4 + get2(), SEEK_SET);
@@ -3814,6 +3841,8 @@ nucore:
   } else if (!memcmp (head+25,"ARECOYK",7)) {
     strcpy (make, "Contax");
     strcpy (model,"N Digital");
+    fseek (ifp, 33, SEEK_SET);
+    get_timestamp(1);
     fseek (ifp, 60, SEEK_SET);
     FORC4 cam_mul[c ^ (c >> 1)] = get4();
   } else if (!strcmp (head, "PXN")) {
@@ -3829,6 +3858,8 @@ nucore:
     data_offset = ntohl(data_offset);
   } else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
+  else if (!memcmp (head,"\0MRM",4))
+    parse_minolta();
   else if (!memcmp (head,"FOVb",4))
     parse_foveon();
   else
@@ -3841,6 +3872,7 @@ nucore:
       }
   parse_mos(8);
   parse_mos(3472);
+  if (make[0] == 0) parse_jpeg(0);
 
   for (i=0; i < sizeof corp / sizeof *corp; i++)
     if (strstr (make, corp[i]))		/* Simplify company names */
@@ -4596,8 +4628,9 @@ konica_400z:
   }
   if (!use_coeff) adobe_coeff();
 dng_skip:
-  if (!load_raw || !height) {
-    fprintf (stderr, "%s: %s %s is not yet supported.\n",
+  if (!load_raw || !height || strstr(model,"JPEG")) {
+    if (will_decode)
+      fprintf (stderr, "%s: Cannot decode %s %s images.\n",
 	ifname, make, model);
     return 1;
   }
@@ -4896,8 +4929,10 @@ void CLASS write_ppm16 (FILE *ofp)
 int CLASS main (int argc, char **argv)
 {
   int arg, status=0, user_flip=-1;
-  int identify_only=0, write_to_stdout=0, half_size=0, use_fuji_rotate=1;
+  int timestamp_only=0, identify_only=0, write_to_stdout=0;
+  int half_size=0, use_fuji_rotate=1;
   char opt, *ofname, *cp;
+  struct utimbuf ut;
   const char *write_ext = ".ppm";
   FILE *ofp = stdout;
 #ifdef USE_LCMS
@@ -4907,13 +4942,14 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.19"
+    "\nRaw Photo Decoder \"dcraw\" v7.20"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
-    "\n-i        Identify files but don't decode them"
+    "\n-v        Print verbose messages"
+    "\n-z        Change file dates to camera timestamp"
+    "\n-i        Identify files without decoding them"
     "\n-c        Write to standard output"
-    "\n-v        Print verbose messages while decoding"
     "\n-a        Use automatic white balance"
     "\n-w        Use camera white balance, if possible"
     "\n-r <num>  Set red  multiplier (default = 1.0)"
@@ -4954,6 +4990,7 @@ int CLASS main (int argc, char **argv)
 #ifdef USE_LCMS
       case 'p':  profile     =      argv[arg++] ;  break;
 #endif
+      case 'z':  timestamp_only    = 1;  break;
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
       case 'v':  verbose           = 1;  break;
@@ -5008,10 +5045,19 @@ int CLASS main (int argc, char **argv)
       perror (ifname);
       continue;
     }
-    if ((status = identify())) {
-      fclose(ifp);
-      continue;
+    if (timestamp_only) {
+      identify(0);
+      if ((status = !timestamp))
+	fprintf (stderr, "%s has no timestamp.\n", ifname);
+      else {
+	if (verbose)
+	  fprintf (stderr, "%s time set to %d.\n", ifname, (int) timestamp);
+	ut.actime = ut.modtime = timestamp;
+	utime (ifname, &ut);
+      }
+      goto next;
     }
+    if ((status = identify(1))) goto next;
     if (user_flip >= 0)
       flip = user_flip;
     switch ((flip+3600) % 360) {
@@ -5021,6 +5067,7 @@ int CLASS main (int argc, char **argv)
     }
     if (identify_only) {
       fprintf (stderr, "%s is a %s %s image.\n", ifname, make, model);
+next:
       fclose(ifp);
       continue;
     }

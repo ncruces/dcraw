@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "April 29, 2005"
+.TH dcraw 1 "May 5, 2005"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -23,20 +23,30 @@ converts raw digital photos to
 format.
 .SH OPTIONS
 .TP
+.B -v
+Print verbose messages.  The default is to print only warnings
+and errors.
+.TP
+.B -z
+Change the access and modification times of a JPEG or raw file to
+when the photo was taken, assuming that the camera clock was set
+to Universal Time.
+.TP
 .B -i
 Identify files but don't decode them.
 Exit status is 0 if
 .B dcraw
 can decode the last file, 1 if it can't.
 .TP
+.B ""
+.B dcraw
+cannot decode JPEG files!!
+.TP
 .B -c
 Write binary image data to standard output.
 By default,
 .B dcraw
 creates files with a ".ppm" extension.
-.TP
-.B -v
-Print verbose messages.  Default is to print only warnings and errors.
 .TP
 .B -d
 Show the raw data as a grayscale image with no interpolation.
@@ -124,7 +134,12 @@ Same image as
 .BR -4 ,
 written in Adobe PhotoShop format.  File extension is ".psd".
 .SH "SEE ALSO"
-ppm(5), ppm2tiff(1), pnmtotiff(1), pnmtopng(1), gphoto2(1).
+.BR ppm (5),
+.BR ppm2tiff (1),
+.BR pnmtotiff (1),
+.BR pnmtopng (1),
+.BR gphoto2 (1),
+.BR djpeg (1)
 .SH BUGS
 The
 .B -w
@@ -132,7 +147,7 @@ option does not work with many cameras.
 .P
 No attempt is made to save camera settings or thumbnail images.
 .P
-Author stubbornly refuses to add more output formats.
+The author stubbornly refuses to add more output formats.
 .P
 Don't expect
 .B dcraw
