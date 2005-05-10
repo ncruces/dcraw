@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.35 $
-   $Date: 2005/05/05 06:34:32 $
+   $Revision: 1.36 $
+   $Date: 2005/05/10 21:43:10 $
  */
 
 #include <stdio.h>
@@ -509,8 +509,8 @@ void parse_ciff (int offset, int length, int level)
 
 void parse_mos(int level)
 {
-  uchar data[64];
-  int skip, save;
+  uchar data[256];
+  int i, j, skip, save;
   char *cp;
 
   save = ftell(ifp);
@@ -522,14 +522,22 @@ void parse_mos(int level)
     fread (data, 1, 40, ifp);
     skip = get4();
     printf ("%s %d bytes: ", data, skip);
+    if (!strcmp(data,"icc_camera_to_tone_matrix")) {
+      for (i=0; i < skip/4; i++) {
+	j = get4();
+	printf ("%f ", *((float *) &j));
+      }
+      putchar('\n');
+      continue;
+    }
     if (!strcmp(data,"JPEG_preview_data")) {
       thumb_head[0] = 0;
       thumb_offset = ftell(ifp);
       thumb_length = skip;
     }
-    fread (data, 1, 64, ifp);
-    fseek (ifp, -64, SEEK_CUR);
-    data[63] = 0;
+    fread (data, 1, sizeof data, ifp);
+    fseek (ifp, -sizeof data, SEEK_CUR);
+    data[sizeof data - 1] = 0;
     while ((cp=index(data,'\n')))
       *cp = ' ';
     printf ("%s\n",data);
