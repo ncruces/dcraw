@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.258 $
-   $Date: 2005/05/05 06:35:59 $
+   $Revision: 1.259 $
+   $Date: 2005/05/10 20:57:07 $
  */
 
 #define _GNU_SOURCE
@@ -36,7 +36,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <utime.h>
 /*
    By defining NO_JPEG, you lose only the ability to
    decode compressed .KDC files from the Kodak DC120.
@@ -49,12 +48,14 @@
 #include <io.h>
 #endif
 #ifdef WIN32
+#include <sys/utime.h>
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
 #define strcasecmp stricmp
 typedef __int64 INT64;
 #else
 #include <unistd.h>
+#include <utime.h>
 #include <netinet/in.h>
 typedef long long INT64;
 #endif
@@ -2275,7 +2276,7 @@ void CLASS cam_xyz_coeff (double cam_xyz[4][3])
       cam_rgb[i][j] /= num;
     pre_mul[i] = 1 / num;
   }
-  pseudoinverse ((void *) cam_rgb, inverse, colors);
+  pseudoinverse ((const double (*)[3]) cam_rgb, inverse, colors);
   for (i=0; i < 3; i++)
     for (j=0; j < colors; j++)
       coeff[i][j] = inverse[j][i];
@@ -3340,6 +3341,8 @@ void CLASS parse_mos (int offset)
 {
   uchar data[40];
   int skip, from, i, neut[4];
+  static const unsigned bayer[] =
+	{ 0x94949494, 0x61616161, 0x16161616, 0x49494949 };
 
   fseek (ifp, offset, SEEK_SET);
   while (1) {
@@ -3354,6 +3357,14 @@ void CLASS parse_mos (int offset)
       profile_offset = from;
     }
 #endif
+    if (!strcmp(data,"CaptProf_number_of_planes")) {
+      fscanf (ifp, "%d", &i);
+      if (i > 1) filters = 0;
+    }
+    if (!strcmp(data,"CaptProf_raw_data_rotation") && filters) {
+      fscanf (ifp, "%d", &i);
+      filters = bayer[i/90];
+    }
     if (!strcmp(data,"NeutObj_neutrals")) {
       for (i=0; i < 4; i++)
 	fscanf (ifp, "%d", neut+i);
@@ -3777,9 +3788,10 @@ int CLASS identify (int will_decode)
   memset (white, 0, sizeof white);
   timestamp = tiff_samples = 0;
   data_offset = meta_length = tiff_data_compression = 0;
-  zero_after_ff = is_dng = fuji_secondary = filters = 0;
+  zero_after_ff = is_dng = fuji_secondary = 0;
   black = is_foveon = use_coeff = 0;
   use_gamma = xmag = ymag = 1;
+  filters = UINT_MAX;	/* 0 = no filters, UINT_MAX = unknown */
   for (i=0; i < 4; i++) {
     cam_mul[i] = 1 & i;
     pre_mul[i] = 1;
@@ -3806,7 +3818,7 @@ int CLASS identify (int will_decode)
       parse_ciff (hlen, fsize - hlen);
     } else {
       parse_tiff(0);
-      if (!strncmp(make,"NIKON",5) && filters == 0)
+      if (!strncmp(make,"NIKON",5) && filters == UINT_MAX)
 	make[0] = 0;
     }
   } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
@@ -3908,6 +3920,7 @@ nucore:
   load_raw = NULL;
   if (is_dng) {
     strcat (model," DNG");
+    if (filters == UINT_MAX) filters = 0;
     if (!filters)
       colors = tiff_samples;
     if (tiff_data_compression == 1)
@@ -3919,7 +3932,7 @@ nucore:
 
 /*  We'll try to decode anything from Canon or Nikon. */
 
-  if (!filters) filters = 0x94949494;
+  if (filters == UINT_MAX) filters = 0x94949494;
   if ((is_canon = !strcmp(make,"Canon")))
     load_raw = memcmp (head+6,"HEAPCCDR",8) ?
 	lossless_jpeg_load_raw : canon_compressed_load_raw;
@@ -4352,13 +4365,10 @@ konica_400z:
     load_raw = unpacked_load_raw;
     maximum = 0xffff;
   } else if (!strcmp(make,"Leaf")) {
-    if (height > width)
-      filters = 0x16161616;
     load_raw = unpacked_load_raw;
     maximum = 0x3fff;
     strcpy (model, "Valeo");
-    if (raw_width == 2060) {
-      filters = 0;
+    if (filters == 0) {
       load_raw = leaf_load_raw;
       maximum = 0xffff;
       strcpy (model, "Volare");
@@ -4942,7 +4952,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.20"
+    "\nRaw Photo Decoder \"dcraw\" v7.21"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
