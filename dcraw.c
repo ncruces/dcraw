@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.259 $
-   $Date: 2005/05/10 20:57:07 $
+   $Revision: 1.260 $
+   $Date: 2005/05/20 06:18:43 $
  */
 
 #define _GNU_SOURCE
@@ -3442,6 +3442,30 @@ void CLASS parse_jpeg (int offset)
   strcat (model," JPEG");
 }
 
+void CLASS parse_smal (int offset, int fsize)
+{
+  int i, ver;
+
+  fseek (ifp, offset+2, SEEK_SET);
+  order = 0x4949;
+  ver = fgetc(ifp);
+  if (ver == 6)
+    fseek (ifp, 5, SEEK_CUR);
+  else
+    if (ver >> 1 != 4) return;
+  if (get4() != fsize) return;
+  if (ver > 6) get4();
+  raw_height = height = get2();
+  raw_width  = width  = get2();
+  if (ver > 6) {
+    i = get2();
+    height = get2();
+    width  = get2();
+  }
+  strcpy (make, "SMaL");
+  sprintf (model, "v%d %dx%d", ver, width, height);
+}
+
 char * CLASS foveon_gets (int offset, char *str, int len)
 {
   int i;
@@ -3520,8 +3544,10 @@ void CLASS adobe_coeff()
     const char *prefix;
     short trans[12];
   } table[] = {
-    { "Canon EOS D2000C",
+    { "Canon EOS D2000",
 	{ 24542,-10860,-3401,-1490,11370,-297,2858,-605,3225 } },
+    { "Canon EOS D6000",
+	{ 20482,-7172,-3125,-1033,10410,-285,2542,226,3136 } },
     { "Canon EOS D30",
 	{ 9805,-2689,-1312,-5803,13064,3068,-2438,3075,8775 } },
     { "Canon EOS D60",
@@ -3660,6 +3686,8 @@ void CLASS adobe_coeff()
 	{ 7559,-2130,-965,-7611,15713,1972,-2478,3042,8290 } },
     { "NIKON D2H",
 	{ 5710,-901,-615,-8594,16617,2024,-2975,4120,6830 } },
+    { "NIKON D2X",
+	{ 10231,-2769,-1255,-8301,15900,2552,-797,680,7148 } },
     { "NIKON D70",
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON E995",	/* copied from E5000 */
@@ -3885,6 +3913,7 @@ nucore:
   parse_mos(8);
   parse_mos(3472);
   if (make[0] == 0) parse_jpeg(0);
+  if (make[0] == 0) parse_smal (0, fsize);
 
   for (i=0; i < sizeof corp / sizeof *corp; i++)
     if (strstr (make, corp[i]))		/* Simplify company names */
@@ -4063,8 +4092,6 @@ canon_cr2:
     left_margin = 6;
   } else if (!strcmp(model,"D2X")) {
     width  = 4312;
-    pre_mul[0] = 1.514;
-    pre_mul[2] = 1.727;
   } else if (fsize == 1581060) {
     height = 963;
     width = 1287;
@@ -4952,7 +4979,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.21"
+    "\nRaw Photo Decoder \"dcraw\" v7.22"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
