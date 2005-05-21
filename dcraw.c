@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.260 $
-   $Date: 2005/05/20 06:18:43 $
+   $Revision: 1.261 $
+   $Date: 2005/05/21 01:54:47 $
  */
 
 #define _GNU_SOURCE
@@ -3376,9 +3376,15 @@ void CLASS parse_mos (int offset)
   }
 }
 
+float CLASS get_float()
+{
+  int i = get4();
+  return *((float *) &i);
+}
+
 void CLASS parse_phase_one (int base)
 {
-  unsigned entries, tag, type, len, data;
+  unsigned entries, tag, type, len, data, save, i, c;
 
   fseek (ifp, base+8, SEEK_SET);
   fseek (ifp, get4()+base, SEEK_SET);
@@ -3390,6 +3396,18 @@ void CLASS parse_phase_one (int base)
     len  = get4();
     data = get4();
     switch (tag) {
+      case 0x106:
+	use_coeff = 1;
+      case 0x107:
+	save = ftell(ifp);
+	fseek (ifp, base+data, SEEK_SET);
+	for (i=0; i < 3; i++)
+	  if (tag == 0x106)
+	    FORC3 coeff[i][c] = get_float();
+	  else
+	    cam_mul[i] = pre_mul[i] = get_float();
+	fseek (ifp, save, SEEK_SET);
+	break;
       case 0x108:  raw_width   = data;  break;
       case 0x109:  raw_height  = data;  break;
       case 0x10a:  left_margin = data;  break;
@@ -4344,24 +4362,12 @@ konica_400z:
     pre_mul[0] = 1.097;
     pre_mul[2] = 1.128;
   } else if (!strcmp(make,"Phase One")) {
-    switch (raw_height) {
-      case 2060:
-	strcpy (model, "LightPhase");
-	pre_mul[0] = 1.331;
-	pre_mul[2] = 1.154;
-	break;
-      case 2682:
-	strcpy (model, "H10");
-	break;
-      case 4128:
-	strcpy (model, "H20");
-	pre_mul[0] = 1.963;
-	pre_mul[2] = 1.430;
-	break;
-      case 5488:
-	strcpy (model, "H25");
-	pre_mul[0] = 2.80;
-	pre_mul[2] = 1.20;
+    sprintf (model, "%dx%d", width, height);
+    switch (raw_height) {		/* purely cosmetic */
+      case 2060: strcpy (model,"LightPhase");	break;
+      case 2682: strcpy (model,"H10");		break;
+      case 4128: strcpy (model,"H20");		break;
+      case 5488: strcpy (model,"H25");		break;
     }
     load_raw = phase_one_load_raw;
     maximum = 0xffff;
@@ -4694,6 +4700,7 @@ dng_skip:
 	filters |= 8 << i;
     }
     colors++;
+    cam_mul[3] = cam_mul[1];
     pre_mul[3] = pre_mul[1];
     if (use_coeff)
       for (i=0; i < 3; i++)
@@ -4979,7 +4986,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.22"
+    "\nRaw Photo Decoder \"dcraw\" v7.23"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"

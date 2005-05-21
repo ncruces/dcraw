@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.36 $
-   $Date: 2005/05/10 21:43:10 $
+   $Revision: 1.37 $
+   $Date: 2005/05/21 01:54:47 $
  */
 
 #include <stdio.h>
@@ -923,7 +923,7 @@ void parse_fuji (int offset)
 
 void parse_phase_one (int base)
 {
-  unsigned entries, tag, type, len, data, save;
+  unsigned entries, tag, type, len, data, save, i;
   char str[256];
 
   fseek (ifp, base+8, SEEK_SET);
@@ -938,10 +938,18 @@ void parse_phase_one (int base)
     save = ftell(ifp);
     printf ("Phase One tag=0x%x, type=%d, len=%2d, data = 0x%x\n",
 		tag, type, len, data);
+    if (len > 4)
+      fseek (ifp, base+data, SEEK_SET);
     if (type == 1 && len < 256) {
-      fseek (ifp, base + data, SEEK_SET);
       fread (str, 256, 1, ifp);
       puts (str);
+    }
+    if (type == 4 && len > 4) {
+      for ( ; len > 0; len -= 4) {
+	i = get4();
+	printf ("%f ", *((float *) &i));
+      }
+      puts ("");
     }
     if (tag == 0x110) {
       thumb_offset = data + base;
