@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.38 $
-   $Date: 2005/05/23 03:59:56 $
+   $Revision: 1.39 $
+   $Date: 2005/05/27 01:39:38 $
  */
 
 #include <stdio.h>
@@ -1011,9 +1011,10 @@ int identify()
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
   if ((cp = memmem (head, 32, "MMMMRawT", 8)) ||
-      (cp = memmem (head, 32, "IIIITwaR", 8)))
+      (cp = memmem (head, 32, "IIIITwaR", 8))) {
     parse_phase_one (cp-head);
-  else if (order == 0x4949 || order == 0x4d4d) {
+    if (cp-head) parse_tiff (0);
+  } else if (order == 0x4949 || order == 0x4d4d) {
     if (!memcmp(head+6,"HEAPCCDR",8)) {
       parse_ciff (hlen, fsize - hlen, 0);
       fseek (ifp, hlen, SEEK_SET);
