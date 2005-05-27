@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.261 $
-   $Date: 2005/05/21 01:54:47 $
+   $Revision: 1.262 $
+   $Date: 2005/05/27 01:39:38 $
  */
 
 #define _GNU_SOURCE
@@ -766,7 +766,6 @@ void CLASS nikon_compressed_load_raw()
       if (diff >= csize) diff = csize-1;
       BAYER(row,col-left_margin) = curve[diff];
     }
-  maximum = curve[csize-1];
   free (curve);
 }
 
@@ -1037,11 +1036,12 @@ void CLASS rollei_load_raw()
 void CLASS phase_one_load_raw()
 {
   int row, col, a, b;
-  ushort *pixel, akey, bkey;
+  ushort *pixel, akey, bkey, mask;
 
   fseek (ifp, nikon_curve_offset, SEEK_SET);
   akey = get2();
   bkey = get2();
+  mask = model[0] == 'P' ? 0x1354:0x5555;
   fseek (ifp, data_offset + top_margin*raw_width*2, SEEK_SET);
   pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "phase_one_load_raw()");
@@ -1050,8 +1050,8 @@ void CLASS phase_one_load_raw()
     for (col=0; col < raw_width; col+=2) {
       a = pixel[col+0] ^ akey;
       b = pixel[col+1] ^ bkey;
-      pixel[col+0] = (b & 0xaaaa) | (a & 0x5555);
-      pixel[col+1] = (a & 0xaaaa) | (b & 0x5555);
+      pixel[col+0] = (a & mask) | (b & ~mask);
+      pixel[col+1] = (b & mask) | (a & ~mask);
     }
     for (col=0; col < width; col++)
       BAYER(row,col) = pixel[col+left_margin];
@@ -3385,6 +3385,7 @@ float CLASS get_float()
 void CLASS parse_phase_one (int base)
 {
   unsigned entries, tag, type, len, data, save, i, c;
+  char *cp;
 
   fseek (ifp, base+8, SEEK_SET);
   fseek (ifp, get4()+base, SEEK_SET);
@@ -3395,18 +3396,17 @@ void CLASS parse_phase_one (int base)
     type = get4();
     len  = get4();
     data = get4();
+    save = ftell(ifp);
+    fseek (ifp, base+data, SEEK_SET);
     switch (tag) {
       case 0x106:
 	use_coeff = 1;
       case 0x107:
-	save = ftell(ifp);
-	fseek (ifp, base+data, SEEK_SET);
 	for (i=0; i < 3; i++)
 	  if (tag == 0x106)
 	    FORC3 coeff[i][c] = get_float();
 	  else
 	    cam_mul[i] = pre_mul[i] = get_float();
-	fseek (ifp, save, SEEK_SET);
 	break;
       case 0x108:  raw_width   = data;  break;
       case 0x109:  raw_height  = data;  break;
@@ -3416,10 +3416,23 @@ void CLASS parse_phase_one (int base)
       case 0x10d:  height      = data;  break;
       case 0x10f:  data_offset = data+base;  break;
       case 0x112:
-	nikon_curve_offset = ftell(ifp) - 4;
+	nikon_curve_offset = save - 4;  break;
+      case 0x301:
+	fread (model, 64, 1, ifp);
+	cp = strstr(model," camera");
+	if (cp && cp < model+64) *cp = 0;
     }
+    fseek (ifp, save, SEEK_SET);
   }
   strcpy (make, "Phase One");
+  if (model[0]) return;
+  sprintf (model, "%dx%d", width, height);
+  switch (raw_height) {
+    case 2060: strcpy (model,"LightPhase");	break;
+    case 2682: strcpy (model,"H 10");		break;
+    case 4128: strcpy (model,"H 20");		break;
+    case 5488: strcpy (model,"H 25");		break;
+  }
 }
 
 void CLASS parse_fuji (int offset)
@@ -4101,10 +4114,12 @@ canon_cr2:
   } else if (!strcmp(model,"D1X")) {
     width  = 4024;
     ymag = 2;
+  } else if (!strcmp(model,"D70")) {
+    maximum = 0xf53;
   } else if (!strcmp(model,"D100")) {
     if (tiff_data_compression == 34713 && load_raw == nikon_load_raw)
       raw_width = (width += 3) + 3;
-    maximum = 0xd2c;
+    maximum = 0xf44;
   } else if (!strcmp(model,"D2H")) {
     width  = 2482;
     left_margin = 6;
@@ -4362,13 +4377,6 @@ konica_400z:
     pre_mul[0] = 1.097;
     pre_mul[2] = 1.128;
   } else if (!strcmp(make,"Phase One")) {
-    sprintf (model, "%dx%d", width, height);
-    switch (raw_height) {		/* purely cosmetic */
-      case 2060: strcpy (model,"LightPhase");	break;
-      case 2682: strcpy (model,"H10");		break;
-      case 4128: strcpy (model,"H20");		break;
-      case 5488: strcpy (model,"H25");		break;
-    }
     load_raw = phase_one_load_raw;
     maximum = 0xffff;
   } else if (!strcmp(make,"Imacon")) {
@@ -4986,7 +4994,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.23"
+    "\nRaw Photo Decoder \"dcraw\" v7.24"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
