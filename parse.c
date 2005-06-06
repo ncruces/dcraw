@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.39 $
-   $Date: 2005/05/27 01:39:38 $
+   $Revision: 1.40 $
+   $Date: 2005/06/06 05:32:07 $
  */
 
 #include <stdio.h>
@@ -46,36 +46,40 @@ struct decode {
   int leaf;
 } first_decode[640], *free_decode;
 
-/*
-   Get a 2-byte integer, making no assumptions about CPU byte order.
-   Nor should we assume that the compiler evaluates left-to-right.
- */
-ushort get2()
+ushort sget2 (uchar *s)
 {
-  uchar a, b;
-
-  a = fgetc(ifp);  b = fgetc(ifp);
-
   if (order == 0x4949)		/* "II" means little-endian */
-    return a | b << 8;
+    return s[0] | s[1] << 8;
   else				/* "MM" means big-endian */
-    return a << 8 | b;
+    return s[0] << 8 | s[1];
 }
 
-/*
-   Same for a 4-byte integer.
- */
+ushort get2()
+{
+  uchar str[2] = { 0xff,0xff };
+  fread (str, 1, 2, ifp);
+  return sget2(str);
+}
+
+int sget4 (uchar *s)
+{
+  if (order == 0x4949)
+    return s[0] | s[1] << 8 | s[2] << 16 | s[3] << 24;
+  else
+    return s[0] << 24 | s[1] << 16 | s[2] << 8 | s[3];
+}
+
 int get4()
 {
-  uchar a, b, c, d;
+  uchar str[4] = { 0xff,0xff,0xff,0xff };
+  fread (str, 1, 4, ifp);
+  return sget4(str);
+}
 
-  a = fgetc(ifp);  b = fgetc(ifp);
-  c = fgetc(ifp);  d = fgetc(ifp);
-
-  if (order == 0x4949)
-    return a | b << 8 | c << 16 | d << 24;
-  else
-    return a << 24 | b << 16 | c << 8 | d;
+float get_float()
+{
+  int i = get4();
+  return *((float *) &i);
 }
 
 void tiff_dump(int base, int tag, int type, int count, int level)
@@ -168,7 +172,7 @@ void nef_parse_makernote (base)
 {
   int offset=0, entries, tag, type, count, val, save;
   unsigned serial=0, key=0;
-  uchar buf91[630], buf97[608], buf98[31];
+  uchar buf91[630]="", buf97[608]="", buf98[31]="";
   short sorder;
   char buf[10];
 
@@ -510,7 +514,7 @@ void parse_ciff (int offset, int length, int level)
 void parse_mos(int level)
 {
   uchar data[256];
-  int i, j, skip, save;
+  int i, skip, save;
   char *cp;
 
   save = ftell(ifp);
@@ -523,10 +527,8 @@ void parse_mos(int level)
     skip = get4();
     printf ("%s %d bytes: ", data, skip);
     if (!strcmp(data,"icc_camera_to_tone_matrix")) {
-      for (i=0; i < skip/4; i++) {
-	j = get4();
-	printf ("%f ", *((float *) &j));
-      }
+      for (i=0; i < skip/4; i++)
+	printf ("%f ", get_float());
       putchar('\n');
       continue;
     }
@@ -538,7 +540,7 @@ void parse_mos(int level)
     fread (data, 1, sizeof data, ifp);
     fseek (ifp, -sizeof data, SEEK_CUR);
     data[sizeof data - 1] = 0;
-    while ((cp=index(data,'\n')))
+    while ((cp=strchr(data,'\n')))
       *cp = ' ';
     printf ("%s\n",data);
     parse_mos(level+2);
@@ -607,16 +609,6 @@ void get_utf8 (int offset, char *buf, int len)
     }
   }
   *cp = 0;
-}
-
-ushort sget2 (uchar *s)
-{
-  return s[0] + (s[1]<<8);
-}
-
-int sget4 (uchar *s)
-{
-  return s[0] + (s[1]<<8) + (s[2]<<16) + (s[3]<<24);
 }
 
 void parse_foveon()
@@ -923,7 +915,7 @@ void parse_fuji (int offset)
 
 void parse_phase_one (int base)
 {
-  unsigned entries, tag, type, len, data, save, i;
+  unsigned entries, tag, type, len, data, save;
   char str[256];
 
   fseek (ifp, base+8, SEEK_SET);
@@ -945,10 +937,8 @@ void parse_phase_one (int base)
       puts (str);
     }
     if (type == 4 && len > 4) {
-      for ( ; len > 0; len -= 4) {
-	i = get4();
-	printf ("%f ", *((float *) &i));
-      }
+      for ( ; len > 0; len -= 4)
+	printf ("%f ", get_float());
       puts ("");
     }
     if (tag == 0x110) {
