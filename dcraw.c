@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.262 $
-   $Date: 2005/05/27 01:39:38 $
+   $Revision: 1.263 $
+   $Date: 2005/06/06 05:32:07 $
  */
 
 #define _GNU_SOURCE
@@ -81,6 +81,7 @@ typedef unsigned short ushort;
 FILE *ifp;
 short order;
 char *ifname, make[64], model[70], model2[64], *meta_data;
+float flash_used, canon_5814;
 time_t timestamp;
 int data_offset, meta_offset, meta_length, nikon_curve_offset;
 int tiff_data_compression, kodak_data_compression;
@@ -184,41 +185,48 @@ void CLASS merror (void *ptr, char *where)
   longjmp (failure, 1);
 }
 
-/*
-   Get a 2-byte integer, making no assumptions about CPU byte order.
-   Nor should we assume that the compiler evaluates left-to-right.
- */
+ushort CLASS sget2 (uchar *s)
+{
+  if (order == 0x4949)		/* "II" means little-endian */
+    return s[0] | s[1] << 8;
+  else				/* "MM" means big-endian */
+    return s[0] << 8 | s[1];
+}
+
 ushort CLASS get2()
 {
-  uchar a, b;
-
-  a = fgetc(ifp);  b = fgetc(ifp);
-
-  if (order == 0x4949)		/* "II" means little-endian */
-    return a | b << 8;
-  else				/* "MM" means big-endian */
-    return a << 8 | b;
+  uchar str[2] = { 0xff,0xff };
+  fread (str, 1, 2, ifp);
+  return sget2(str);
 }
 
-/*
-   Same for a 4-byte integer.
- */
+int CLASS sget4 (uchar *s)
+{
+  if (order == 0x4949)
+    return s[0] | s[1] << 8 | s[2] << 16 | s[3] << 24;
+  else
+    return s[0] << 24 | s[1] << 16 | s[2] << 8 | s[3];
+}
+
 int CLASS get4()
 {
-  uchar a, b, c, d;
-
-  a = fgetc(ifp);  b = fgetc(ifp);
-  c = fgetc(ifp);  d = fgetc(ifp);
-
-  if (order == 0x4949)
-    return a | b << 8 | c << 16 | d << 24;
-  else
-    return a << 24 | b << 16 | c << 8 | d;
+  uchar str[4] = { 0xff,0xff,0xff,0xff };
+  fread (str, 1, 4, ifp);
+  return sget4(str);
 }
 
-/*
-   Faster than calling get2() multiple times.
- */
+double CLASS getrat()
+{
+  double num = get4();
+  return num / get4();
+}
+
+float CLASS get_float()
+{
+  int i = get4();
+  return *((float *) &i);
+}
+
 void CLASS read_shorts (ushort *pixel, int count)
 {
   fread (pixel, 2, count, ifp);
@@ -226,13 +234,132 @@ void CLASS read_shorts (ushort *pixel, int count)
     swab (pixel, pixel, count*2);
 }
 
+void CLASS canon_600_fixed_wb (int temp)
+{
+  static const short mul[4][5] = {
+    {  667, 358,397,565,452 },
+    {  731, 390,367,499,517 },
+    { 1119, 396,348,448,537 },
+    { 1399, 485,431,508,688 } };
+  int lo, hi, i;
+  float frac=0;
+
+  for (lo=4; --lo; )
+    if (*mul[lo] <= temp) break;
+  for (hi=0; hi < 3; hi++)
+    if (*mul[hi] >= temp) break;
+  if (lo != hi)
+    frac = (float) (temp - *mul[lo]) / (*mul[hi] - *mul[lo]);
+  for (i=1; i < 5; i++)
+    pre_mul[i-1] = 1 / (frac * mul[hi][i] + (1-frac) * mul[lo][i]);
+}
+
+/* Return values:  0 = white  1 = near white  2 = not white */
+int CLASS canon_600_color (int ratio[2], int mar)
+{
+  int clipped=0, target, miss;
+
+  if (flash_used) {
+    if (ratio[1] < -104)
+      { ratio[1] = -104; clipped = 1; }
+    if (ratio[1] >   12)
+      { ratio[1] =   12; clipped = 1; }
+  } else {
+    if (ratio[1] < -264 || ratio[1] > 461) return 2;
+    if (ratio[1] < -50)
+      { ratio[1] = -50; clipped = 1; }
+    if (ratio[1] > 307)
+      { ratio[1] = 307; clipped = 1; }
+  }
+  target = flash_used || ratio[1] < 197
+	? -38 - (398 * ratio[1] >> 10)
+	: -123 + (48 * ratio[1] >> 10);
+  if (target - mar <= ratio[0] &&
+      target + 20  >= ratio[0] && !clipped) return 0;
+  miss = target - ratio[0];
+  if (abs(miss) >= mar*4) return 2;
+  if (miss < -20) miss = -20;
+  if (miss > mar) miss = mar;
+  ratio[0] = target - miss;
+  return 1;
+}
+
+void CLASS canon_600_auto_wb()
+{
+  int mar, row, col, i, j, st, count[] = { 0,0 };
+  int test[8], total[2][8], ratio[2][2], stat[2];
+
+  memset (&total, 0, sizeof total);
+  i = canon_5814 + 0.5;
+  if      (i < 10) mar = 150;
+  else if (i > 12) mar = 20;
+  else mar = 280 - 20 * i;
+  if (flash_used) mar = 80;
+  for (row=14; row < height-14; row+=4)
+    for (col=10; col < width; col+=2) {
+      for (i=0; i < 8; i++)
+	test[(i & 4) + FC(row+(i >> 1),col+(i & 1))] =
+		    BAYER(row+(i >> 1),col+(i & 1));
+      for (i=0; i < 8; i++)
+	if (test[i] < 150 || test[i] > 1500) goto next;
+      for (i=0; i < 4; i++)
+	if (abs(test[i] - test[i+4]) > 50) goto next;
+      for (i=0; i < 2; i++) {
+	for (j=0; j < 4; j+=2)
+	  ratio[i][j >> 1] = ((test[i*4+j+1]-test[i*4+j]) << 10) / test[i*4+j];
+	stat[i] = canon_600_color (ratio[i], mar);
+      }
+      if ((st = stat[0] | stat[1]) > 1) goto next;
+      for (i=0; i < 2; i++)
+	if (stat[i])
+	  for (j=0; j < 2; j++)
+	    test[i*4+j*2+1] = test[i*4+j*2] * (0x400 + ratio[i][j]) >> 10;
+      for (i=0; i < 8; i++)
+	total[st][i] += test[i];
+      count[st]++;
+next: continue;
+    }
+  if (count[0] | count[1]) {
+    st = count[0]*200 < count[1];
+    for (i=0; i < 4; i++)
+      pre_mul[i] = 1.0 / (total[st][i] + total[st][i+4]);
+  }
+}
+
+void CLASS canon_600_coeff()
+{
+  static const short table[6][12] = {
+    { -190,702,-1878,2390,   1861,-1349,905,-393, -432,944,2617,-2105  },
+    { -1203,1715,-1136,1648, 1388,-876,267,245,  -1641,2153,3921,-3409 },
+    { -615,1127,-1563,2075,  1437,-925,509,3,     -756,1268,2519,-2007 },
+    { -190,702,-1886,2398,   2153,-1641,763,-251, -452,964,3040,-2528  },
+    { -190,702,-1878,2390,   1861,-1349,905,-393, -432,944,2617,-2105  },
+    { -807,1319,-1785,2297,  1388,-876,769,-257,  -230,742,2067,-1555  } };
+  int t=0, i, c;
+  float mc, yc;
+
+  mc = pre_mul[1] / pre_mul[2];
+  yc = pre_mul[3] / pre_mul[2];
+  if (mc > 1 && mc <= 1.28 && yc < 0.8789) t=1;
+  if (mc > 1.28 && mc <= 2) {
+    if  (yc < 0.8789) t=3;
+    else if (yc <= 2) t=4;
+  }
+  if (flash_used) t=5;
+  for (i=0; i < 3; i++)
+    FORCC coeff[i][c] = table[t][i*4 + c] / 1024.0;
+  use_coeff = 1;
+}
+
 void CLASS canon_600_load_raw()
 {
   uchar  data[1120], *dp;
   ushort pixel[896], *pix;
-  int irow, orow, col;
+  int irow, row, col, val;
+  static const short mul[4][2] =
+  { { 1141,1145 }, { 1128,1109 }, { 1178,1149 }, { 1128,1109 } };
 
-  for (irow=orow=0; irow < height; irow++)
+  for (irow=row=0; irow < height; irow++)
   {
     fread (data, 1120, 1, ifp);
     for (dp=data, pix=pixel; dp < data+1120; dp+=10, pix+=8)
@@ -247,14 +374,23 @@ void CLASS canon_600_load_raw()
       pix[7] = (dp[8] << 2) + (dp[9] >> 6    );
     }
     for (col=0; col < width; col++)
-      BAYER(orow,col) = pixel[col];
+      BAYER(row,col) = pixel[col];
     for (col=width; col < 896; col++)
       black += pixel[col];
-    if ((orow+=2) > height)
-      orow = 1;
+    if ((row+=2) > height) row = 1;
   }
-  black /= (896 - width) * height;
-  maximum = 0x3ff;
+  black = black / ((896 - width) * height) - 4;
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++) {
+      val = (BAYER(row,col) - black) * mul[row & 3][col & 1] >> 9;
+      if (val < 0) val = 0;
+      BAYER(row,col) = val;
+    }
+  canon_600_fixed_wb(1311);
+  canon_600_auto_wb();
+  canon_600_coeff();
+  maximum = (0x3ff - black) * 1109 >> 9;
+  black = 0;
 }
 
 void CLASS canon_a5_load_raw()
@@ -1668,11 +1804,6 @@ void CLASS foveon_load_raw()
   maximum = clip_max = 0xffff;
 }
 
-int CLASS sget4 (uchar *s)
-{
-  return s[0] | s[1] << 8 | s[2] << 16 | s[3] << 24;
-}
-
 char * CLASS foveon_camf_param (char *block, char *param)
 {
   unsigned idx, num;
@@ -2642,12 +2773,6 @@ void CLASS vng_interpolate()
   free (brow[4]);
 }
 
-double getrat()
-{
-  double num = get4();
-  return num / get4();
-}
-
 void CLASS parse_makernote()
 {
   static const uchar xlat[2][256] = {
@@ -2769,7 +2894,7 @@ void CLASS parse_makernote()
       ck = 0x60;
       for (i=0; i < 324; i++)
 	buf97[i] ^= (cj += ci * ck++);
-      FORC4 cam_mul[c ^ (c >> 1)] = (buf97[c*2+6] << 8) + buf97[c*2+7];
+      FORC4 cam_mul[c ^ (c >> 1)] = sget2 (buf97+6+c*2);
     }
     if (tag == 0xe0 && len == 17) {
       get2();
@@ -3188,7 +3313,7 @@ void CLASS ciff_block_1030()
  */
 void CLASS parse_ciff (int offset, int length)
 {
-  int tboff, nrecs, i, type, len, roff, aoff, save, wbi=-1;
+  int tboff, nrecs, i, c, type, len, roff, aoff, save, wbi=-1;
   static const int remap[] = { 1,2,3,4,5,1 };
   static const int remap_10d[] = { 0,1,3,4,5,6,0,0,2,8 };
   static const int remap_s70[] = { 0,1,2,9,4,3,6,7,8,9,10,0,0,0,7,0,0,8 };
@@ -3227,10 +3352,7 @@ void CLASS parse_ciff (int offset, int length)
       if (!strcmp(model,"Canon PowerShot G1") ||
 	  !strcmp(model,"Canon PowerShot Pro90 IS")) {
 	fseek (ifp, aoff+120, SEEK_SET);
-	white[0][1] = get2();
-	white[0][0] = get2();
-	white[1][0] = get2();
-	white[1][1] = get2();
+	FORC4 cam_mul[c ^ 2] = get2();
       } else {
 	fseek (ifp, aoff+100, SEEK_SET);
 	goto common;
@@ -3282,6 +3404,10 @@ common:
     }
     if (type == 0x580e)
       timestamp = len;
+    if (type == 0x5813)
+      flash_used = *((float *) &len);
+    if (type == 0x5814)
+      canon_5814 = *((float *) &len);
     if (type == 0x1810) {		/* Get the rotation */
       fseek (ifp, aoff+12, SEEK_SET);
       flip = get4();
@@ -3374,12 +3500,6 @@ void CLASS parse_mos (int offset)
     parse_mos (from);
     fseek (ifp, skip+from, SEEK_SET);
   }
-}
-
-float CLASS get_float()
-{
-  int i = get4();
-  return *((float *) &i);
 }
 
 void CLASS parse_phase_one (int base)
@@ -3597,8 +3717,6 @@ void CLASS adobe_coeff()
 	{ 6906,-278,-1017,-6649,15074,1621,-2848,3897,7611 } },
     { "Canon EOS",
 	{ 8197,-2000,-1118,-6714,14335,2592,-2536,3178,8266 } },
-    { "Canon PowerShot 600",
-	{ -3822,10019,1311,4085,-157,3386,-5341,10829,4812,-1969,10969,1126 } },
     { "Canon PowerShot A50",
 	{ -5300,9846,1776,3436,684,3939,-5540,9879,6200,-1404,11175,217 } },
     { "Canon PowerShot A5",
@@ -3813,6 +3931,7 @@ int CLASS identify (int will_decode)
     {   124928, "Kodak",    "DC20"            ,0 },
     {   311696, "ST Micro", "STV680 VGA"      ,0 },  /* SPYz */
     {   787456, "Creative", "PC-CAM 600"      ,0 },
+    {  3840000, "Foculus",  "503c"            ,0 },
     {  1581060, "NIKON",    "E900"            ,1 },  /* or E900s,E910 */
     {  2465792, "NIKON",    "E950"            ,1 },  /* or E800,E700 */
     {  2940928, "NIKON",    "E2100"           ,1 },  /* or E2500 */
@@ -4376,6 +4495,12 @@ konica_400z:
     black = 16;
     pre_mul[0] = 1.097;
     pre_mul[2] = 1.128;
+  } else if (!strcmp(model,"503c")) {
+    height = 1200;
+    width  = 1600;
+    load_raw = unpacked_load_raw;
+    filters = 0x49494949;
+    pre_mul[1] = 1.218;
   } else if (!strcmp(make,"Phase One")) {
     load_raw = phase_one_load_raw;
     maximum = 0xffff;
@@ -4994,7 +5119,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.24"
+    "\nRaw Photo Decoder \"dcraw\" v7.30"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
