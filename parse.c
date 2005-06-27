@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.40 $
-   $Date: 2005/06/06 05:32:07 $
+   $Revision: 1.41 $
+   $Date: 2005/06/27 05:12:08 $
  */
 
 #include <stdio.h>
@@ -511,6 +511,28 @@ void parse_ciff (int offset, int length, int level)
   }
 }
 
+int parse_jpeg (int offset)
+{
+  int len, save, hlen;
+
+  fseek (ifp, offset, SEEK_SET);
+  if (fgetc(ifp) != 0xff || fgetc(ifp) != 0xd8) return 0;
+
+  while (fgetc(ifp) == 0xff && fgetc(ifp) >> 4 != 0xd) {
+    order = 0x4d4d;
+    len   = get2() - 2;
+    save  = ftell(ifp);
+    order = get2();
+    hlen  = get4();
+    if (get4() == 0x48454150)		/* "HEAP" */
+      parse_ciff (save+hlen, len-hlen, 0);
+    parse_tiff (save+6);
+    fseek (ifp, save+len, SEEK_SET);
+  }
+  thumb_length = 0;
+  return 1;
+}
+
 void parse_mos(int level)
 {
   uchar data[256];
@@ -643,15 +665,20 @@ void parse_foveon()
     switch (tag) {
       case 0x32414d49:			/* IMA2 */
       case 0x47414d49:			/* IMAG */
-	if (++img == 2) {		/* second image */
-	  thumb_offset = off;
-	  thumb_length = 1;
-	}
 	printf ("type %d, "	, get4());
 	printf ("format %2d, "	, get4());
 	printf ("columns %4d, "	, get4());
 	printf ("rows %4d, "	, get4());
 	printf ("rowsize %d\n"	, get4());
+	if (parse_jpeg (off+28)) {
+	  thumb_offset = off+28;
+	  thumb_length = len-28;
+	}
+	order = 0x4949;
+	if (++img == 2 && !thumb_length) {
+	  thumb_offset = off;
+	  thumb_length = 1;
+	}
 	break;
       case 0x464d4143:			/* CAMF */
 	printf ("type %d, ", get4());
@@ -695,9 +722,12 @@ void parse_foveon()
 		  printf ("    ");
 		  for (k=0; k < dim[0]; k++)
 		    switch (type) {
+		      case 5:
+			printf ("%7d", *(uchar *)dp++);
+			break;
 		      case 0:
 		      case 6:
-			printf ("%7d", sget2(dp));
+			printf ("%7d", (short) sget2(dp));
 			dp += 2;
 			break;
 		      case 1:
@@ -936,7 +966,7 @@ void parse_phase_one (int base)
       fread (str, 256, 1, ifp);
       puts (str);
     }
-    if (type == 4 && len > 4) {
+    if (tag != 0x21c && type == 4 && len > 4) {
       for ( ; len > 0; len -= 4)
 	printf ("%f ", get_float());
       puts ("");
@@ -949,27 +979,6 @@ void parse_phase_one (int base)
   }
   strcpy (make, "Phase One");
   strcpy (model, "unknown");
-}
-
-void parse_jpeg (int offset)
-{
-  int len, save, hlen;
-
-  fseek (ifp, offset, SEEK_SET);
-  if (fgetc(ifp) != 0xff || fgetc(ifp) != 0xd8) return;
-
-  while (fgetc(ifp) == 0xff && fgetc(ifp) >> 4 != 0xd) {
-    order = 0x4d4d;
-    len   = get2() - 2;
-    save  = ftell(ifp);
-    order = get2();
-    hlen  = get4();
-    if (get4() == 0x48454150)		/* "HEAP" */
-      parse_ciff (save+hlen, len-hlen, 0);
-    parse_tiff (save+6);
-    fseek (ifp, save+len, SEEK_SET);
-  }
-  thumb_length = 0;
 }
 
 char *memmem (char *haystack, size_t haystacklen,
@@ -1000,8 +1009,9 @@ int identify()
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  if ((cp = memmem (head, 32, "MMMMRawT", 8)) ||
-      (cp = memmem (head, 32, "IIIITwaR", 8))) {
+  if ((cp = memmem (head, 32, "MMMMRaw" , 7)) ||
+      (cp = memmem (head, 32, "IIIITwaR", 8)) ||
+      (cp = memmem (head, 32, "IIIICwaR", 8))) {
     parse_phase_one (cp-head);
     if (cp-head) parse_tiff (0);
   } else if (order == 0x4949 || order == 0x4d4d) {

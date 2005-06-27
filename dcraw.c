@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.263 $
-   $Date: 2005/06/06 05:32:07 $
+   $Revision: 1.264 $
+   $Date: 2005/06/27 05:12:08 $
  */
 
 #define _GNU_SOURCE
@@ -53,11 +53,13 @@
 #pragma comment(lib, "ws2_32.lib")
 #define strcasecmp stricmp
 typedef __int64 INT64;
+typedef unsigned __int64 UINT64;
 #else
 #include <unistd.h>
 #include <utime.h>
 #include <netinet/in.h>
 typedef long long INT64;
+typedef unsigned long long UINT64;
 #endif
 
 #ifdef LJPEG_DECODE
@@ -1193,6 +1195,55 @@ void CLASS phase_one_load_raw()
       BAYER(row,col) = pixel[col+left_margin];
   }
   free (pixel);
+  maximum = 0xffff;
+}
+
+unsigned CLASS ph1_bits (int nbits)
+{
+  static UINT64 bitbuf=0;
+  static int vbits=0;
+
+  if (nbits == 0)
+    return bitbuf = vbits = 0;
+  if (vbits < nbits) {
+    bitbuf = bitbuf << 32 | (unsigned) get4();
+    vbits += 32;
+  }
+  vbits -= nbits;
+  return bitbuf << (64-nbits-vbits) >> (64-nbits);
+}
+
+void CLASS phase_one_load_raw_c()
+{
+  static const int length[] = { 8,7,6,9,11,10,5,12,14,13 };
+  int len[2], pred[2], row, col, ncols, i, j;
+  ushort *pixel;
+
+  ncols = (raw_width + 7) & -8;
+  pixel = calloc (ncols, sizeof *pixel);
+  merror (pixel, "phase_one_load_raw_c()");
+  for (row=0; row < raw_height; row++) {
+    ph1_bits(0);
+    pred[0] = pred[1] = 0;
+    for (col=0; col < ncols; col++) {
+      if (col >= (raw_width & -8))
+	len[0] = len[1] = 14;
+      else if ((col & 7) == 0)
+	for (i=0; i < 2; i++) {
+	  for (j=0; j < 5 && !ph1_bits(1); j++);
+	  if (j--) len[i] = length[j*2 + ph1_bits(1)];
+	}
+      if ((i = len[col & 1]) == 14)
+	pixel[col] = pred[col & 1] = ph1_bits(16);
+      else
+	pixel[col] = pred[col & 1] += ph1_bits(i) + 1 - (1 << (i - 1));
+    }
+    if ((unsigned) (row-top_margin) < height)
+      for (col=0; col < width; col++)
+	BAYER(row-top_margin,col) = pixel[col+left_margin];
+  }
+  free (pixel);
+  maximum = 0x3fff;
 }
 
 void CLASS leaf_load_raw()
@@ -1775,20 +1826,25 @@ void CLASS foveon_load_raw()
   struct decode *dindex;
   short diff[1024], pred[3];
   unsigned huff[1024], bitbuf=0;
-  int row, col, bit=-1, c, i;
+  int fixed, row, col, bit=-1, c, i;
 
+  fixed = get4();
   read_shorts (diff, 1024);
-  for (i=0; i < 1024; i++)
-    huff[i] = get4();
-
-  init_decoder();
-  foveon_decoder (huff, 0);
-
+  if (!fixed) {
+    for (i=0; i < 1024; i++)
+      huff[i] = get4();
+    init_decoder();
+    foveon_decoder (huff, 0);
+  }
   for (row=0; row < height; row++) {
     memset (pred, 0, sizeof pred);
-    if (!bit) get4();
+    if (!bit && !fixed) get4();
     for (col=bit=0; col < width; col++) {
-      FORC3 {
+      if (fixed) {
+	bitbuf = get4();
+	FORC3 pred[2-c] += diff[bitbuf >> c*10 & 0x3ff];
+      }
+      else FORC3 {
 	for (dindex=first_decode; dindex->branch[0]; ) {
 	  if ((bit = (bit-1) & 31) == 31)
 	    for (i=0; i < 4; i++)
@@ -1890,6 +1946,7 @@ short * CLASS foveon_make_curve (double max, double mul, double filt)
   int i, size;
   double x;
 
+  if (!filt) filt = 0.8;
   size = 4*M_PI*max / filt;
   curve = calloc (size+1, sizeof *curve);
   merror (curve, "foveon_make_curve()");
@@ -1922,13 +1979,13 @@ void CLASS foveon_interpolate()
 {
   static const short hood[] = { -1,-1, -1,0, -1,1, 0,-1, 0,1, 1,-1, 1,0, 1,1 };
   short *pix, prev[3], *curve[8], (*shrink)[3];
-  float cfilt=0.8, ddft[3][3][2], ppm[3][3][3];
+  float cfilt=0, ddft[3][3][2], ppm[3][3][3];
   float cam_xyz[3][3], correct[3][3], last[3][3], trans[3][3];
   float chroma_dq[3], color_dq[3], diag[3][3], div[3];
   float (*black)[3], (*sgain)[3], (*sgrow)[3];
   float fsum[3], val, frow, num;
   int row, col, c, i, j, diff, sgx, irow, sum, min, max, limit;
-  int dim[3], dscr[2][2], (*smrow[7])[3], total[4], ipix[3];
+  int dim[3], dscr[2][2], dstb[4], (*smrow[7])[3], total[4], ipix[3];
   int work[3][3], smlast, smred, smred_p=0, dev[3];
   int satlev[3], keep[4], active[4];
   unsigned *badpix;
@@ -1937,8 +1994,6 @@ void CLASS foveon_interpolate()
 
   foveon_fixed (dscr, 4, "DarkShieldColRange");
   foveon_fixed (ppm[0][0], 27, "PostPolyMatrix");
-  foveon_fixed (ddft[1][0], 12, "DarkDrift");
-  foveon_fixed (&cfilt, 1, "ColumnFilter");
   foveon_fixed (satlev, 3, "SaturationLevel");
   foveon_fixed (keep, 4, "KeepImageArea");
   foveon_fixed (active, 4, "ActiveImageArea");
@@ -1946,6 +2001,19 @@ void CLASS foveon_interpolate()
   foveon_fixed (color_dq, 3,
 	foveon_camf_param ("IncludeBlocks", "ColorDQ") ?
 		"ColorDQ" : "ColorDQCamRGB");
+  if (foveon_camf_param ("IncludeBlocks", "ColumnFilter"))
+		 foveon_fixed (&cfilt, 1, "ColumnFilter");
+
+  memset (ddft, 0, sizeof ddft);
+  if (!foveon_camf_param ("IncludeBlocks", "DarkDrift")
+	 || !foveon_fixed (ddft[1][0], 12, "DarkDrift"))
+    for (i=0; i < 2; i++) {
+      foveon_fixed (dstb, 4, i ? "DarkShieldBottom":"DarkShieldTop");
+      for (row = dstb[1]; row <= dstb[3]; row++)
+	for (col = dstb[0]; col <= dstb[2]; col++)
+	  FORC3 ddft[i+1][c][1] += (short) image[row*width+col][c];
+      FORC3 ddft[i+1][c][1] /= (dstb[3]-dstb[1]+1) * (dstb[2]-dstb[0]+1);
+    }
 
   if (!(cp = foveon_camf_param ("WhiteBalanceIlluminants", model2)))
   { fprintf (stderr, "%s: Invalid white balance \"%s\"\n", ifname, model2);
@@ -2095,7 +2163,8 @@ void CLASS foveon_interpolate()
       memset (fsum, 0, sizeof fsum);
       for (sum=j=0; j < 8; j++)
 	if (badpix[i] & (1 << j)) {
-	  FORC3 fsum[c] += image[(row+hood[j*2])*width+col+hood[j*2+1]][c];
+	  FORC3 fsum[c] += (short)
+		image[(row+hood[j*2])*width+col+hood[j*2+1]][c];
 	  sum++;
 	}
       if (sum) FORC3 image[row*width+col][c] = fsum[c]/sum;
@@ -2137,12 +2206,12 @@ void CLASS foveon_interpolate()
   }
 
   /* Adjust the brighter pixels for better linearity */
+  min = 0xffff;
   FORC3 {
     i = satlev[c] / div[c];
-    if (maximum > i) maximum = i;
+    if (min > i) min = i;
   }
-  clip_max = maximum;
-  limit = maximum * 9 >> 4;
+  limit = min * 9 >> 4;
   for (pix=image[0]; pix < (short *) image[height*width]; pix+=4) {
     if (pix[0] <= limit || pix[1] <= limit || pix[2] <= limit)
       continue;
@@ -2151,10 +2220,14 @@ void CLASS foveon_interpolate()
       if (min > pix[c]) min = pix[c];
       if (max < pix[c]) max = pix[c];
     }
-    i = 0x4000 - ((min - limit) << 14) / limit;
-    i = 0x4000 - (i*i >> 14);
-    i = i*i >> 14;
-    FORC3 pix[c] += (max - pix[c]) * i >> 14;
+    if (min >= limit*2) {
+      pix[0] = pix[1] = pix[2] = max;
+    } else {
+      i = 0x4000 - ((min - limit) << 14) / limit;
+      i = 0x4000 - (i*i >> 14);
+      i = i*i >> 14;
+      FORC3 pix[c] += (max - pix[c]) * i >> 14;
+    }
   }
 /*
    Because photons that miss one detector often hit another,
@@ -3098,7 +3171,6 @@ int CLASS parse_tiff_ifd (int base, int level)
 	break;
       case 50706:			/* DNGVersion */
 	is_dng = 1;
-	if (flip == 7) flip = 4;	/* Adobe didn't read the TIFF spec. */
 	break;
       case 50710:			/* CFAPlaneColor */
 	if (len > 4) len = 4;
@@ -3507,7 +3579,12 @@ void CLASS parse_phase_one (int base)
   unsigned entries, tag, type, len, data, save, i, c;
   char *cp;
 
-  fseek (ifp, base+8, SEEK_SET);
+  fseek (ifp, base, SEEK_SET);
+  order = get4() & 0xffff;
+  i = get4();
+  if (i == 0x52617754) load_raw = phase_one_load_raw;    /* RawT */
+  if (i == 0x52617743) load_raw = phase_one_load_raw_c;  /* RawC */
+  if (!load_raw) return;
   fseek (ifp, get4()+base, SEEK_SET);
   entries = get4();
   get4();
@@ -3629,7 +3706,7 @@ char * CLASS foveon_gets (int offset, char *str, int len)
 
 void CLASS parse_foveon()
 {
-  int entries, off, len, tag, save, i, pent, poff[256][2];
+  int entries, off, len, tag, save, i, wide, high, pent, poff[256][2];
   char name[64];
 
   order = 0x4949;			/* Little-endian */
@@ -3649,11 +3726,15 @@ void CLASS parse_foveon()
     if (get4() != (0x20434553 | (tag << 24))) return;
     switch (tag) {
       case 0x47414d49:			/* IMAG */
-	if (data_offset) break;
-	data_offset = off + 28;
+      case 0x32414d49:			/* IMA2 */
 	fseek (ifp, 12, SEEK_CUR);
-	raw_width  = get4();
-	raw_height = get4();
+	wide = get4();
+	high = get4();
+	if (wide > raw_width && high > raw_height) {
+	  raw_width  = wide;
+	  raw_height = high;
+	  data_offset = off+24;
+	}
 	break;
       case 0x464d4143:			/* CAMF */
 	meta_offset = off+24;
@@ -3960,6 +4041,7 @@ int CLASS identify (int will_decode)
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
+  load_raw = NULL;
   raw_height = raw_width = fuji_width = flip = 0;
   height = width = top_margin = left_margin = 0;
   make[0] = model[0] = model2[0] = 0;
@@ -3987,8 +4069,8 @@ int CLASS identify (int will_decode)
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  if ((cp = memmem (head, 32, "MMMMRawT", 8)) ||
-      (cp = memmem (head, 32, "IIIITwaR", 8)))
+  if ((cp = memmem (head, 32, "MMMM", 4)) ||
+      (cp = memmem (head, 32, "IIII", 4)))
     parse_phase_one (cp-head);
   else if (order == 0x4949 || order == 0x4d4d) {
     if (!memcmp (head+6,"HEAPCCDR",8)) {
@@ -4083,10 +4165,6 @@ nucore:
     fprintf (stderr, "%s: unsupported file format.\n", ifname);
     return 1;
   }
-
-/*  File format is OK.  Do we support this camera? */
-/*  Start with some useful defaults:		   */
-
   if ((raw_height | raw_width) < 0)
        raw_height = raw_width  = 0;
   if (!height) height = raw_height;
@@ -4096,7 +4174,6 @@ nucore:
     height = width - 1;
     ymag = 1;
   }
-  load_raw = NULL;
   if (is_dng) {
     strcat (model," DNG");
     if (filters == UINT_MAX) filters = 0;
@@ -4123,7 +4200,7 @@ nucore:
 
   if (is_foveon) {
     if (height*2 < width) ymag = 2;
-    if (width < height) xmag = 2;
+    if (height   > width) xmag = 2;
     filters = 0;
     load_raw = foveon_load_raw;
     simple_coeff(0);
@@ -4501,9 +4578,6 @@ konica_400z:
     load_raw = unpacked_load_raw;
     filters = 0x49494949;
     pre_mul[1] = 1.218;
-  } else if (!strcmp(make,"Phase One")) {
-    load_raw = phase_one_load_raw;
-    maximum = 0xffff;
   } else if (!strcmp(make,"Imacon")) {
     height = 5444;
     width  = 4080;
@@ -5119,7 +5193,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.30"
+    "\nRaw Photo Decoder \"dcraw\" v7.35"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
