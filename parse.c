@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.41 $
-   $Date: 2005/06/27 05:12:08 $
+   $Revision: 1.42 $
+   $Date: 2005/06/27 20:22:12 $
  */
 
 #include <stdio.h>
@@ -948,7 +948,9 @@ void parse_phase_one (int base)
   unsigned entries, tag, type, len, data, save;
   char str[256];
 
-  fseek (ifp, base+8, SEEK_SET);
+  fseek (ifp, base, SEEK_SET);
+  order = get4() & 0xffff;
+  if (get4() >> 8 != 0x526177) return;
   fseek (ifp, base+get4(), SEEK_SET);
   entries = get4();
   get4();
@@ -1009,9 +1011,8 @@ int identify()
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   fsize = ftell(ifp);
-  if ((cp = memmem (head, 32, "MMMMRaw" , 7)) ||
-      (cp = memmem (head, 32, "IIIITwaR", 8)) ||
-      (cp = memmem (head, 32, "IIIICwaR", 8))) {
+  if ((cp = memmem (head, 32, "MMMM", 4)) ||
+      (cp = memmem (head, 32, "IIII", 4))) {
     parse_phase_one (cp-head);
     if (cp-head) parse_tiff (0);
   } else if (order == 0x4949 || order == 0x4d4d) {

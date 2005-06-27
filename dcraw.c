@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.264 $
-   $Date: 2005/06/27 05:12:08 $
+   $Revision: 1.265 $
+   $Date: 2005/06/27 20:22:12 $
  */
 
 #define _GNU_SOURCE
@@ -1179,7 +1179,7 @@ void CLASS phase_one_load_raw()
   fseek (ifp, nikon_curve_offset, SEEK_SET);
   akey = get2();
   bkey = get2();
-  mask = model[0] == 'P' ? 0x1354:0x5555;
+  mask = tiff_data_compression == 1 ? 0x5555:0x1354;
   fseek (ifp, data_offset + top_margin*raw_width*2, SEEK_SET);
   pixel = calloc (raw_width, sizeof *pixel);
   merror (pixel, "phase_one_load_raw()");
@@ -3581,10 +3581,7 @@ void CLASS parse_phase_one (int base)
 
   fseek (ifp, base, SEEK_SET);
   order = get4() & 0xffff;
-  i = get4();
-  if (i == 0x52617754) load_raw = phase_one_load_raw;    /* RawT */
-  if (i == 0x52617743) load_raw = phase_one_load_raw_c;  /* RawC */
-  if (!load_raw) return;
+  if (get4() >> 8 != 0x526177) return;		/* "Raw" */
   fseek (ifp, get4()+base, SEEK_SET);
   entries = get4();
   get4();
@@ -3611,6 +3608,7 @@ void CLASS parse_phase_one (int base)
       case 0x10b:  top_margin  = data;  break;
       case 0x10c:  width       = data;  break;
       case 0x10d:  height      = data;  break;
+      case 0x10e:  tiff_data_compression = data;  break;
       case 0x10f:  data_offset = data+base;  break;
       case 0x112:
 	nikon_curve_offset = save - 4;  break;
@@ -3621,6 +3619,8 @@ void CLASS parse_phase_one (int base)
     }
     fseek (ifp, save, SEEK_SET);
   }
+  load_raw = tiff_data_compression < 3 ?
+	phase_one_load_raw:phase_one_load_raw_c;
   strcpy (make, "Phase One");
   if (model[0]) return;
   sprintf (model, "%dx%d", width, height);
@@ -5193,7 +5193,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.35"
+    "\nRaw Photo Decoder \"dcraw\" v7.36"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
