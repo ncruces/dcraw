@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.265 $
-   $Date: 2005/06/27 20:22:12 $
+   $Revision: 1.266 $
+   $Date: 2005/07/06 05:44:34 $
  */
 
 #define _GNU_SOURCE
@@ -435,6 +435,8 @@ unsigned CLASS getbits (int nbits)
   unsigned c, ret;
 
   if (nbits == 0) return 0;
+  if (nbits == -2)
+    return ftell(ifp) + (-vbits >> 3);
   if (nbits == -1)
     ret = bitbuf = vbits = 0;
   else {
@@ -1778,6 +1780,147 @@ void CLASS sony_load_raw()
   if (left_margin > 9)
     black /= (left_margin-9) * height;
   maximum = 0x3ff0;
+}
+
+#define HOLE(row) ((holes >> (((row) - raw_height) & 7)) & 1)
+
+/* Kudos to Rich Taylor for figuring out SMaL's compression algorithm. */
+void CLASS smal_decode_segment (unsigned seg[2][2], int holes)
+{
+  uchar hist[3][13] = {
+    { 7, 7, 0, 0, 63, 55, 47, 39, 31, 23, 15, 7, 0 },
+    { 7, 7, 0, 0, 63, 55, 47, 39, 31, 23, 15, 7, 0 },
+    { 3, 3, 0, 0, 63,     47,     31,     15,    0 } };
+  int low, high=0xff, carry=0, nbits=8;
+  int s, count, bin, next, i, sym[3];
+  uchar diff, pred[]={0,0};
+  ushort data=0, range=0;
+  unsigned pix, row, col;
+
+  fseek (ifp, seg[0][1]+1, SEEK_SET);
+  getbits(-1);
+  for (pix=seg[0][0]; pix < seg[1][0]; pix++) {
+    for (s=0; s < 3; s++) {
+      data = data << nbits | getbits(nbits);
+      if (carry < 0)
+	carry = (nbits += carry+1) < 1 ? nbits-1 : 0;
+      while (--nbits >= 0)
+	if ((data >> nbits & 0xff) == 0xff) break;
+      if (nbits > 0)
+	  data = ((data & ((1 << (nbits-1)) - 1)) << 1) |
+	((data + (((data & (1 << (nbits-1)))) << 1)) & (-1 << nbits));
+      if (nbits >= 0) {
+	data += getbits(1);
+	carry = nbits - 8;
+      }
+      count = ((((data-range+1) & 0xffff) << 2) - 1) / (high >> 4);
+      for (bin=0; hist[s][bin+5] > count; bin++);
+		low = hist[s][bin+5] * (high >> 4) >> 2;
+      if (bin) high = hist[s][bin+4] * (high >> 4) >> 2;
+      high -= low;
+      for (nbits=0; high << nbits < 128; nbits++);
+      range = (range+low) << nbits;
+      high <<= nbits;
+      next = hist[s][1];
+      if (++hist[s][2] > hist[s][3]) {
+	next = (next+1) & hist[s][0];
+	hist[s][3] = (hist[s][next+4] - hist[s][next+5]) >> 2;
+	hist[s][2] = 1;
+      }
+      if (hist[s][hist[s][1]+4] - hist[s][hist[s][1]+5] > 1) {
+	if (bin < hist[s][1])
+	  for (i=bin; i < hist[s][1]; i++) hist[s][i+5]--;
+	else if (next <= bin)
+	  for (i=hist[s][1]; i < bin; i++) hist[s][i+5]++;
+      }
+      hist[s][1] = next;
+      sym[s] = bin;
+    }
+    diff = sym[2] << 5 | sym[1] << 2 | (sym[0] & 3);
+    if (sym[0] & 4)
+      diff = diff ? -diff : 0x80;
+    if (getbits(-2) + 12 > seg[1][1])
+      diff = 0;
+    pred[pix & 1] += diff;
+    row = pix / raw_width - top_margin;
+    col = pix % raw_width - left_margin;
+    if (row < height && col < width)
+      BAYER(row,col) = pred[pix & 1];
+    if (!(pix & 1) && HOLE(row)) pix += 2;
+  }
+  maximum = 0xff;
+}
+
+void CLASS smal_v6_load_raw()
+{
+  unsigned seg[2][2];
+
+  fseek (ifp, 16, SEEK_SET);
+  seg[0][0] = 0;
+  seg[0][1] = get2();
+  seg[1][0] = raw_width * raw_height;
+  seg[1][1] = INT_MAX;
+  smal_decode_segment (seg, 0);
+  use_gamma = 0;
+}
+
+int CLASS median4 (int *p)
+{
+  int min, max, sum, i;
+
+  min = max = sum = p[0];
+  for (i=1; i < 4; i++) {
+    sum += p[i];
+    if (min > p[i]) min = p[i];
+    if (max < p[i]) max = p[i];
+  }
+  return (sum - min - max) >> 1;
+}
+
+void CLASS fill_holes (int holes)
+{
+  int row, col, val[4];
+
+  for (row=2; row < height-2; row++) {
+    if (!HOLE(row)) continue;
+    for (col=1; col < width-1; col+=4) {
+      val[0] = BAYER(row-1,col-1);
+      val[1] = BAYER(row-1,col+1);
+      val[2] = BAYER(row+1,col-1);
+      val[3] = BAYER(row+1,col+1);
+      BAYER(row,col) = median4(val);
+    }
+    for (col=2; col < width-2; col+=4)
+      if (HOLE(row-2) || HOLE(row+2))
+	BAYER(row,col) = (BAYER(row,col-2) + BAYER(row,col+2)) >> 1;
+      else {
+	val[0] = BAYER(row,col-2);
+	val[1] = BAYER(row,col+2);
+	val[2] = BAYER(row-2,col);
+	val[3] = BAYER(row+2,col);
+	BAYER(row,col) = median4(val);
+      }
+  }
+}
+
+void CLASS smal_v9_load_raw()
+{
+  unsigned seg[256][2], offset, nseg, holes, i;
+
+  fseek (ifp, 67, SEEK_SET);
+  offset = get4();
+  nseg = fgetc(ifp);
+  fseek (ifp, offset, SEEK_SET);
+  for (i=0; i < nseg*2; i++)
+    seg[0][i] = get4() + data_offset*(i & 1);
+  fseek (ifp, 78, SEEK_SET);
+  holes = fgetc(ifp);
+  fseek (ifp, 88, SEEK_SET);
+  seg[nseg][0] = raw_height * raw_width;
+  seg[nseg][1] = get4() + data_offset;
+  for (i=0; i < nseg; i++)
+    smal_decode_segment (seg+i, holes);
+  if (holes) fill_holes (holes);
 }
 
 /* BEGIN GPL BLOCK */
@@ -3672,26 +3815,21 @@ void CLASS parse_jpeg (int offset)
 
 void CLASS parse_smal (int offset, int fsize)
 {
-  int i, ver;
+  int ver;
 
   fseek (ifp, offset+2, SEEK_SET);
   order = 0x4949;
   ver = fgetc(ifp);
   if (ver == 6)
     fseek (ifp, 5, SEEK_CUR);
-  else
-    if (ver >> 1 != 4) return;
   if (get4() != fsize) return;
-  if (ver > 6) get4();
+  if (ver > 6) data_offset = get4();
   raw_height = height = get2();
   raw_width  = width  = get2();
-  if (ver > 6) {
-    i = get2();
-    height = get2();
-    width  = get2();
-  }
   strcpy (make, "SMaL");
   sprintf (model, "v%d %dx%d", ver, width, height);
+  if (ver == 6) load_raw = smal_v6_load_raw;
+  if (ver == 9) load_raw = smal_v9_load_raw;
 }
 
 char * CLASS foveon_gets (int offset, char *str, int len)
@@ -5193,7 +5331,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.36"
+    "\nRaw Photo Decoder \"dcraw\" v7.38"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
