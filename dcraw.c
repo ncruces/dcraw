@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.266 $
-   $Date: 2005/07/06 05:44:34 $
+   $Revision: 1.267 $
+   $Date: 2005/07/07 03:40:57 $
  */
 
 #define _GNU_SOURCE
@@ -4164,6 +4164,7 @@ int CLASS identify (int will_decode)
     {  6218368, "CASIO",    "QV-5700"         ,0 },
     {  7530816, "CASIO",    "QV-R51"          ,1 },
     {  7684000, "CASIO",    "QV-4000"         ,0 },
+    {  4948608, "CASIO",    "EX-S100"         ,0 },
     {  7542528, "CASIO",    "EX-Z50"          ,1 },
     {  7753344, "CASIO",    "EX-Z55"          ,1 },
     {  7426656, "CASIO",    "EX-P505"         ,1 },
@@ -4172,6 +4173,8 @@ int CLASS identify (int will_decode)
     {  3178560, "PENTAX",   "Optio S"         ,1 },
     {  4841984, "PENTAX",   "Optio S"         ,1 },
     {  6114240, "PENTAX",   "Optio S4"        ,1 },  /* or S4i */
+    { 13248000, "Pixelink", "782c1"           ,0 },
+    {  6291456, "RoverShot","3320af"          ,0 },
     { 12582980, "Sinar",    ""           ,0 } };
   static const char *corp[] =
     { "Canon", "NIKON", "EPSON", "Kodak", "OLYMPUS", "PENTAX",
@@ -4216,7 +4219,7 @@ int CLASS identify (int will_decode)
       parse_ciff (hlen, fsize - hlen);
     } else {
       parse_tiff(0);
-      if (!strncmp(make,"NIKON",5) && filters == UINT_MAX)
+      if (!is_dng && !strncmp(make,"NIKON",5) && filters == UINT_MAX)
 	make[0] = 0;
     }
   } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
@@ -4716,6 +4719,21 @@ konica_400z:
     load_raw = unpacked_load_raw;
     filters = 0x49494949;
     pre_mul[1] = 1.218;
+  } else if (!strcmp(model,"782c1")) {
+    height = 3000;
+    width  = 2208;
+    filters = 0x61616161;
+    load_raw = unpacked_load_raw;
+    maximum = 0xffc0;
+  } else if (!strcmp(model,"3320af")) {
+    height = 1536;
+    width  = 2048;
+    order = 0x4949;
+    filters = 0x61616161;
+    load_raw = unpacked_load_raw;
+    maximum = 0x3ff;
+    pre_mul[0] = 1.717;
+    pre_mul[2] = 1.138;
   } else if (!strcmp(make,"Imacon")) {
     height = 5444;
     width  = 4080;
@@ -4970,6 +4988,11 @@ konica_400z:
     load_raw = packed_12_load_raw;
     pre_mul[0] = 1.340;
     pre_mul[2] = 1.672;
+  } else if (!strcmp(model,"EX-S100")) {
+    height = 1544;
+    width  = 2058;
+    raw_width = 3136;
+    load_raw = packed_12_load_raw;
   } else if (!strcmp(model,"EX-Z50")) {
     height = 1931;
     width  = 2570;
@@ -5331,7 +5354,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.38"
+    "\nRaw Photo Decoder \"dcraw\" v7.39"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
