@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.42 $
-   $Date: 2005/06/27 20:22:12 $
+   $Revision: 1.43 $
+   $Date: 2005/07/14 02:12:12 $
  */
 
 #include <stdio.h>
@@ -211,7 +211,8 @@ void nef_parse_makernote (base)
     count= get4();
     tiff_dump (base, tag, type, count, 2);
     if (tag == 0x1d)
-      fscanf (ifp, "%d", &serial);
+      while ((val = fgetc(ifp)))
+	serial = serial*10 + (isdigit(val) ? val - '0' : val % 10);
     if (tag == 0x91)
       fread (buf91, sizeof buf91, 1, ifp);
     if (tag == 0x97)
@@ -247,9 +248,12 @@ void nef_parse_makernote (base)
       parse_tiff_ifd (base, 3);
     fseek (ifp, save+12, SEEK_SET);
   }
-  nikon_decrypt (serial, key, 0x91,   4, sizeof buf91, buf91);
-  nikon_decrypt (serial, key, 0x97, 284, sizeof buf97, buf97);
-  nikon_decrypt (serial, key, 0x98,   4, sizeof buf98, buf98);
+  nikon_decrypt (serial, key, 0x91, 4, sizeof buf91, buf91);
+  if (!strncmp (buf97, "0205", 4))
+    nikon_decrypt (serial, key, 0x97, 4, 284, buf97);
+  else
+    nikon_decrypt (serial, key, 0x97, 284, sizeof buf97, buf97);
+  nikon_decrypt (serial, key, 0x98, 4, sizeof buf98, buf98);
   order = sorder;
 }
 
