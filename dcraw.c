@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.268 $
-   $Date: 2005/07/13 07:25:45 $
+   $Revision: 1.269 $
+   $Date: 2005/07/14 02:13:45 $
  */
 
 #define _GNU_SOURCE
@@ -3079,7 +3079,8 @@ void CLASS parse_makernote()
       if (tag == 0x1c) tag = 0x1017;
     }
     if (tag == 0x1d)
-      fscanf (ifp, "%d", &serial);
+      while ((c = fgetc(ifp)))
+	serial = serial*10 + (isdigit(c) ? c - '0' : c % 10);
     if (tag == 0x8c)
       nikon_curve_offset = ftell(ifp) + 2112;
     if (tag == 0x96)
@@ -3100,7 +3101,7 @@ void CLASS parse_makernote()
 	  FORC4 cam_mul[c] = get2();
       }
       if (ver97 >> 8 == 2) {
-	fseek (ifp, 280, SEEK_CUR);
+	if (ver97 != 0x205) fseek (ifp, 280, SEEK_CUR);
 	fread (buf97, 324, 1, ifp);
       }
     }
@@ -3110,7 +3111,8 @@ void CLASS parse_makernote()
       ck = 0x60;
       for (i=0; i < 324; i++)
 	buf97[i] ^= (cj += ci * ck++);
-      FORC4 cam_mul[c ^ (c >> 1)] = sget2 (buf97+6+c*2);
+      FORC4 cam_mul[c ^ (c >> 1)] =
+	sget2 (buf97 + (ver97 == 0x205 ? 14:6) + c*2);
     }
     if (tag == 0xe0 && len == 17) {
       get2();
@@ -4056,6 +4058,8 @@ void CLASS adobe_coeff()
 	{ 5710,-901,-615,-8594,16617,2024,-2975,4120,6830 } },
     { "NIKON D2X",
 	{ 10231,-2769,-1255,-8301,15900,2552,-797,680,7148 } },
+    { "NIKON D50",
+	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON D70",
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON E995",	/* copied from E5000 */
@@ -4169,7 +4173,7 @@ int CLASS identify (int will_decode)
     {   124928, "Kodak",    "DC20"            ,0 },
     {   311696, "ST Micro", "STV680 VGA"      ,0 },  /* SPYz */
     {   787456, "Creative", "PC-CAM 600"      ,0 },
-    {  3840000, "Foculus",  "503c"            ,0 },
+    {  3840000, "Foculus",  "531C"            ,0 },
     {  1920000, "AVT",      "F-201C"          ,0 },
     {  5067304, "AVT",      "F-510C"          ,0 },
     { 10134608, "AVT",      "F-510C"          ,0 },
@@ -4183,14 +4187,14 @@ int CLASS identify (int will_decode)
     {  4771840, "NIKON",    "E990"            ,1 },  /* or E995 */
     {  4775936, "NIKON",    "E3700"           ,1 },  /* or Optio 33WR */
     {  5869568, "NIKON",    "E4300"           ,1 },  /* or DiMAGE Z2 */
-    {  5865472, "NIKON",    "E4500"           ,0 },
+    {  5865472, "NIKON",    "E4500"           ,1 },
     {  7438336, "NIKON",    "E5000"           ,1 },  /* or E5700 */
-    {  1976352, "CASIO",    "QV-2000UX"       ,0 },
-    {  3217760, "CASIO",    "QV-3*00EX"       ,0 },
-    {  6218368, "CASIO",    "QV-5700"         ,0 },
+    {  1976352, "CASIO",    "QV-2000UX"       ,1 },
+    {  3217760, "CASIO",    "QV-3*00EX"       ,1 },
+    {  6218368, "CASIO",    "QV-5700"         ,1 },
     {  7530816, "CASIO",    "QV-R51"          ,1 },
-    {  7684000, "CASIO",    "QV-4000"         ,0 },
-    {  4948608, "CASIO",    "EX-S100"         ,0 },
+    {  7684000, "CASIO",    "QV-4000"         ,1 },
+    {  4948608, "CASIO",    "EX-S100"         ,1 },
     {  7542528, "CASIO",    "EX-Z50"          ,1 },
     {  7753344, "CASIO",    "EX-Z55"          ,1 },
     {  7426656, "CASIO",    "EX-P505"         ,1 },
@@ -4737,7 +4741,7 @@ konica_400z:
     black = 16;
     pre_mul[0] = 1.097;
     pre_mul[2] = 1.128;
-  } else if (!strcmp(model,"503c")) {
+  } else if (!strcmp(model,"531C")) {
     height = 1200;
     width  = 1600;
     load_raw = unpacked_load_raw;
@@ -5013,7 +5017,7 @@ konica_400z:
     width  = 1632;
     data_offset = width * 2;
     load_raw = eight_bit_load_raw;
-  } else if (!strcmp(model,"QV-3*00EX")) {
+  } else if (fsize == 3217760) {
     height = 1546;
     width  = 2070;
     raw_width = 2080;
@@ -5039,6 +5043,8 @@ konica_400z:
     width  = 2058;
     raw_width = 3136;
     load_raw = packed_12_load_raw;
+    pre_mul[0] = 1.631;
+    pre_mul[2] = 1.106;
   } else if (!strcmp(model,"EX-Z50")) {
     height = 1931;
     width  = 2570;
@@ -5400,7 +5406,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.40"
+    "\nRaw Photo Decoder \"dcraw\" v7.42"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
