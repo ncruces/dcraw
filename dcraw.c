@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.270 $
-   $Date: 2005/07/20 22:41:33 $
+   $Revision: 1.271 $
+   $Date: 2005/07/29 04:06:08 $
  */
 
 #define _GNU_SOURCE
@@ -223,10 +223,11 @@ double CLASS getrat()
   return num / get4();
 }
 
-float CLASS get_float()
+float CLASS int_to_float (int i)
 {
-  int i = get4();
-  return *((float *) &i);
+  union { int i; float f; } u;
+  u.i = i;
+  return u.f;
 }
 
 void CLASS read_shorts (ushort *pixel, int count)
@@ -3627,9 +3628,9 @@ common:
     if (type == 0x580e)
       timestamp = len;
     if (type == 0x5813)
-      flash_used = *((float *) &len);
+      flash_used = int_to_float(len);
     if (type == 0x5814)
-      canon_5814 = *((float *) &len);
+      canon_5814 = int_to_float(len);
     if (type == 0x1810) {		/* Get the rotation */
       fseek (ifp, aoff+12, SEEK_SET);
       flip = get4();
@@ -3748,9 +3749,9 @@ void CLASS parse_phase_one (int base)
       case 0x107:
 	for (i=0; i < 3; i++)
 	  if (tag == 0x106)
-	    FORC3 coeff[i][c] = get_float();
+	    FORC3 coeff[i][c] = int_to_float(get4());
 	  else
-	    cam_mul[i] = pre_mul[i] = get_float();
+	    cam_mul[i] = pre_mul[i] = int_to_float(get4());
 	break;
       case 0x108:  raw_width   = data;  break;
       case 0x109:  raw_height  = data;  break;

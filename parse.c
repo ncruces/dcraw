@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.43 $
-   $Date: 2005/07/14 02:12:12 $
+   $Revision: 1.44 $
+   $Date: 2005/07/29 04:06:08 $
  */
 
 #include <stdio.h>
@@ -76,10 +76,11 @@ int get4()
   return sget4(str);
 }
 
-float get_float()
+float int_to_float (int i)
 {
-  int i = get4();
-  return *((float *) &i);
+  union { int i; float f; } u;
+  u.i = i;
+  return u.f;
 }
 
 void tiff_dump(int base, int tag, int type, int count, int level)
@@ -554,7 +555,7 @@ void parse_mos(int level)
     printf ("%s %d bytes: ", data, skip);
     if (!strcmp(data,"icc_camera_to_tone_matrix")) {
       for (i=0; i < skip/4; i++)
-	printf ("%f ", get_float());
+	printf ("%f ", int_to_float(get4()));
       putchar('\n');
       continue;
     }
@@ -741,7 +742,7 @@ void parse_foveon()
 			break;
 		      case 3:
 			val = sget4(dp);
-			printf (" %9f", *(float *)(&val));
+			printf (" %9f", int_to_float(val));
 			dp += 4;
 		    }
 		  printf ("\n");
@@ -974,7 +975,7 @@ void parse_phase_one (int base)
     }
     if (tag != 0x21c && type == 4 && len > 4) {
       for ( ; len > 0; len -= 4)
-	printf ("%f ", get_float());
+	printf ("%f ", int_to_float(get4()));
       puts ("");
     }
     if (tag == 0x110) {
