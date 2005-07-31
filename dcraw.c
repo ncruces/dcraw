@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.271 $
-   $Date: 2005/07/29 04:06:08 $
+   $Revision: 1.272 $
+   $Date: 2005/07/31 02:51:11 $
  */
 
 #define _GNU_SOURCE
@@ -432,23 +432,22 @@ void CLASS canon_a5_load_raw()
 unsigned CLASS getbits (int nbits)
 {
   static unsigned long bitbuf=0;
-  static int vbits=0;
+  static int vbits=0, reset=0;
   unsigned c, ret;
 
-  if (nbits == 0) return 0;
+  if (nbits == 0 || nbits > vbits) return 0;
   if (nbits == -2)
     return ftell(ifp) + (-vbits >> 3);
   if (nbits == -1)
-    ret = bitbuf = vbits = 0;
+    ret = bitbuf = vbits = reset = 0;
   else {
     ret = bitbuf << (LONG_BIT - vbits) >> (LONG_BIT - nbits);
     vbits -= nbits;
   }
-  while (vbits < LONG_BIT - 7) {
+  while (!reset && vbits < LONG_BIT - 7) {
     c = fgetc(ifp);
+    if ((reset = zero_after_ff && c == 0xff && fgetc(ifp))) break;
     bitbuf = (bitbuf << 8) + c;
-    if (c == 0xff && zero_after_ff)
-      fgetc(ifp);
     vbits += 8;
   }
   return ret;
@@ -681,7 +680,7 @@ void CLASS canon_compressed_load_raw()
    enough to decode Canon, Kodak and Adobe DNG images.
  */
 struct jhead {
-  int bits, high, wide, clrs, vpred[4];
+  int bits, high, wide, clrs, restart, vpred[4];
   struct CLASS decode *huff[4];
   ushort *row;
 };
@@ -694,6 +693,7 @@ int CLASS ljpeg_start (struct jhead *jh)
   init_decoder();
   for (i=0; i < 4; i++)
     jh->huff[i] = free_decode;
+  jh->restart = INT_MAX;
   fread (data, 2, 1, ifp);
   if (data[0] != 0xff || data[1] != 0xd8) return 0;
   do {
@@ -714,14 +714,14 @@ int CLASS ljpeg_start (struct jhead *jh)
 	  jh->huff[*dp] = free_decode;
 	  dp = make_decoder (++dp, 0);
 	}
+	break;
+      case 0xffdd:
+	jh->restart = data[0] << 8 | data[1];
     }
   } while (tag != 0xffda);
   jh->row = calloc (jh->wide*jh->clrs, 2);
   merror (jh->row, "ljpeg_start()");
-  for (i=0; i < 4; i++)
-    jh->vpred[i] = 1 << (jh->bits-1);
   zero_after_ff = 1;
-  getbits(-1);
   return 1;
 }
 
@@ -737,11 +737,15 @@ int CLASS ljpeg_diff (struct decode *dindex)
   return diff;
 }
 
-void CLASS ljpeg_row (struct jhead *jh)
+void CLASS ljpeg_row (int jrow, struct jhead *jh)
 {
   int col, c, diff;
   ushort *outp=jh->row;
 
+  if (jrow * jh->wide % jh->restart == 0) {
+    FORC4 jh->vpred[c] = 1 << (jh->bits-1);
+    getbits(-1);
+  }
   for (col=0; col < jh->wide; col++)
     for (c=0; c < jh->clrs; c++) {
       diff = ljpeg_diff (jh->huff[c]);
@@ -760,9 +764,11 @@ void CLASS lossless_jpeg_load_raw()
   jwide = jh.wide * jh.clrs;
 
   for (jrow=0; jrow < jh.high; jrow++) {
-    ljpeg_row (&jh);
+    ljpeg_row (jrow, &jh);
     for (jcol=0; jcol < jwide; jcol++) {
-      val = curve[jh.row[jcol]];
+      val = jh.row[jcol];
+      if (jh.bits <= 12)
+	val = curve[val];
       jidx = jrow*jwide + jcol;
       if (raw_width == 5108) {
 	i = jidx / (1680*jh.high);
@@ -842,7 +848,7 @@ void CLASS adobe_dng_load_raw_lj()
 	twide = raw_width-tcol;
 
     for (jrow=0; jrow < jh.high; jrow++) {
-      ljpeg_row (&jh);
+      ljpeg_row (jrow, &jh);
       for (rp=jh.row, jcol=0; jcol < twide; jcol++)
 	adobe_copy_pixel (trow+jrow, tcol+jcol, &rp);
     }
@@ -3214,6 +3220,8 @@ void CLASS parse_exif (int base)
   }
 }
 
+void parse_mos(int offset);
+
 int CLASS parse_tiff_ifd (int base, int level)
 {
   unsigned entries, tag, type, len, plen=16, save;
@@ -3318,6 +3326,9 @@ int CLASS parse_tiff_ifd (int base, int level)
 	if (cfa == 070) memcpy (cfa_pc,"\003\004\005",3);	/* CMY */
 	if (cfa == 072) memcpy (cfa_pc,"\005\003\004\001",4);	/* GMCY */
 	goto guess_cfa_pc;
+      case 34310:
+	parse_mos (ftell(ifp));
+	break;
       case 34665:			/* EXIF tag */
 	fseek (ifp, get4()+base, SEEK_SET);
 	parse_exif (base);
@@ -4813,6 +4824,8 @@ konica_400z:
     maximum = 0xffff;
   } else if (!strcmp(make,"Leaf")) {
     load_raw = unpacked_load_raw;
+    if (tiff_data_compression == 99)
+      load_raw = lossless_jpeg_load_raw;
     maximum = 0x3fff;
     strcpy (model, "Valeo");
     if (filters == 0) {
@@ -5414,7 +5427,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.43"
+    "\nRaw Photo Decoder \"dcraw\" v7.45"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
