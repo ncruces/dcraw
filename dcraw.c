@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.272 $
-   $Date: 2005/07/31 02:51:11 $
+   $Revision: 1.273 $
+   $Date: 2005/08/01 06:28:03 $
  */
 
 #define _GNU_SOURCE
@@ -91,7 +91,7 @@ int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, tiff_samples;
 int black, maximum, clip_max, clip_color=1;
 int iheight, iwidth, shrink;
-int is_dng, is_canon, is_foveon, use_coeff, use_gamma;
+int dng_version, is_canon, is_foveon, use_coeff, use_gamma;
 int trim, flip, xmag, ymag;
 int zero_after_ff;
 unsigned filters;
@@ -731,7 +731,10 @@ int CLASS ljpeg_diff (struct decode *dindex)
 
   while (dindex->branch[0])
     dindex = dindex->branch[getbits(1)];
-  diff = getbits (len = dindex->leaf);
+  len = dindex->leaf;
+  if (len == 16 && (!dng_version || dng_version >= 0x1010000))
+    return -32768;
+  diff = getbits(len);
   if ((diff & (1 << (len-1))) == 0)
     diff -= (1 << len) - 1;
   return diff;
@@ -808,8 +811,10 @@ void CLASS lossless_jpeg_load_raw()
 
 void CLASS adobe_copy_pixel (int row, int col, ushort **rp)
 {
-  unsigned r=row, c=col;
+  unsigned r, c;
 
+  r = row -= top_margin;
+  c = col -= left_margin;
   if (fuji_secondary && use_secondary) (*rp)++;
   if (filters) {
     if (fuji_width) {
@@ -819,11 +824,12 @@ void CLASS adobe_copy_pixel (int row, int col, ushort **rp)
     if (r < height && c < width)
       BAYER(r,c) = **rp < 0x1000 ? curve[**rp] : **rp;
     *rp += 1 + fuji_secondary;
-  } else
-    for (c=0; c < tiff_samples; c++) {
-      image[row*width+col][c] = **rp < 0x1000 ? curve[**rp] : **rp;
-      (*rp)++;
-    }
+  } else {
+    if (r < height && c < width)
+      for (c=0; c < tiff_samples; c++)
+	image[row*width+col][c] = (*rp)[c] < 0x1000 ? curve[(*rp)[c]]:(*rp)[c];
+    *rp += tiff_samples;
+  }
   if (fuji_secondary && use_secondary) (*rp)--;
 }
 
@@ -3230,7 +3236,6 @@ int CLASS parse_tiff_ifd (int base, int level)
   char software[64];
   static const int flip_map[] = { 0,1,3,2,4,6,7,5 };
   uchar cfa_pat[16], cfa_pc[] = { 0,1,2,3 }, tab[256];
-  ushort scale[4];
   double dblack, cc[4][4], cm[4][3], cam_xyz[4][3];
   double ab[]={ 1,1,1,1 }, asn[] = { 0,0,0,0 }, xyz[] = { 1,1,1 };
 
@@ -3304,7 +3309,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	}
 	break;
       case 0x14a:			/* SubIFD tag */
-	if (len > 2 && !is_dng && !strcmp(make,"Kodak"))
+	if (len > 2 && !dng_version && !strcmp(make,"Kodak"))
 	    len = 2;
 	while (len--) {
 	  i = ftell(ifp);
@@ -3341,7 +3346,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	done = 1;
 	break;
       case 50706:			/* DNGVersion */
-	is_dng = 1;
+	FORC4 dng_version = (dng_version << 8) + fgetc(ifp);
 	break;
       case 50710:			/* CFAPlaneColor */
 	if (len > 4) len = 4;
@@ -3378,9 +3383,11 @@ guess_cfa_pc:
 	maximum = get2();
 	break;
       case 50718:			/* DefaultScale */
-	for (i=0; i < 4; i++)
-	  scale[i] = get4();
-	if (scale[1]*scale[2] == 2*scale[0]*scale[3]) ymag = 2;
+	i  = get4();
+	j  = get4() * get4();
+	i *= get4();
+	if (i > j) xmag = i / j;
+	else	   ymag = j / i;
 	break;
       case 50721:			/* ColorMatrix1 */
       case 50722:			/* ColorMatrix2 */
@@ -3402,6 +3409,12 @@ guess_cfa_pc:
 	xyz[0] = getrat();
 	xyz[1] = getrat();
 	xyz[2] = 1 - xyz[0] - xyz[1];
+	break;
+      case 50829:			/* ActiveArea */
+	top_margin = get4();
+	left_margin = get4();
+	height = get4() - top_margin;
+	width = get4() - left_margin;
     }
     fseek (ifp, save+4, SEEK_SET);
   }
@@ -3432,7 +3445,7 @@ void CLASS parse_tiff (int base)
     fseek (ifp, doff+base, SEEK_SET);
     if (parse_tiff_ifd (base, 0)) break;
   }
-  if (!is_dng && !strncmp(make,"Kodak",5)) {
+  if (!dng_version && !strncmp(make,"Kodak",5)) {
     fseek (ifp, 12+base, SEEK_SET);
     parse_tiff_ifd (base, 2);
   }
@@ -4234,7 +4247,7 @@ int CLASS identify (int will_decode)
   memset (white, 0, sizeof white);
   timestamp = tiff_samples = 0;
   data_offset = meta_length = tiff_data_compression = 0;
-  zero_after_ff = is_dng = fuji_secondary = 0;
+  zero_after_ff = dng_version = fuji_secondary = 0;
   black = is_foveon = use_coeff = 0;
   use_gamma = xmag = ymag = 1;
   filters = UINT_MAX;	/* 0 = no filters, UINT_MAX = unknown */
@@ -4264,7 +4277,7 @@ int CLASS identify (int will_decode)
       parse_ciff (hlen, fsize - hlen);
     } else {
       parse_tiff(0);
-      if (!is_dng && !strncmp(make,"NIKON",5) && filters == UINT_MAX)
+      if (!dng_version && !strncmp(make,"NIKON",5) && filters == UINT_MAX)
 	make[0] = 0;
     }
   } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
@@ -4358,9 +4371,9 @@ nucore:
   if (fuji_width) {
     width = height + fuji_width;
     height = width - 1;
-    ymag = 1;
+    xmag = ymag = 1;
   }
-  if (is_dng) {
+  if (dng_version) {
     strcat (model," DNG");
     if (filters == UINT_MAX) filters = 0;
     if (!filters)
@@ -5427,7 +5440,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.45"
+    "\nRaw Photo Decoder \"dcraw\" v7.46"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
