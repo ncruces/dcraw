@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.273 $
-   $Date: 2005/08/01 06:28:03 $
+   $Revision: 1.274 $
+   $Date: 2005/08/06 01:04:30 $
  */
 
 #define _GNU_SOURCE
@@ -2711,11 +2711,11 @@ void CLASS colorcheck()
   for (sq=0; sq < NSQ; sq++) {
     FORCC count[c] = 0;
     for   (row=cut[sq][3]; row < cut[sq][3]+cut[sq][1]; row++)
-      for (col=cut[sq][2]; col < cut[sq][2]+cut[sq][0]; col++)
-	FORCC if (image[row*width+col][c]) {
-	  gmb_cam[sq][c] += image[row*width+col][c];
-	  count[c]++;
-	}
+      for (col=cut[sq][2]; col < cut[sq][2]+cut[sq][0]; col++) {
+	c = FC(row,col);
+	gmb_cam[sq][c] += BAYER(row,col);
+	count[c]++;
+      }
     FORCC gmb_cam[sq][c] /= count[c];
   }
   for (b=0; b < 2000; b++) {
@@ -3145,6 +3145,19 @@ void CLASS parse_makernote()
       goto get2_rggb;
     if (tag == 0x401 && len == 4) {
       black = (get4()+get4()+get4()+get4())/4;
+    }
+    if (tag == 0xe01) {		/* Nikon Capture Note */
+      type = order;
+      order = 0x4949;
+      fseek (ifp, 22, SEEK_CUR);
+      for (offset=22; offset+22 < len; offset += 22+i) {
+	tag = get4();
+	fseek (ifp, 14, SEEK_CUR);
+	i = get4()-4;
+	if (tag == 0x76a43207) flip = get2();
+	else fseek (ifp, i, SEEK_CUR);
+      }
+      order = type;
     }
     if (tag == 0xe80 && len == 256 && type == 7) {
       fseek (ifp, 48, SEEK_CUR);
@@ -4022,6 +4035,8 @@ void CLASS adobe_coeff()
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
     { "FUJIFILM FinePix S7000",
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
+    { "KODAK NC2000F",		/* DJC */
+	{ 16475,-6903,-1218,-851,10375,477,2505,-7,1020 } },
     { "Kodak DCS315C",
 	{ 17523,-4827,-2510,756,8546,-137,6113,1649,2250 } },
     { "Kodak DCS330C",
@@ -4074,6 +4089,8 @@ void CLASS adobe_coeff()
 	{ 9097,-2726,-1053,-8073,15506,2762,-966,981,7763 } },
     { "MINOLTA DiMAGE Z2",	/* DJC */
 	{ 11222,-3449,-1675,-5789,13566,2225,-2339,2670,5549 } },
+    { "MINOLTA DYNAX 5D",
+	{ 10284,-3283,-1086,-7957,15762,2316,-829,882,6644 } },
     { "MINOLTA DYNAX 7D",
 	{ 10239,-3104,-1099,-8037,15727,2451,-927,925,6871 } },
     { "NIKON D100",
@@ -4699,6 +4716,7 @@ dimage_z2:
     } else if (!strncmp(model,"ALPHA",5) ||
 	       !strncmp(model,"DYNAX",5) ||
 	       !strncmp(model,"MAXXUM",6)) {
+      sprintf (model, "DYNAX%s", strchr (model,' '));
       load_raw = packed_12_load_raw;
       maximum = 0xffb;
     } else if (!strncmp(model,"DiMAGE G",8)) {
@@ -4900,11 +4918,7 @@ konica_400z:
     filters = 0x61616161;
     if (!strcmp(model,"NC2000F")) {
       width -= 4;
-      left_margin = 1;
-      for (i=176; i < 0x1000; i++)
-	curve[i] = curve[i-1];
-      pre_mul[0] = 1.509;
-      pre_mul[2] = 2.686;
+      left_margin = 2;
     } else if (!strcmp(model,"EOSDCS3B")) {
       width -= 4;
       left_margin = 2;
@@ -5440,7 +5454,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.46"
+    "\nRaw Photo Decoder \"dcraw\" v7.48"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
