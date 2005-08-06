@@ -6,8 +6,8 @@
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.45 $
-   $Date: 2005/07/31 02:51:11 $
+   $Revision: 1.46 $
+   $Date: 2005/08/06 01:06:41 $
  */
 
 #include <stdio.h>
@@ -119,6 +119,26 @@ void tiff_dump(int base, int tag, int type, int count, int level)
   if (type==2) putchar('\"');
   putchar('\n');
   fseek (ifp, save, SEEK_SET);
+}
+
+void parse_nikon_capture_note (int length)
+{
+  unsigned sorder, offset, tag, j, size;
+
+  puts ("    Nikon Capture Note:");
+  sorder = order;
+  order = 0x4949;
+  fseek (ifp, 22, SEEK_CUR);
+  for (offset=22; offset+22 < length; offset += 22+size) {
+    tag = get4();
+    fseek (ifp, 14, SEEK_CUR);
+    size = get4()-4;
+    printf("      tag=0x%08x, size=%d", tag, size);
+    for (j=0; j < size; j++)
+      printf ("%s%02x", j & 31 ? " ":"\n\t", fgetc(ifp));
+    puts("");
+  }
+  order = sorder;
 }
 
 void nikon_decrypt (uchar ci, uchar cj, int tag, int i, int size, uchar *buf)
@@ -247,6 +267,8 @@ void nef_parse_makernote (base)
     }
     if (!strcmp (buf,"OLYMP") && tag >> 8 == 0x20)
       parse_tiff_ifd (base, 3);
+    if (tag == 0xe01)
+      parse_nikon_capture_note (count);
     fseek (ifp, save+12, SEEK_SET);
   }
   nikon_decrypt (serial, key, 0x91, 4, sizeof buf91, buf91);
