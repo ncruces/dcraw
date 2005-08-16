@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.275 $
-   $Date: 2005/08/12 21:03:34 $
+   $Revision: 1.276 $
+   $Date: 2005/08/16 08:48:10 $
  */
 
 #define _GNU_SOURCE
@@ -1342,6 +1342,34 @@ void CLASS olympus_cseries_load_raw()
     for (col=0; col < width; col++)
       BAYER(row,col) = getbits(12);
   }
+}
+
+void CLASS minolta_rd175_load_raw()
+{
+  uchar pixel[768];
+  unsigned irow, box, row, col;
+
+  for (irow=0; irow < 1481; irow++) {
+    fread (pixel, 1, 768, ifp);
+    box = irow / 82;
+    row = irow % 82 * 12 + ((box < 12) ? box | 1 : (box-12)*2);
+    switch (irow) {
+      case 1477: case 1479: continue;
+      case 1476: row = 984; break;
+      case 1480: row = 985; break;
+      case 1478: row = 985; box = 1;
+    }
+    if ((box < 12) && (box & 1)) {
+      for (col=0; col < 1533; col++, row ^= 1)
+	if (col != 1) BAYER(row,col) = (col+1) & 2 ?
+		   pixel[col/2-1] + pixel[col/2+1] : pixel[col/2] << 1;
+      BAYER(row,1)    = pixel[1]   << 1;
+      BAYER(row,1533) = pixel[765] << 1;
+    } else
+      for (col=row & 1; col < 1534; col+=2)
+	BAYER(row,col) = pixel[col/2] << 1;
+  }
+  maximum = 0xff << 1;
 }
 
 void CLASS eight_bit_load_raw()
@@ -4220,6 +4248,7 @@ int CLASS identify (int will_decode)
     {   124928, "Kodak",    "DC20"            ,0 },
     {   311696, "ST Micro", "STV680 VGA"      ,0 },  /* SPYz */
     {   787456, "Creative", "PC-CAM 600"      ,0 },
+    {  1138688, "Minolta",  "RD175"           ,0 },
     {  3840000, "Foculus",  "531C"            ,0 },
     {  1920000, "AVT",      "F-201C"          ,0 },
     {  5067304, "AVT",      "F-510C"          ,0 },
@@ -4693,6 +4722,12 @@ dimage_z2:
     filters = 0x49494949;
     load_raw = fuji_f700_load_raw;
     maximum = 0x3e00;
+  } else if (!strcmp(model,"RD175")) {
+    height = 986;
+    width = 1534;
+    data_offset = 513;
+    filters = 0x61616161;
+    load_raw = minolta_rd175_load_raw;
   } else if (!strcmp(model,"Digital Camera KD-400Z")) {
     height = 1712;
     width  = 2312;
@@ -4799,7 +4834,7 @@ konica_400z:
     filters = 0x49494949;
     pre_mul[1] = 1.218;
   } else if (!strcmp(model,"F-201C")) {
-    height = 1210;
+    height = 1200;
     width  = 1600;
     load_raw = eight_bit_load_raw;
   } else if (!strcmp(model,"F-510C")) {
@@ -5460,7 +5495,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.49"
+    "\nRaw Photo Decoder \"dcraw\" v7.50"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
