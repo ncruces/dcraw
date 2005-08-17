@@ -1,13 +1,15 @@
 /*
    Raw Photo Parser
-   Copyright 2004 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 2004-2005 by Dave Coffin, dcoffin a cybercom o net
 
    This program extracts thumbnail images (preferably JPEGs)
    from any raw digital camera formats that have them, and
    shows table contents.
 
-   $Revision: 1.46 $
-   $Date: 2005/08/06 01:06:41 $
+   This code is free for all uses.
+
+   $Revision: 1.47 $
+   $Date: 2005/08/17 04:06:10 $
  */
 
 #include <stdio.h>
@@ -31,8 +33,9 @@ typedef long long INT64;
 #define DLEN 768
 #endif
 
+#define ushort UshORt
 typedef unsigned char uchar;
-//typedef unsigned short ushort;
+typedef unsigned short ushort;
 
 FILE *ifp;
 short order;
