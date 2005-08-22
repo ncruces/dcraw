@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.276 $
-   $Date: 2005/08/16 08:48:10 $
+   $Revision: 1.277 $
+   $Date: 2005/08/22 06:13:13 $
  */
 
 #define _GNU_SOURCE
@@ -1005,9 +1005,11 @@ int CLASS nikon_e2100()
 }
 
 /*
-   Separates a Pentax Optio 33WR from a Nikon E3700.
+   Returns 0 for a Pentax Optio 33WR,
+	   1 for a Nikon E3700,
+	   2 for an Olympus C740UZ.
  */
-int CLASS pentax_optio33()
+int CLASS nikon_3700()
 {
   int i, sum[] = { 0, 0 };
   uchar tail[952];
@@ -1016,7 +1018,8 @@ int CLASS pentax_optio33()
   fread (tail, 1, sizeof tail, ifp);
   for (i=0; i < sizeof tail; i++)
     sum[(i>>2) & 1] += tail[i];
-  return sum[0] < sum[1]*4;
+  if (sum[1] > 4*sum[0]) return 2;
+  return sum[0] > 4*sum[1];
 }
 
 /*
@@ -4625,24 +4628,23 @@ cp_e2500:
     width  = 1616;
     colors = 4;
     filters = 0x4b4b4b4b;
-  } else if (!strcmp(model,"E3700")) {
-    if (!timestamp && pentax_optio33()) goto optio_33wr;
+  } else if (fsize == 4775936) {
     height = 1542;
     width  = 2064;
     load_raw = nikon_e2100_load_raw;
     pre_mul[0] = 1.818;
     pre_mul[2] = 1.618;
-  } else if (!strcmp(model,"Optio 33WR")) {
-optio_33wr:
-    strcpy (make, "PENTAX");
-    strcpy (model,"Optio 33WR");
-    height = 1542;
-    width  = 2064;
-    load_raw = nikon_e2100_load_raw;
-    flip = 1;
-    filters = 0x16161616;
-    pre_mul[0] = 1.331;
-    pre_mul[2] = 1.820;
+    if ((i = nikon_3700()) == 2) {
+      strcpy (make, "OLYMPUS");
+      strcpy (model, "C740UZ");
+    } else if (i == 0) {
+      strcpy (make, "PENTAX");
+      strcpy (model,"Optio 33WR");
+      flip = 1;
+      filters = 0x16161616;
+      pre_mul[0] = 1.331;
+      pre_mul[2] = 1.820;
+    }
   } else if (!strcmp(model,"E4300")) {
     if (!timestamp && minolta_z2()) goto dimage_z2;
     height = 1710;
@@ -5205,8 +5207,7 @@ dng_skip:
     cam_mul[3] = cam_mul[1];
     pre_mul[3] = pre_mul[1];
     if (use_coeff)
-      for (i=0; i < 3; i++)
-	coeff[i][3] = coeff[i][1] /= 2;
+      FORC3 coeff[c][3] = coeff[c][1] /= 2;
   }
   fseek (ifp, data_offset, SEEK_SET);
   return 0;
@@ -5495,7 +5496,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.50"
+    "\nRaw Photo Decoder \"dcraw\" v7.51"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
