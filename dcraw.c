@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.277 $
-   $Date: 2005/08/22 06:13:13 $
+   $Revision: 1.278 $
+   $Date: 2005/08/24 20:02:34 $
  */
 
 #define _GNU_SOURCE
@@ -3298,17 +3298,23 @@ int CLASS parse_tiff_ifd (int base, int level)
       fseek (ifp, get4()+base, SEEK_SET);
     switch (tag) {
       case 0x11:
-	camera_red  = get4() / 256.0;
-	break;
       case 0x12:
-	camera_blue = get4() / 256.0;
+	if (type == 3 && len == 1)
+	  cam_mul[(tag-0x11)*2] = get2() / 256.0;
 	break;
+      case 0x27:
+	if (len < 50) break;
+	fseek (ifp, 12, SEEK_CUR);
+	FORC3 cam_mul[c] = get2();
+	break;
+      case 0x2:
       case 0x100:			/* ImageWidth */
-	if (strcmp(make,"Canon") || level)
+	if ((strcmp(make,"Canon") || level) && len == 1)
 	  raw_width = type==3 ? get2() : get4();
 	break;
+      case 0x3:
       case 0x101:			/* ImageHeight */
-	if (strcmp(make,"Canon") || level)
+	if ((strcmp(make,"Canon") || level) && len == 1)
 	  raw_height = type==3 ? get2() : get4();
 	break;
       case 0x102:			/* Bits per sample */
@@ -4178,6 +4184,8 @@ void CLASS adobe_coeff()
 	{ 9651,-2059,-1189,-8881,16512,2487,-1460,1345,10687 } },
     { "Panasonic DMC-LC1",
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
+    { "Panasonic DMC-FZ30",
+	{ 10473,-3277,-1222,-6421,14252,2352,-1907,2596,7460 } },
     { "SONY DSC-F828",
 	{ 7924,-1910,-777,-8226,15459,2998,-1517,2199,6818,-7242,11401,3481 } },
     { "SONY DSC-V3",
@@ -4902,10 +4910,8 @@ konica_400z:
       maximum = 0xffff;
       strcpy (model, "Volare");
     }
-  } else if (!strcmp(model,"DIGILUX 2") || !strcmp(model,"DMC-LC1")) {
-    height = 1928;
-    width  = 2568;
-    data_offset = 1024;
+  } else if (!strcmp(make,"LEICA") || !strcmp(make,"Panasonic")) {
+    if (width == 3304) width -= 16;
     load_raw = unpacked_load_raw;
     maximum = 0xfff0;
   } else if (!strcmp(model,"E-1")) {
@@ -5496,7 +5502,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.51"
+    "\nRaw Photo Decoder \"dcraw\" v7.52"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
