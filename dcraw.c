@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.278 $
-   $Date: 2005/08/24 20:02:34 $
+   $Revision: 1.279 $
+   $Date: 2005/08/25 05:59:23 $
  */
 
 #define _GNU_SOURCE
@@ -4180,6 +4180,8 @@ void CLASS adobe_coeff()
 	{ 13173,-4732,-1499,-5807,14036,1895,-2045,2452,7142 } },
     { "OLYMPUS E-300",
 	{ 7828,-1761,-348,-5788,14071,1830,-2853,4518,6557 } },
+    { "PENTAX *ist DS",
+	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D",
 	{ 9651,-2059,-1189,-8881,16512,2487,-1460,1345,10687 } },
     { "Panasonic DMC-LC1",
@@ -4797,11 +4799,9 @@ konica_400z:
       pre_mul[0] = 1.42;
       pre_mul[2] = 1.25;
     }
-  } else if (!strcmp(model,"*ist D")) {
-    load_raw = unpacked_load_raw;
-  } else if (!strcmp(model,"*ist DS")) {
-    height--;
-    load_raw = packed_12_load_raw;
+  } else if (!strncmp(model,"*ist D",6)) {
+    load_raw = model[6] ? packed_12_load_raw : unpacked_load_raw;
+    if (model[6] == 'S') height -= 2;
   } else if (!strcmp(model,"Optio S")) {
     if (fsize == 3178560) {
       height = 1540;
@@ -5502,7 +5502,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.52"
+    "\nRaw Photo Decoder \"dcraw\" v7.53"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
