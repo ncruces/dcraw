@@ -8,8 +8,8 @@
 
    This code is free for all uses.
 
-   $Revision: 1.47 $
-   $Date: 2005/08/17 04:06:10 $
+   $Revision: 1.48 $
+   $Date: 2005/08/28 18:54:50 $
  */
 
 #include <stdio.h>
@@ -402,8 +402,8 @@ int parse_tiff_ifd (int base, int level)
 cont:
     fseek (ifp, save+12, SEEK_SET);
   }
-  if ((comp == 6 && !strcmp(make,"Canon")) ||
-      (comp == 7 && is_dng)) {
+  if (((comp == 6 && !strcmp(make,"Canon")) ||
+       (comp == 7 && is_dng)) && offset) {
     thumb_offset = offset;
     thumb_length = length;
   }
@@ -563,6 +563,13 @@ int parse_jpeg (int offset)
       parse_ciff (save+hlen, len-hlen, 0);
     parse_tiff (save+6);
     fseek (ifp, save+len, SEEK_SET);
+  }
+  if (thumb_offset) {
+    fseek (ifp, thumb_offset, SEEK_SET);
+    for (hlen=0; hlen < 1024; hlen++) {
+      if (get2() == 0xffd8) return 1;
+      thumb_offset += 2;
+    }
   }
   thumb_length = 0;
   return 1;
