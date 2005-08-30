@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.279 $
-   $Date: 2005/08/25 05:59:23 $
+   $Revision: 1.280 $
+   $Date: 2005/08/30 22:53:17 $
  */
 
 #define _GNU_SOURCE
@@ -91,7 +91,7 @@ int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, tiff_samples;
 int black, maximum, clip_max, clip_color=1;
 int iheight, iwidth, shrink;
-int dng_version, is_canon, is_foveon, use_coeff, use_gamma;
+int dng_version, is_canon, is_foveon, raw_color, use_gamma;
 int trim, flip, xmag, ymag;
 int zero_after_ff;
 unsigned filters;
@@ -101,7 +101,11 @@ float bright=1.0, red_scale=1.0, blue_scale=1.0;
 int four_color_rgb=0, document_mode=0, quick_interpolate=0;
 int verbose=0, use_auto_wb=0, use_camera_wb=0, use_camera_rgb=0;
 int fuji_secondary, use_secondary=0;
-float cam_mul[4], pre_mul[4], coeff[3][4];
+float cam_mul[4], pre_mul[4], rgb_cam[3][4];	/* RGB from camera color */
+const double xyz_rgb[3][3] = {			/* XYZ from RGB */
+  { 0.412453, 0.357580, 0.180423 },
+  { 0.212671, 0.715160, 0.072169 },
+  { 0.019334, 0.119193, 0.950227 } };
 #define camera_red  cam_mul[0]
 #define camera_blue cam_mul[2]
 int histogram[3][0x2000];
@@ -124,6 +128,12 @@ struct decode {
 #define FORC3 for (c=0; c < 3; c++)
 #define FORC4 for (c=0; c < 4; c++)
 #define FORCC for (c=0; c < colors; c++)
+
+#define SQR(x) ((x)*(x))
+#define ABS(x) (((int)(x) ^ ((int)(x) >> 31)) - ((int)(x) >> 31))
+#define MIN(a,b) (((a) < (b)) ? (a) : (b))
+#define MAX(a,b) (((a) > (b)) ? (a) : (b))
+#define CLIP(x) (MAX(0,MIN((x),clip_max)))
 
 /*
    In order to inline this calculation, I make the risky
@@ -349,9 +359,8 @@ void CLASS canon_600_coeff()
     else if (yc <= 2) t=4;
   }
   if (flash_used) t=5;
-  for (i=0; i < 3; i++)
-    FORCC coeff[i][c] = table[t][i*4 + c] / 1024.0;
-  use_coeff = 1;
+  for (raw_color = i=0; i < 3; i++)
+    FORCC rgb_cam[i][c] = table[t][i*4 + c] / 1024.0;
 }
 
 void CLASS canon_600_load_raw()
@@ -2233,7 +2242,7 @@ void CLASS foveon_interpolate()
   memset (trans, 0, sizeof trans);
   for (i=0; i < 3; i++)
     for (j=0; j < 3; j++)
-      FORC3 trans[i][j] += coeff[i][c] * last[c][j] * div[j];
+      FORC3 trans[i][j] += rgb_cam[i][c] * last[c][j] * div[j];
   FORC3 trsum[c] = trans[c][0] + trans[c][1] + trans[c][2];
   dsum = (6*trsum[0] + 11*trsum[1] + 3*trsum[2]) / 20;
   for (i=0; i < 3; i++)
@@ -2651,10 +2660,6 @@ void CLASS pseudoinverse (const double (*in)[3], double (*out)[3], int size)
 
 void CLASS cam_xyz_coeff (double cam_xyz[4][3])
 {
-  static const double xyz_rgb[3][3] = {		/* XYZ from RGB */
-	{ 0.412453, 0.357580, 0.180423 },
-	{ 0.212671, 0.715160, 0.072169 },
-	{ 0.019334, 0.119193, 0.950227 } };
   double cam_rgb[4][3], inverse[4][3], num;
   int i, j, k;
 
@@ -2671,10 +2676,9 @@ void CLASS cam_xyz_coeff (double cam_xyz[4][3])
     pre_mul[i] = 1 / num;
   }
   pseudoinverse ((const double (*)[3]) cam_rgb, inverse, colors);
-  for (i=0; i < 3; i++)
+  for (raw_color = i=0; i < 3; i++)
     for (j=0; j < colors; j++)
-      coeff[i][j] = inverse[j][i];
-  use_coeff = 1;
+      rgb_cam[i][j] = inverse[j][i];
 }
 
 #ifdef COLORCHECK
@@ -2825,7 +2829,7 @@ void CLASS scale_colors()
     else
       fprintf (stderr, "%s: Cannot use camera white balance.\n", ifname);
   }
-  if (!use_coeff) {
+  if (raw_color) {
     pre_mul[0] *= red_scale;
     pre_mul[2] *= blue_scale;
   }
@@ -2857,9 +2861,7 @@ void CLASS scale_colors()
 	if (!val) continue;
 	val -= black;
 	val *= pre_mul[c];
-	if (val < 0) val = 0;
-	if (val > clip_max) val = clip_max;
-	image[row*width+col][c] = val;
+	image[row*width+col][c] = CLIP(val);
       }
 }
 
@@ -2934,19 +2936,13 @@ void CLASS vng_interpolate()
       pix = image[row*width+col];
       ip = code[row & 7][col & 1];
       memset (sum, 0, sizeof sum);
-      for (g=8; g--; ) {
-	diff = pix[*ip++];
-	diff <<= *ip++;
-	sum[*ip++] += diff;
-      }
-      for (g=colors; --g; ) {
-	c = *ip++;
-	pix[c] = sum[c] / *ip++;
-      }
+      for (g=8; g--; ip+=3)
+	sum[ip[2]] += pix[ip[0]] << ip[1];
+      for (g=colors; --g; ip+=2)
+	pix[ip[0]] = sum[ip[0]] / ip[1];
     }
   }
-  if (quick_interpolate)
-    return;
+  if (quick_interpolate) return;
 
   for (row=0; row < 8; row++) {		/* Precalculate for VNG */
     for (col=0; col < 2; col++) {
@@ -2989,8 +2985,8 @@ void CLASS vng_interpolate()
       ip = code[row & 7][col & 1];
       memset (gval, 0, sizeof gval);
       while ((g = ip[0]) != INT_MAX) {		/* Calculate gradients */
-	num = (diff = pix[g] - pix[ip[1]]) >> 31;
-	gval[ip[3]] += (diff = ((diff ^ num) - num) << ip[2]);
+	diff = ABS(pix[g] - pix[ip[1]]) << ip[2];
+	gval[ip[3]] += diff;
 	ip += 5;
 	if ((g = ip[-1]) == -1) continue;
 	gval[g] += diff;
@@ -3022,12 +3018,9 @@ void CLASS vng_interpolate()
       }
       FORCC {					/* Save to buffer */
 	t = pix[color];
-	if (c != color) {
-	  t += (sum[c] - sum[color])/num;
-	  if (t < 0) t = 0;
-	  if (t > clip_max) t = clip_max;
-	}
-	brow[2][col][c] = t;
+	if (c != color)
+	  t += (sum[c] - sum[color]) / num;
+	brow[2][col][c] = CLIP(t);
       }
     }
     if (row > 3)				/* Write buffer to image */
@@ -3039,6 +3032,178 @@ void CLASS vng_interpolate()
   memcpy (image[(row-1)*width+2], brow[1]+2, (width-4)*sizeof *image);
   free (brow[4]);
 }
+
+/*
+   Adaptive Homogeneity-Directed interpolation is based on
+   the work of Keigo Hirakawa, Thomas Parks, and Paul Lee.
+ */
+#define TS 256		/* Tile Size */
+
+void CLASS ahd_interpolate()
+{
+  int i, j, k, top, left, row, col, tr, tc, fc, c, d, val;
+  int west, east, north, south, num, total[3], hm[3];
+  ushort (*pix)[4], (*rix)[3];
+  static const int dir[4] = { -1, 1, -TS, TS };
+  unsigned ldiff[3][4], abdiff[3][4], leps, abeps;
+  float r, *cbrt, xyz[3], xyz_cam[3][3];
+  ushort (*rgb)[TS][TS][3];
+   short (*lab)[TS][TS][3];
+   char (*homo)[TS][TS], *buffer;
+
+  if (verbose) fprintf (stderr, "AHD interpolation...\n");
+  buffer = malloc (0x40000 + 39*TS*TS);		/* 2752 kB */
+  merror (buffer, "ahd_interpolate()");
+  cbrt = (void *) buffer;
+  rgb  = (void *) buffer + 0x40000;
+  lab  = (void *) buffer + 0x40000 + 18*TS*TS;
+  homo = (void *) buffer + 0x40000 + 36*TS*TS;
+
+/*  Prepare conversion from raw color to CIELab:		*/
+  for (i=0; i < 0x10000; i++) {
+    r = (float) i / maximum;
+    cbrt[i] = r > 0.008856 ? pow(r,1/3.0) : 7.787*r + 16/116.0;
+  }
+  for (i=0; i < 3; i++)
+    for (j=0; j < 3; j++)
+      for (xyz_cam[i][j] = k=0; k < 3; k++)
+	xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j];
+
+  for (top=0; top < height; top += TS-6)
+    for (left=0; left < width; left += TS-6) {
+      memset (rgb, 0, 18*TS*TS);
+
+/*  Horizontally interpolate green into rgb[0]:			*/
+      for (row=top; row < top+TS && row < height; row++) {
+	col = left + (FC(row,left) == 1);
+	if (col < 2) col += 2;
+	for (fc = FC(row,col); col < left+TS && col < width-2; col+=2) {
+	  pix = image + row*width+col;
+	  val = ((pix[-1][1] + pix[0][fc] + pix[1][1]) * 2
+		- pix[-2][fc] - pix[2][fc]) >> 2;
+	  rgb[0][row-top][col-left][1] = CLIP(val);
+	}
+      }
+/*  Vertically interpolate green into rgb[1]:			*/
+      for (row = top < 2 ? 2:top; row < top+TS && row < height-2; row++) {
+	col = left + (FC(row,left) == 1);
+	for (fc = FC(row,col); col < left+TS && col < width; col+=2) {
+	  pix = image + row*width+col;
+	  val = ((pix[-width][1] + pix[0][fc] + pix[width][1]) * 2
+		- pix[-2*width][fc] - pix[2*width][fc]) >> 2;
+	  rgb[1][row-top][col-left][1] = CLIP(val);
+	}
+      }
+/*  Combine these into rgb[2] using edge-sensing:		*/
+      for (row = top < 1 ? 1:top; row < top+TS && row < height-1; row++) {
+	tr = row - top;
+	col = left + (FC(row,left) == 1);
+	if (col < 1) col += 2;
+	for ( ; col < left+TS && col < width-1; col+=2) {
+	  tc = col - left;
+	  pix = image + row*width+col;
+	  west  = rgb[0][tr][tc][1] - pix[-1][1];
+	  east  = rgb[0][tr][tc][1] - pix[+1][1];
+	  north = rgb[1][tr][tc][1] - pix[-width][1];
+	  south = rgb[1][tr][tc][1] - pix[+width][1];
+	  if ((val = ABS(west) + ABS(east) - ABS(north) - ABS(south)))
+	    rgb[2][tr][tc][1] = rgb[val > 0][tr][tc][1];
+	  else {
+	    west *= east;
+	    north *= south;
+	    rgb[2][tr][tc][1] = (west*north < 0)
+		?  rgb[west > 0][tr][tc][1]
+		: (rgb[0][tr][tc][1] + rgb[1][tr][tc][1]) >> 1;
+	  }
+	}
+      }
+/*  Interpolate red and blue, and convert to CIELab:		*/
+      for (d=0; d < 3; d++)
+	for (row=top+1; row < top+TS-1 && row < height-1; row++) {
+	  tr = row-top;
+	  for (col=left+1; col < left+TS-1 && col < width-1; col++) {
+	    tc = col-left;
+	    pix = image + row*width+col;
+	    rix = &rgb[d][tr][tc];
+	    if ((c = 2 - FC(row,col)) == 1) {
+	      c = FC(row+1,col);
+	      val = ( pix[-1][2-c] + pix[1][2-c] +
+			2*pix[0][1] - rix[-1][1] - rix[1][1] ) >> 1;
+	      rix[0][2-c] = CLIP(val);
+	      val = ( pix[-width][c] + pix[width][c] +
+			2*pix[0][1] - rix[-TS][1] - rix[TS][1] ) >> 1;
+	    } else {
+	      north = 2*rix[0][1] - (rix[-TS-1][1] + rix[TS+1][1]);
+	      west  = 2*rix[0][1] - (rix[-TS+1][1] + rix[TS-1][1]);
+	      val = (d < 2) ? 0 :
+		   ABS(pix[-width-1][c] - pix[width+1][c]) + ABS(north)
+		 - ABS(pix[-width+1][c] - pix[width-1][c]) - ABS(west);
+	      north += pix[-width-1][c] + pix[width+1][c];
+	      west  += pix[-width+1][c] + pix[width-1][c];
+	      if     (val == 0) val = (north + west) >> 2;
+	      else if (val < 0) val = north >> 1;
+	      else		val = west  >> 1;
+	    }
+	    rix[0][c] = CLIP(val);
+	    c = FC(row,col);
+	    rix[0][c] = pix[0][c];
+	    for (i=0; i < 3; i++) {
+	      for (xyz[i]=0.5, c=0; c < 3; c++)
+		xyz[i] += xyz_cam[i][c] * rix[0][c];
+	      xyz[i] = cbrt[CLIP((int) xyz[i])];
+	    }
+	    lab[d][tr][tc][0] = 32*116 * xyz[1] - 32*16;
+	    lab[d][tr][tc][1] = 32*500 * (xyz[0] - xyz[1]);
+	    lab[d][tr][tc][2] = 32*200 * (xyz[1] - xyz[2]);
+	  }
+	}
+/*  Build homogeneity maps from the CIELab images:		*/
+      memset (homo, 0, 3*TS*TS);
+      for (row=top+2; row < top+TS-2 && row < height; row++) {
+	tr = row-top;
+	for (col=left+2; col < left+TS-2 && col < width; col++) {
+	  tc = col-left;
+	  for (d=0; d < 3; d++)
+	    for (i=0; i < 4; i++)
+	      ldiff[d][i] = ABS(lab[d][tr][tc][0]-lab[d][tr][tc+dir[i]][0]);
+	  leps = MIN(MAX(ldiff[0][0],ldiff[0][1]),
+		     MAX(ldiff[1][2],ldiff[1][3]));
+	  for (d=0; d < 3; d++)
+	    for (i=0; i < 4; i++)
+	      if (i >> 1 == d || ldiff[d][i] <= leps)
+		abdiff[d][i] = SQR(lab[d][tr][tc][1]-lab[d][tr][tc+dir[i]][1])
+			     + SQR(lab[d][tr][tc][2]-lab[d][tr][tc+dir[i]][2]);
+	  abeps = MIN(MAX(abdiff[0][0],abdiff[0][1]),
+		      MAX(abdiff[1][2],abdiff[1][3]));
+	  for (d=0; d < 3; d++)
+	    for (i=0; i < 4; i++)
+	      if (ldiff[d][i] <= leps && abdiff[d][i] <= abeps)
+		homo[d][tr][tc]++;
+	}
+      }
+/*  Combine the most homogenous pixels for the final result:	*/
+      for (row=top+3; row < top+TS-3 && row < height-3; row++) {
+	tr = row-top;
+	for (col=left+3; col < left+TS-3 && col < width-3; col++) {
+	  tc = col-left;
+	  for (d=0; d < 3; d++)
+	    for (hm[d]=0, i=tr-1; i <= tr+1; i++)
+	      for (j=tc-1; j <= tc+1; j++)
+		hm[d] += homo[d][i][j];
+	  FORC3 total[c] = 0;
+	  for (num=d=0; d < 3; d++)
+	    if (hm[d] >= hm[0] && hm[d] >= hm[1] && hm[d] >= hm[2]) {
+	      FORC3 total[c] += rgb[d][tr][tc][c];
+	      num++;
+	    }
+	  FORC3 image[row*width+col][c] = total[c] / num;
+	}
+      }
+    }
+  free (buffer);
+  trim = 3;
+}
+#undef TS
 
 void CLASS parse_makernote()
 {
@@ -3819,13 +3984,11 @@ void CLASS parse_phase_one (int base)
     fseek (ifp, base+data, SEEK_SET);
     switch (tag) {
       case 0x106:
-	use_coeff = 1;
+	for (raw_color = i=0; i < 3; i++)
+	  FORC3 rgb_cam[i][c] = int_to_float(get4());
+	break;
       case 0x107:
-	for (i=0; i < 3; i++)
-	  if (tag == 0x106)
-	    FORC3 coeff[i][c] = int_to_float(get4());
-	  else
-	    cam_mul[i] = pre_mul[i] = int_to_float(get4());
+	FORC3 cam_mul[c] = pre_mul[c] = int_to_float(get4());
 	break;
       case 0x108:  raw_width   = data;  break;
       case 0x109:  raw_height  = data;  break;
@@ -4221,9 +4384,8 @@ void CLASS simple_coeff (int index)
   };
   int i, c;
 
-  for (i=0; i < 3; i++)
-    FORCC coeff[i][c] = table[index][i*colors+c];
-  use_coeff = 1;
+  for (raw_color = i=0; i < 3; i++)
+    FORCC rgb_cam[i][c] = table[index][i*colors+c];
 }
 
 short CLASS guess_byte_order (int words)
@@ -4305,15 +4467,15 @@ int CLASS identify (int will_decode)
   height = width = top_margin = left_margin = 0;
   make[0] = model[0] = model2[0] = 0;
   memset (white, 0, sizeof white);
-  timestamp = tiff_samples = 0;
   data_offset = meta_length = tiff_data_compression = 0;
   zero_after_ff = dng_version = fuji_secondary = 0;
-  black = is_foveon = use_coeff = 0;
-  use_gamma = xmag = ymag = 1;
+  timestamp = tiff_samples = black = is_foveon = 0;
+  raw_color = use_gamma = xmag = ymag = 1;
   filters = UINT_MAX;	/* 0 = no filters, UINT_MAX = unknown */
   for (i=0; i < 4; i++) {
     cam_mul[i] = 1 & i;
     pre_mul[i] = 1;
+    FORC3 rgb_cam[c][i] = c == i;
   }
   colors = 3;
   for (i=0; i < 0x1000; i++) curve[i] = i;
@@ -5179,7 +5341,7 @@ konica_400z:
       flip = 2;
     }
   }
-  if (!use_coeff) adobe_coeff();
+  if (raw_color) adobe_coeff();
 dng_skip:
   if (!load_raw || !height || is_jpeg) {
     if (will_decode)
@@ -5195,13 +5357,11 @@ dng_skip:
 #endif
   if (!raw_height) raw_height = height;
   if (!raw_width ) raw_width  = width;
-  if (use_camera_rgb && colors == 3)
-      use_coeff = 0;
-  if (use_coeff)		 /* Apply user-selected color balance */
-    for (i=0; i < colors; i++) {
-      coeff[0][i] *= red_scale;
-      coeff[2][i] *= blue_scale;
-    }
+  raw_color |= use_camera_rgb && colors == 3;
+  FORCC {			/* Apply user-selected color balance */
+    rgb_cam[0][c] *= red_scale;
+    rgb_cam[2][c] *= blue_scale;
+  }
   if (four_color_rgb && filters && colors == 3) {
     for (i=0; i < 32; i+=4) {
       if ((filters >> i & 15) == 9)
@@ -5212,8 +5372,7 @@ dng_skip:
     colors++;
     cam_mul[3] = cam_mul[1];
     pre_mul[3] = pre_mul[1];
-    if (use_coeff)
-      FORC3 coeff[c][3] = coeff[c][1] /= 2;
+    FORC3 rgb_cam[c][3] = rgb_cam[c][1] /= 2;
   }
   fseek (ifp, data_offset, SEEK_SET);
   return 0;
@@ -5240,7 +5399,8 @@ void CLASS apply_profile (char *pfname)
   if (verbose)
     fprintf (stderr, "Applying color profile...\n");
   maximum = 0xffff;
-  use_gamma = use_coeff = 0;
+  use_gamma = 0;
+  raw_color = 1;		/* Don't use rgb_cam with a profile */
 
   hOutProfile = cmsCreate_sRGBProfile();
   hTransform = cmsCreateTransform (hInProfile, TYPE_RGBA_16,
@@ -5258,13 +5418,13 @@ void CLASS apply_profile (char *pfname)
  */
 void CLASS convert_to_rgb()
 {
-  int row, col, r, g, c=0;
+  int row, col, c, i, fc=0;
   ushort *img;
   float rgb[3];
 
   if (verbose)
-    fprintf (stderr, use_coeff ?
-      "Converting to sRGB colorspace...\n" : "Building histograms...\n");
+    fprintf (stderr, raw_color ?
+	"Building histograms...\n" : "Converting to sRGB colorspace...\n");
 
   if (document_mode)
     colors = 1;
@@ -5273,26 +5433,19 @@ void CLASS convert_to_rgb()
     for (col = trim; col < width-trim; col++) {
       img = image[row*width+col];
       if (document_mode)
-	c = FC(row,col);
-      if (colors == 4 && !use_coeff)	/* Recombine the greens */
+	fc = FC(row,col);
+      if (colors == 4 && raw_color)	/* Recombine the greens */
 	img[1] = (img[1] + img[3]) >> 1;
       if (colors == 1)			/* RGB from grayscale */
-	for (r=0; r < 3; r++)
-	  rgb[r] = img[c];
-      else if (use_coeff) {		/* RGB via coeff[][] */
-	for (r=0; r < 3; r++)
-	  for (rgb[r]=g=0; g < colors; g++)
-	    rgb[r] += img[g] * coeff[r][g];
-      } else				/* RGB from RGB (easy) */
+	FORC3 rgb[c] = img[fc];
+      else if (raw_color)		/* RGB from RGB (easy) */
 	goto norgb;
-      for (r=0; r < 3; r++) {
-	if (rgb[r] < 0)        rgb[r] = 0;
-	if (rgb[r] > clip_max) rgb[r] = clip_max;
-	img[r] = rgb[r];
-      }
+      else FORC3			/* RGB via rgb_cam */
+	for (rgb[c]=i=0; i < colors; i++)
+	  rgb[c] += img[i] * rgb_cam[c][i];
+      FORC3 img[c] = CLIP((int) rgb[c]);
 norgb:
-      for (r=0; r < 3; r++)
-	histogram[r][img[r] >> 3]++;
+      FORC3 histogram[c][img[c] >> 3]++;
     }
 }
 
@@ -5409,7 +5562,11 @@ void CLASS write_ppm (FILE *ofp)
   for (i=0; i < 0x10000; i++) {
     r = i / white;
     val = 256 * ( !use_gamma ? r :
+#ifdef SRGB_GAMMA
+	r <= 0.00304 ? r*12.92 : pow(r,2.5/6)*1.055-0.055 );
+#else
 	r <= 0.018 ? r*4.5 : pow(r,0.45)*1.099-0.099 );
+#endif
     if (val > 255) val = 255;
     lut[i] = val;
   }
@@ -5488,7 +5645,7 @@ void CLASS write_ppm16 (FILE *ofp)
 
 int CLASS main (int argc, char **argv)
 {
-  int arg, status=0, user_flip=-1;
+  int arg, status=0, user_flip=-1, user_black=-1;
   int timestamp_only=0, identify_only=0, write_to_stdout=0;
   int half_size=0, use_fuji_rotate=1;
   char opt, *ofname, *cp;
@@ -5502,7 +5659,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.53"
+    "\nRaw Photo Decoder \"dcraw\" v7.60"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -5515,6 +5672,7 @@ int CLASS main (int argc, char **argv)
     "\n-r <num>  Set red  multiplier (default = 1.0)"
     "\n-l <num>  Set blue multiplier (default = 1.0)"
     "\n-b <num>  Set brightness      (default = 1.0)"
+    "\n-k <num>  Set black point"
     "\n-n        Don't clip colors"
     "\n-m        Don't convert camera RGB to sRGB"
 #ifdef USE_LCMS
@@ -5537,7 +5695,7 @@ int CLASS main (int argc, char **argv)
   argv[argc] = "";
   for (arg=1; argv[arg][0] == '-'; ) {
     opt = argv[arg++][1];
-    if (strchr ("brlt", opt) && !isdigit(argv[arg][0])) {
+    if (strchr ("brlkt", opt) && !isdigit(argv[arg][0])) {
       fprintf (stderr, "\"-%c\" requires a numeric argument.\n", opt);
       return 1;
     }
@@ -5546,6 +5704,7 @@ int CLASS main (int argc, char **argv)
       case 'b':  bright      = atof(argv[arg++]);  break;
       case 'r':  red_scale   = atof(argv[arg++]);  break;
       case 'l':  blue_scale  = atof(argv[arg++]);  break;
+      case 'k':  user_black  = atoi(argv[arg++]);  break;
       case 't':  user_flip   = atoi(argv[arg++]);  break;
 #ifdef USE_LCMS
       case 'p':  profile     =      argv[arg++] ;  break;
@@ -5647,10 +5806,15 @@ next:
 #ifdef COLORCHECK
     colorcheck();
 #endif
+    if (user_black >= 0) black = user_black;
     if (is_foveon) foveon_interpolate();
     else scale_colors();
     if (shrink) filters = 0;
-    if ((trim = filters && !document_mode)) vng_interpolate();
+    if ((trim = filters && !document_mode)) {
+      if (quick_interpolate || colors > 3)
+	   vng_interpolate();
+      else ahd_interpolate();
+    }
     if (use_fuji_rotate) fuji_rotate();
 #ifdef USE_LCMS
     apply_profile (profile);
