@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.280 $
-   $Date: 2005/08/30 22:53:17 $
+   $Revision: 1.281 $
+   $Date: 2005/09/01 00:29:22 $
  */
 
 #define _GNU_SOURCE
@@ -3055,9 +3055,9 @@ void CLASS ahd_interpolate()
   buffer = malloc (0x40000 + 39*TS*TS);		/* 2752 kB */
   merror (buffer, "ahd_interpolate()");
   cbrt = (void *) buffer;
-  rgb  = (void *) buffer + 0x40000;
-  lab  = (void *) buffer + 0x40000 + 18*TS*TS;
-  homo = (void *) buffer + 0x40000 + 36*TS*TS;
+  rgb  = (void *) (buffer + 0x40000);
+  lab  = (void *) (buffer + 0x40000 + 18*TS*TS);
+  homo = (void *) (buffer + 0x40000 + 36*TS*TS);
 
 /*  Prepare conversion from raw color to CIELab:		*/
   for (i=0; i < 0x10000; i++) {
