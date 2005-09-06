@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.281 $
-   $Date: 2005/09/01 00:29:22 $
+   $Revision: 1.282 $
+   $Date: 2005/09/06 19:17:07 $
  */
 
 #define _GNU_SOURCE
@@ -440,26 +440,21 @@ void CLASS canon_a5_load_raw()
  */
 unsigned CLASS getbits (int nbits)
 {
-  static unsigned long bitbuf=0;
+  static unsigned bitbuf=0;
   static int vbits=0, reset=0;
-  unsigned c, ret;
+  unsigned c;
 
-  if (nbits == 0 || nbits > vbits) return 0;
-  if (nbits == -2)
-    return ftell(ifp) + (-vbits >> 3);
   if (nbits == -1)
-    ret = bitbuf = vbits = reset = 0;
-  else {
-    ret = bitbuf << (LONG_BIT - vbits) >> (LONG_BIT - nbits);
-    vbits -= nbits;
-  }
-  while (!reset && vbits < LONG_BIT - 7) {
+    return bitbuf = vbits = reset = 0;
+  if (nbits == 0 || reset) return 0;
+  while (vbits < nbits) {
     c = fgetc(ifp);
-    if ((reset = zero_after_ff && c == 0xff && fgetc(ifp))) break;
+    if ((reset = zero_after_ff && c == 0xff && fgetc(ifp))) return 0;
     bitbuf = (bitbuf << 8) + c;
     vbits += 8;
   }
-  return ret;
+  vbits -= nbits;
+  return bitbuf << (32-nbits-vbits) >> (32-nbits);
 }
 
 void CLASS init_decoder()
@@ -756,6 +751,7 @@ void CLASS ljpeg_row (int jrow, struct jhead *jh)
 
   if (jrow * jh->wide % jh->restart == 0) {
     FORC4 jh->vpred[c] = 1 << (jh->bits-1);
+    if (jrow) get2();			/* Eat the FF Dx marker */
     getbits(-1);
   }
   for (col=0; col < jh->wide; col++)
@@ -879,12 +875,19 @@ void CLASS adobe_dng_load_raw_lj()
 void CLASS adobe_dng_load_raw_nc()
 {
   ushort *pixel, *rp;
-  int row, col;
+  int row, col, nbits;
 
   pixel = calloc (raw_width * tiff_samples, sizeof *pixel);
   merror (pixel, "adobe_dng_load_raw_nc()");
+  for (nbits=0; 1 << nbits <= maximum; nbits++);
   for (row=0; row < raw_height; row++) {
-    read_shorts (pixel, raw_width * tiff_samples);
+    if (nbits == 16)
+      read_shorts (pixel, raw_width * tiff_samples);
+    else {
+      getbits(-1);
+      for (col=0; col < raw_width * tiff_samples; col++)
+	pixel[col] = getbits(nbits);
+    }
     for (rp=pixel, col=0; col < raw_width; col++)
       adobe_copy_pixel (row, col, &rp);
   }
@@ -1892,7 +1895,7 @@ void CLASS smal_decode_segment (unsigned seg[2][2], int holes)
     diff = sym[2] << 5 | sym[1] << 2 | (sym[0] & 3);
     if (sym[0] & 4)
       diff = diff ? -diff : 0x80;
-    if (getbits(-2) + 12 > seg[1][1])
+    if (ftell(ifp) + 12 >= seg[1][1])
       diff = 0;
     pred[pix & 1] += diff;
     row = pix / raw_width - top_margin;
@@ -2794,11 +2797,11 @@ void CLASS scale_colors()
 
   maximum -= black;
   if (use_auto_wb || (use_camera_wb && camera_red == -1)) {
-    FORCC min[c] = INT_MAX;
-    FORCC max[c] = count[c] = sum[c] = 0;
+    FORC4 min[c] = INT_MAX;
+    FORC4 max[c] = count[c] = sum[c] = 0;
     for (row=0; row < height; row++)
       for (col=0; col < width; col++)
-	FORCC {
+	FORC4 {
 	  val = image[row*width+col][c];
 	  if (!val) continue;
 	  if (min[c] > val) min[c] = val;
@@ -2809,10 +2812,10 @@ void CLASS scale_colors()
 	  sum[c] += val;
 	  count[c]++;
 	}
-    FORCC pre_mul[c] = count[c] / sum[c];
+    FORC4 if (sum[c]) pre_mul[c] = count[c] / sum[c];
   }
   if (use_camera_wb && camera_red != -1) {
-    FORCC count[c] = sum[c] = 0;
+    FORC4 count[c] = sum[c] = 0;
     for (row=0; row < 8; row++)
       for (col=0; col < 8; col++) {
 	c = FC(row,col);
@@ -2820,10 +2823,8 @@ void CLASS scale_colors()
 	  sum[c] += val;
 	count[c]++;
       }
-    val = 1;
-    FORCC if (sum[c] == 0) val = 0;
-    if (val)
-      FORCC pre_mul[c] = count[c] / sum[c];
+    if (sum[0] && sum[1] && sum[2] && sum[3])
+      FORC4 pre_mul[c] = count[c] / sum[c];
     else if (camera_red && camera_blue)
       memcpy (pre_mul, cam_mul, sizeof pre_mul);
     else
@@ -2834,35 +2835,46 @@ void CLASS scale_colors()
     pre_mul[2] *= blue_scale;
   }
   dmin = DBL_MAX;
-  FORCC if (dmin > pre_mul[c])
+  FORC4 if (dmin > pre_mul[c])
 	    dmin = pre_mul[c];
-  FORCC pre_mul[c] /= dmin;
+  FORC4 pre_mul[c] /= dmin;
 
   while (maximum << shift < 0x8000) shift++;
-  FORCC pre_mul[c] *= 1 << shift;
+  FORC4 pre_mul[c] *= 1 << shift;
   maximum <<= shift;
 
   if (write_fun != write_ppm || bright < 1) {
     maximum *= bright;
     if (maximum > 0xffff)
 	maximum = 0xffff;
-    FORCC pre_mul[c] *= bright;
+    FORC4 pre_mul[c] *= bright;
   }
   if (verbose) {
     fprintf (stderr, "Scaling with black=%d, pre_mul[] =", black);
-    FORCC fprintf (stderr, " %f", pre_mul[c]);
+    FORC4 fprintf (stderr, " %f", pre_mul[c]);
     fputc ('\n', stderr);
   }
   clip_max = clip_color ? maximum : 0xffff;
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
-      FORCC {
+      FORC4 {
 	val = image[row*width+col][c];
 	if (!val) continue;
 	val -= black;
 	val *= pre_mul[c];
 	image[row*width+col][c] = CLIP(val);
       }
+  if (filters && colors == 3) {
+    if (four_color_rgb) {
+      colors++;
+      FORC3 rgb_cam[c][3] = rgb_cam[c][1] /= 2;
+    } else {
+      for (row = FC(1,0) >> 1; row < height; row+=2)
+	for (col = FC(row,1) & 1; col < width; col+=2)
+	  image[row*width+col][1] = image[row*width+col][3];
+      filters &= ~((filters & 0x55555555) << 1);
+    }
+  }
 }
 
 /*
@@ -3425,12 +3437,8 @@ void CLASS parse_exif (int base)
     fseek (ifp, base+val, SEEK_SET);
     if (tag == 0x9003 || tag == 0x9004)
       get_timestamp(0);
-    if (tag == 0x927c) {
-      if (!strncmp(make,"SONY",4))
-	data_offset = base+val+len;
-      else
-	parse_makernote();
-    }
+    if (tag == 0x927c)
+      parse_makernote();
     fseek (ifp, save, SEEK_SET);
   }
 }
@@ -3928,7 +3936,7 @@ void CLASS parse_rollei()
 void CLASS parse_mos (int offset)
 {
   uchar data[40];
-  int skip, from, i, neut[4];
+  int skip, from, i, c, neut[4];
   static const unsigned bayer[] =
 	{ 0x94949494, 0x61616161, 0x16161616, 0x49494949 };
 
@@ -3956,8 +3964,7 @@ void CLASS parse_mos (int offset)
     if (!strcmp(data,"NeutObj_neutrals")) {
       for (i=0; i < 4; i++)
 	fscanf (ifp, "%d", neut+i);
-      camera_red  = (float) neut[2] / neut[1];
-      camera_blue = (float) neut[2] / neut[3];
+      FORC3 cam_mul[c] = 1.0 / neut[c+1];
     }
     parse_mos (from);
     fseek (ifp, skip+from, SEEK_SET);
@@ -4473,8 +4480,8 @@ int CLASS identify (int will_decode)
   raw_color = use_gamma = xmag = ymag = 1;
   filters = UINT_MAX;	/* 0 = no filters, UINT_MAX = unknown */
   for (i=0; i < 4; i++) {
-    cam_mul[i] = 1 & i;
-    pre_mul[i] = 1;
+    cam_mul[i] = i == 1;
+    pre_mul[i] = i < 3;
     FORC3 rgb_cam[c][i] = c == i;
   }
   colors = 3;
@@ -5117,6 +5124,7 @@ konica_400z:
   } else if (!strcmp(model,"DSC-F828")) {
     width = 3288;
     left_margin = 5;
+    data_offset = 862144;
     load_raw = sony_load_raw;
     filters = 0x9c9c9c9c;
     colors = 4;
@@ -5124,6 +5132,7 @@ konica_400z:
   } else if (!strcmp(model,"DSC-V3")) {
     width = 3109;
     left_margin = 59;
+    data_offset = 787392;
     load_raw = sony_load_raw;
   } else if (!strcasecmp(make,"KODAK")) {
     filters = 0x61616161;
@@ -5362,18 +5371,15 @@ dng_skip:
     rgb_cam[0][c] *= red_scale;
     rgb_cam[2][c] *= blue_scale;
   }
-  if (four_color_rgb && filters && colors == 3) {
+  if (filters && colors == 3)
     for (i=0; i < 32; i+=4) {
       if ((filters >> i & 15) == 9)
 	filters |= 2 << i;
       if ((filters >> i & 15) == 6)
 	filters |= 8 << i;
     }
-    colors++;
-    cam_mul[3] = cam_mul[1];
-    pre_mul[3] = pre_mul[1];
-    FORC3 rgb_cam[c][3] = rgb_cam[c][1] /= 2;
-  }
+  if (pre_mul[3] == 0) pre_mul[3] = colors < 4 ? pre_mul[1] : 1;
+  if (cam_mul[3] == 0) cam_mul[3] = colors < 4 ? cam_mul[1] : 1;
   fseek (ifp, data_offset, SEEK_SET);
   return 0;
 }
@@ -5659,7 +5665,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.60"
+    "\nRaw Photo Decoder \"dcraw\" v7.62"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
