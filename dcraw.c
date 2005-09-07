@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.282 $
-   $Date: 2005/09/06 19:17:07 $
+   $Revision: 1.283 $
+   $Date: 2005/09/07 06:01:08 $
  */
 
 #define _GNU_SOURCE
@@ -2751,6 +2751,7 @@ void CLASS colorcheck()
     for   (row=cut[sq][3]; row < cut[sq][3]+cut[sq][1]; row++)
       for (col=cut[sq][2]; col < cut[sq][2]+cut[sq][0]; col++) {
 	c = FC(row,col);
+	if (c >= colors) c -= 2;
 	gmb_cam[sq][c] += BAYER(row,col);
 	count[c]++;
       }
@@ -2834,6 +2835,7 @@ void CLASS scale_colors()
     pre_mul[0] *= red_scale;
     pre_mul[2] *= blue_scale;
   }
+  if (pre_mul[3] == 0) pre_mul[3] = colors < 4 ? pre_mul[1] : 1;
   dmin = DBL_MAX;
   FORC4 if (dmin > pre_mul[c])
 	    dmin = pre_mul[c];
@@ -4360,6 +4362,8 @@ void CLASS adobe_coeff()
 	{ 10473,-3277,-1222,-6421,14252,2352,-1907,2596,7460 } },
     { "SONY DSC-F828",
 	{ 7924,-1910,-777,-8226,15459,2998,-1517,2199,6818,-7242,11401,3481 } },
+    { "SONY DSC-R1",		/* DJC */
+	{ 10528,-3695,-517,-2822,10699,2124,406,1240,5342 } },
     { "SONY DSC-V3",
 	{ 9877,-3775,-871,-7613,14807,3072,-1448,1305,7485 } },
   };
@@ -5134,6 +5138,11 @@ konica_400z:
     left_margin = 59;
     data_offset = 787392;
     load_raw = sony_load_raw;
+  } else if (!strcmp(model,"DSC-R1")) {
+    width = 3925;
+    order = 0x4d4d;
+    load_raw = unpacked_load_raw;
+    black = 512;
   } else if (!strcasecmp(make,"KODAK")) {
     filters = 0x61616161;
     if (!strcmp(model,"NC2000F")) {
@@ -5378,8 +5387,6 @@ dng_skip:
       if ((filters >> i & 15) == 6)
 	filters |= 8 << i;
     }
-  if (pre_mul[3] == 0) pre_mul[3] = colors < 4 ? pre_mul[1] : 1;
-  if (cam_mul[3] == 0) cam_mul[3] = colors < 4 ? cam_mul[1] : 1;
   fseek (ifp, data_offset, SEEK_SET);
   return 0;
 }
@@ -5665,7 +5672,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.62"
+    "\nRaw Photo Decoder \"dcraw\" v7.63"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
