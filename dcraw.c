@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.283 $
-   $Date: 2005/09/07 06:01:08 $
+   $Revision: 1.284 $
+   $Date: 2005/09/08 04:31:20 $
  */
 
 #define _GNU_SOURCE
@@ -3059,6 +3059,7 @@ void CLASS ahd_interpolate()
   int west, east, north, south, num, total[3], hm[3];
   ushort (*pix)[4], (*rix)[3];
   static const int dir[4] = { -1, 1, -TS, TS };
+  static const float d65[3] = { 0.950456, 1, 1.088754 };
   unsigned ldiff[3][4], abdiff[3][4], leps, abeps;
   float r, *cbrt, xyz[3], xyz_cam[3][3];
   ushort (*rgb)[TS][TS][3];
@@ -3081,7 +3082,7 @@ void CLASS ahd_interpolate()
   for (i=0; i < 3; i++)
     for (j=0; j < 3; j++)
       for (xyz_cam[i][j] = k=0; k < 3; k++)
-	xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j];
+	xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j] / d65[i];
 
   for (top=0; top < height; top += TS-6)
     for (left=0; left < width; left += TS-6) {
@@ -5660,7 +5661,7 @@ int CLASS main (int argc, char **argv)
 {
   int arg, status=0, user_flip=-1, user_black=-1;
   int timestamp_only=0, identify_only=0, write_to_stdout=0;
-  int half_size=0, use_fuji_rotate=1;
+  int half_size=0, use_fuji_rotate=1, use_vng=0;
   char opt, *ofname, *cp;
   struct utimbuf ut;
   const char *write_ext = ".ppm";
@@ -5672,7 +5673,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.63"
+    "\nRaw Photo Decoder \"dcraw\" v7.64"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -5692,7 +5693,8 @@ int CLASS main (int argc, char **argv)
     "\n-p <file> Apply color profile from file"
 #endif
     "\n-d        Document Mode (no color, no interpolation)"
-    "\n-q        Quick, low-quality color interpolation"
+    "\n-V        Use VNG interpolation"
+    "\n-q        Quick, low-quality bilinear interpolation"
     "\n-h        Half-size color image (3x faster than -q)"
     "\n-f        Interpolate RGGB as four colors"
     "\n-j        Show Fuji Super CCD images tilted 45 degrees"
@@ -5729,6 +5731,7 @@ int CLASS main (int argc, char **argv)
       case 'h':  half_size         = 1;		/* "-h" implies "-f" */
       case 'f':  four_color_rgb    = 1;  break;
       case 'd':  document_mode     = 1;  break;
+      case 'V':  use_vng           = 1;  break;
       case 'q':  quick_interpolate = 1;  break;
       case 'a':  use_auto_wb       = 1;  break;
       case 'w':  use_camera_wb     = 1;  break;
@@ -5824,7 +5827,7 @@ next:
     else scale_colors();
     if (shrink) filters = 0;
     if ((trim = filters && !document_mode)) {
-      if (quick_interpolate || colors > 3)
+      if (quick_interpolate || use_vng || colors > 3)
 	   vng_interpolate();
       else ahd_interpolate();
     }
