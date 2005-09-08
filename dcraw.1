@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "August 30, 2005"
+.TH dcraw 1 "September 8, 2005"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -52,9 +52,13 @@ creates files with a ".ppm" extension.
 Show the raw data as a grayscale image with no interpolation.
 Good for photographing black-and-white documents.
 .TP
+.B -V
+Use the older VNG interpolation.  About twice as fast as the
+default AHD algorithm, but more prone to zipper artifacts.
+.TP
 .B -q
-Use simple bilinear interpolation for quick results.  The
-default is to use a slow, high-quality adaptive algorithm.
+Use bilinear interpolation.  Much faster than
+.BR -V .
 .TP
 .B -h
 Half-size the output image.  Instead of interpolating, reduce
