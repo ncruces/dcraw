@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.284 $
-   $Date: 2005/09/08 04:31:20 $
+   $Revision: 1.285 $
+   $Date: 2005/09/13 01:03:22 $
  */
 
 #define _GNU_SOURCE
@@ -4469,7 +4469,7 @@ int CLASS identify (int will_decode)
     {  6114240, "PENTAX",   "Optio S4"        ,1 },  /* or S4i */
     { 12582980, "Sinar",    ""           ,0 } };
   static const char *corp[] =
-    { "Canon", "NIKON", "EPSON", "Kodak", "OLYMPUS", "PENTAX",
+    { "Canon", "NIKON", "EPSON", "KODAK", "Kodak", "OLYMPUS", "PENTAX",
       "MINOLTA", "Minolta", "Konica", "CASIO" };
 
 /*  What format is this file?  Set make[] if we recognize it. */
@@ -5144,6 +5144,12 @@ konica_400z:
     order = 0x4d4d;
     load_raw = unpacked_load_raw;
     black = 512;
+  } else if (!strncmp(model,"P850",4)) {
+    height = 1950;
+    width  = 2608;
+    data_offset = 76456;
+    filters = 0x16161616;
+    load_raw = packed_12_load_raw;
   } else if (!strcasecmp(make,"KODAK")) {
     filters = 0x61616161;
     if (!strcmp(model,"NC2000F")) {
@@ -5673,7 +5679,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.64"
+    "\nRaw Photo Decoder \"dcraw\" v7.65"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
