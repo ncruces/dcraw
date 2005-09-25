@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.285 $
-   $Date: 2005/09/13 01:03:22 $
+   $Revision: 1.286 $
+   $Date: 2005/09/25 22:26:03 $
  */
 
 #define _GNU_SOURCE
@@ -97,7 +97,7 @@ int zero_after_ff;
 unsigned filters;
 ushort (*image)[4], white[8][8], curve[0x1000];
 void (*load_raw)();
-float bright=1.0, red_scale=1.0, blue_scale=1.0;
+float bright=1, red_scale=1, blue_scale=1, sigma_d=0, sigma_r=0;
 int four_color_rgb=0, document_mode=0, quick_interpolate=0;
 int verbose=0, use_auto_wb=0, use_camera_wb=0, use_camera_rgb=0;
 int fuji_secondary, use_secondary=0;
@@ -3047,6 +3047,34 @@ void CLASS vng_interpolate()
   free (brow[4]);
 }
 
+void CLASS cam_to_cielab (ushort cam[4], float lab[3])
+{
+  int c, i, j, k;
+  float r, xyz[3];
+  static const float d65[3] = { 0.950456, 1, 1.088754 };
+  static float cbrt[0x10000], xyz_cam[3][3];
+
+  if (cam == NULL) {
+    for (i=0; i < 0x10000; i++) {
+      r = (float) i / maximum;
+      cbrt[i] = r > 0.008856 ? pow(r,1/3.0) : 7.787*r + 16/116.0;
+    }
+    for (i=0; i < 3; i++)
+      for (j=0; j < colors; j++)
+	for (xyz_cam[i][j] = k=0; k < 3; k++)
+	  xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j] / d65[i];
+  } else {
+    for (i=0; i < 3; i++) {
+      for (xyz[i]=0.5, c=0; c < colors; c++)
+	xyz[i] += xyz_cam[i][c] * cam[c];
+      xyz[i] = cbrt[CLIP((int) xyz[i])];
+    }
+    lab[0] = 116 * xyz[1] - 16;
+    lab[1] = 500 * (xyz[0] - xyz[1]);
+    lab[2] = 200 * (xyz[1] - xyz[2]);
+  }
+}
+
 /*
    Adaptive Homogeneity-Directed interpolation is based on
    the work of Keigo Hirakawa, Thomas Parks, and Paul Lee.
@@ -3055,38 +3083,25 @@ void CLASS vng_interpolate()
 
 void CLASS ahd_interpolate()
 {
-  int i, j, k, top, left, row, col, tr, tc, fc, c, d, val;
-  int west, east, north, south, num, total[3], hm[3];
+  int i, j, top, left, row, col, tr, tc, fc, c, d, val, hm[2];
   ushort (*pix)[4], (*rix)[3];
   static const int dir[4] = { -1, 1, -TS, TS };
-  static const float d65[3] = { 0.950456, 1, 1.088754 };
-  unsigned ldiff[3][4], abdiff[3][4], leps, abeps;
-  float r, *cbrt, xyz[3], xyz_cam[3][3];
+  unsigned ldiff[2][4], abdiff[2][4], leps, abeps;
+  float flab[3];
   ushort (*rgb)[TS][TS][3];
    short (*lab)[TS][TS][3];
    char (*homo)[TS][TS], *buffer;
 
   if (verbose) fprintf (stderr, "AHD interpolation...\n");
-  buffer = malloc (0x40000 + 39*TS*TS);		/* 2752 kB */
+  buffer = malloc (26*TS*TS);			/* 1664 kB */
   merror (buffer, "ahd_interpolate()");
-  cbrt = (void *) buffer;
-  rgb  = (void *) (buffer + 0x40000);
-  lab  = (void *) (buffer + 0x40000 + 18*TS*TS);
-  homo = (void *) (buffer + 0x40000 + 36*TS*TS);
-
-/*  Prepare conversion from raw color to CIELab:		*/
-  for (i=0; i < 0x10000; i++) {
-    r = (float) i / maximum;
-    cbrt[i] = r > 0.008856 ? pow(r,1/3.0) : 7.787*r + 16/116.0;
-  }
-  for (i=0; i < 3; i++)
-    for (j=0; j < 3; j++)
-      for (xyz_cam[i][j] = k=0; k < 3; k++)
-	xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j] / d65[i];
+  rgb  = (void *) buffer;
+  lab  = (void *) (buffer + 12*TS*TS);
+  homo = (void *) (buffer + 24*TS*TS);
 
   for (top=0; top < height; top += TS-6)
     for (left=0; left < width; left += TS-6) {
-      memset (rgb, 0, 18*TS*TS);
+      memset (rgb, 0, 12*TS*TS);
 
 /*  Horizontally interpolate green into rgb[0]:			*/
       for (row=top; row < top+TS && row < height; row++) {
@@ -3109,31 +3124,8 @@ void CLASS ahd_interpolate()
 	  rgb[1][row-top][col-left][1] = CLIP(val);
 	}
       }
-/*  Combine these into rgb[2] using edge-sensing:		*/
-      for (row = top < 1 ? 1:top; row < top+TS && row < height-1; row++) {
-	tr = row - top;
-	col = left + (FC(row,left) == 1);
-	if (col < 1) col += 2;
-	for ( ; col < left+TS && col < width-1; col+=2) {
-	  tc = col - left;
-	  pix = image + row*width+col;
-	  west  = rgb[0][tr][tc][1] - pix[-1][1];
-	  east  = rgb[0][tr][tc][1] - pix[+1][1];
-	  north = rgb[1][tr][tc][1] - pix[-width][1];
-	  south = rgb[1][tr][tc][1] - pix[+width][1];
-	  if ((val = ABS(west) + ABS(east) - ABS(north) - ABS(south)))
-	    rgb[2][tr][tc][1] = rgb[val > 0][tr][tc][1];
-	  else {
-	    west *= east;
-	    north *= south;
-	    rgb[2][tr][tc][1] = (west*north < 0)
-		?  rgb[west > 0][tr][tc][1]
-		: (rgb[0][tr][tc][1] + rgb[1][tr][tc][1]) >> 1;
-	  }
-	}
-      }
 /*  Interpolate red and blue, and convert to CIELab:		*/
-      for (d=0; d < 3; d++)
+      for (d=0; d < 2; d++)
 	for (row=top+1; row < top+TS-1 && row < height-1; row++) {
 	  tr = row-top;
 	  for (col=left+1; col < left+TS-1 && col < width-1; col++) {
@@ -3142,55 +3134,42 @@ void CLASS ahd_interpolate()
 	    rix = &rgb[d][tr][tc];
 	    if ((c = 2 - FC(row,col)) == 1) {
 	      c = FC(row+1,col);
-	      val = ( pix[-1][2-c] + pix[1][2-c] +
-			2*pix[0][1] - rix[-1][1] - rix[1][1] ) >> 1;
+	      val = pix[0][1] + (( pix[-1][2-c] + pix[1][2-c]
+				 - rix[-1][1] - rix[1][1] ) >> 1);
 	      rix[0][2-c] = CLIP(val);
-	      val = ( pix[-width][c] + pix[width][c] +
-			2*pix[0][1] - rix[-TS][1] - rix[TS][1] ) >> 1;
-	    } else {
-	      north = 2*rix[0][1] - (rix[-TS-1][1] + rix[TS+1][1]);
-	      west  = 2*rix[0][1] - (rix[-TS+1][1] + rix[TS-1][1]);
-	      val = (d < 2) ? 0 :
-		   ABS(pix[-width-1][c] - pix[width+1][c]) + ABS(north)
-		 - ABS(pix[-width+1][c] - pix[width-1][c]) - ABS(west);
-	      north += pix[-width-1][c] + pix[width+1][c];
-	      west  += pix[-width+1][c] + pix[width-1][c];
-	      if     (val == 0) val = (north + west) >> 2;
-	      else if (val < 0) val = north >> 1;
-	      else		val = west  >> 1;
-	    }
+	      val = pix[0][1] + (( pix[-width][c] + pix[width][c]
+				 - rix[-TS][1] - rix[TS][1] ) >> 1);
+	    } else
+	      val = rix[0][1] + (( pix[-width-1][c] + pix[-width+1][c]
+				 + pix[+width-1][c] + pix[+width+1][c]
+				 - rix[-TS-1][1] - rix[-TS+1][1]
+				 - rix[+TS-1][1] - rix[+TS+1][1] + 1) >> 2);
 	    rix[0][c] = CLIP(val);
 	    c = FC(row,col);
 	    rix[0][c] = pix[0][c];
-	    for (i=0; i < 3; i++) {
-	      for (xyz[i]=0.5, c=0; c < 3; c++)
-		xyz[i] += xyz_cam[i][c] * rix[0][c];
-	      xyz[i] = cbrt[CLIP((int) xyz[i])];
-	    }
-	    lab[d][tr][tc][0] = 32*116 * xyz[1] - 32*16;
-	    lab[d][tr][tc][1] = 32*500 * (xyz[0] - xyz[1]);
-	    lab[d][tr][tc][2] = 32*200 * (xyz[1] - xyz[2]);
+	    cam_to_cielab (rix[0], flab);
+	    FORC3 lab[d][tr][tc][c] = 64*flab[c];
 	  }
 	}
 /*  Build homogeneity maps from the CIELab images:		*/
-      memset (homo, 0, 3*TS*TS);
+      memset (homo, 0, 2*TS*TS);
       for (row=top+2; row < top+TS-2 && row < height; row++) {
 	tr = row-top;
 	for (col=left+2; col < left+TS-2 && col < width; col++) {
 	  tc = col-left;
-	  for (d=0; d < 3; d++)
+	  for (d=0; d < 2; d++)
 	    for (i=0; i < 4; i++)
 	      ldiff[d][i] = ABS(lab[d][tr][tc][0]-lab[d][tr][tc+dir[i]][0]);
 	  leps = MIN(MAX(ldiff[0][0],ldiff[0][1]),
 		     MAX(ldiff[1][2],ldiff[1][3]));
-	  for (d=0; d < 3; d++)
+	  for (d=0; d < 2; d++)
 	    for (i=0; i < 4; i++)
 	      if (i >> 1 == d || ldiff[d][i] <= leps)
 		abdiff[d][i] = SQR(lab[d][tr][tc][1]-lab[d][tr][tc+dir[i]][1])
 			     + SQR(lab[d][tr][tc][2]-lab[d][tr][tc+dir[i]][2]);
 	  abeps = MIN(MAX(abdiff[0][0],abdiff[0][1]),
 		      MAX(abdiff[1][2],abdiff[1][3]));
-	  for (d=0; d < 3; d++)
+	  for (d=0; d < 2; d++)
 	    for (i=0; i < 4; i++)
 	      if (ldiff[d][i] <= leps && abdiff[d][i] <= abeps)
 		homo[d][tr][tc]++;
@@ -3201,17 +3180,15 @@ void CLASS ahd_interpolate()
 	tr = row-top;
 	for (col=left+3; col < left+TS-3 && col < width-3; col++) {
 	  tc = col-left;
-	  for (d=0; d < 3; d++)
+	  for (d=0; d < 2; d++)
 	    for (hm[d]=0, i=tr-1; i <= tr+1; i++)
 	      for (j=tc-1; j <= tc+1; j++)
 		hm[d] += homo[d][i][j];
-	  FORC3 total[c] = 0;
-	  for (num=d=0; d < 3; d++)
-	    if (hm[d] >= hm[0] && hm[d] >= hm[1] && hm[d] >= hm[2]) {
-	      FORC3 total[c] += rgb[d][tr][tc][c];
-	      num++;
-	    }
-	  FORC3 image[row*width+col][c] = total[c] / num;
+	  if (hm[0] != hm[1])
+	    FORC3 image[row*width+col][c] = rgb[hm[1] > hm[0]][tr][tc][c];
+	  else
+	    FORC3 image[row*width+col][c] =
+		(rgb[0][tr][tc][c] + rgb[1][tr][tc][c]) >> 1;
 	}
       }
     }
@@ -3219,6 +3196,63 @@ void CLASS ahd_interpolate()
   trim = 3;
 }
 #undef TS
+
+/*
+   Bilateral Filtering was developed by C. Tomasi and R. Manduchi.
+ */
+void CLASS bilateral_filter()
+{
+  float (**window)[7], *kernel, scale_r, elut[1024], sum[5];
+  int c, i, wr, ws, wlast, row, col, y, x;
+  unsigned sep;
+
+  if (verbose) fprintf (stderr, "Bilateral filtering...\n");
+
+  wr = ceil(sigma_d*2);		/* window radius */
+  ws = 2*wr + 1;		/* window size */
+  window = calloc ((ws+1)*sizeof  *window +
+		 ws*width*sizeof **window + ws*sizeof *kernel, 1);
+  merror (window, "bilateral_filter()");
+  for (i=0; i <= ws; i++)
+    window[i] = (float (*)[7]) (window+ws+1) + i*width;
+  kernel = (float *) window[ws] + wr;
+  for (i=-wr; i <= wr; i++)
+    kernel[i] = 256 / (2*SQR(sigma_d)) * i*i + 0.25;
+  scale_r     = 256 / (2*SQR(sigma_r));
+  for (i=0; i < 1024; i++)
+    elut[i] = exp (-i/256.0);
+
+  for (wlast=-1, row=0; row < height; row++) {
+    while (wlast < row+wr) {
+      wlast++;
+      for (i=0; i <= ws; i++)	/* rotate window rows */
+	window[(ws+i) % (ws+1)] = window[i];
+      if (wlast < height)
+	for (col=0; col < width; col++) {
+	  FORCC window[ws-1][col][c] = image[wlast*width+col][c];
+	  cam_to_cielab (image[wlast*width+col], window[ws-1][col]+4);
+	}
+    }
+    for (col=0; col < width; col++) {
+      memset (sum, 0, sizeof sum);
+      for (y=-wr; y <= wr; y++)
+	if ((unsigned)(row+y) < height)
+	  for (x=-wr; x <= wr; x++)
+	    if ((unsigned)(col+x) < width) {
+	      sep = ( SQR(window[wr+y][col+x][4] - window[wr][col][4])
+		    + SQR(window[wr+y][col+x][5] - window[wr][col][5])
+		    + SQR(window[wr+y][col+x][6] - window[wr][col][6]) )
+			* scale_r + kernel[y] + kernel[x];
+	      if (sep < 1024) {
+		FORCC sum[c] += elut[sep] * window[wr+y][col+x][c];
+		sum[4] += elut[sep];
+	      }
+	    }
+      FORCC image[row*width+col][c] = sum[c]/sum[4];
+    }
+  }
+  free (window);
+}
 
 void CLASS parse_makernote()
 {
@@ -3411,6 +3445,7 @@ void CLASS get_timestamp (int reversed)
   char str[20];
   int i;
 
+  if (timestamp) return;
   str[19] = 0;
   if (reversed)
     for (i=19; i--; ) str[i] = fgetc(ifp);
@@ -3839,6 +3874,7 @@ common:
 	camera_red   =(get2() ^ key[1]) / camera_red;
 	camera_blue  = get2() ^ key[0];
 	camera_blue /= get2() ^ key[1];
+	if (!wbi) camera_red = -1;	/* Use my auto WB for this photo */
       } else if (!strcmp(model,"Canon PowerShot G6") ||
 		 !strcmp(model,"Canon PowerShot S60") ||
 		 !strcmp(model,"Canon PowerShot S70")) {
@@ -3893,8 +3929,6 @@ common:
       parse_ciff(aoff, len);
     fseek (ifp, save, SEEK_SET);
   }
-  if (wbi == 0 && !strcmp(model,"Canon EOS D30"))
-    camera_red = -1;			/* Use my auto WB for this photo */
 }
 
 void CLASS parse_rollei()
@@ -5679,7 +5713,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.65"
+    "\nRaw Photo Decoder \"dcraw\" v7.70"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -5703,6 +5737,7 @@ int CLASS main (int argc, char **argv)
     "\n-q        Quick, low-quality bilinear interpolation"
     "\n-h        Half-size color image (3x faster than -q)"
     "\n-f        Interpolate RGGB as four colors"
+    "\n-B <domain> <range>  Apply bilateral filter to reduce noise"
     "\n-j        Show Fuji Super CCD images tilted 45 degrees"
     "\n-s        Use secondary pixels (Fuji Super CCD SR only)"
     "\n-t [0-7]  Flip image (0 = none, 3 = 180, 5 = 90CCW, 6 = 90CW)"
@@ -5716,12 +5751,15 @@ int CLASS main (int argc, char **argv)
   argv[argc] = "";
   for (arg=1; argv[arg][0] == '-'; ) {
     opt = argv[arg++][1];
-    if (strchr ("brlkt", opt) && !isdigit(argv[arg][0])) {
-      fprintf (stderr, "\"-%c\" requires a numeric argument.\n", opt);
+    if ((strchr("Bbrlkt", opt) && !isdigit(argv[arg][0])) ||
+		   (opt == 'B' && !isdigit(argv[arg+1][0]))) {
+      fprintf (stderr, "Non-numeric argument to \"-%c\"\n", opt);
       return 1;
     }
     switch (opt)
     {
+      case 'B':  sigma_d     = atof(argv[arg++]);
+		 sigma_r     = atof(argv[arg++]);  break;
       case 'b':  bright      = atof(argv[arg++]);  break;
       case 'r':  red_scale   = atof(argv[arg++]);  break;
       case 'l':  blue_scale  = atof(argv[arg++]);  break;
@@ -5832,11 +5870,13 @@ next:
     if (is_foveon) foveon_interpolate();
     else scale_colors();
     if (shrink) filters = 0;
+    cam_to_cielab (NULL,NULL);
     if ((trim = filters && !document_mode)) {
       if (quick_interpolate || use_vng || colors > 3)
 	   vng_interpolate();
       else ahd_interpolate();
     }
+    if (sigma_d > 0 && sigma_r > 0) bilateral_filter();
     if (use_fuji_rotate) fuji_rotate();
 #ifdef USE_LCMS
     apply_profile (profile);
