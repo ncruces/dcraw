@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "September 8, 2005"
+.TH dcraw 1 "September 25, 2005"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -53,8 +53,8 @@ Show the raw data as a grayscale image with no interpolation.
 Good for photographing black-and-white documents.
 .TP
 .B -V
-Use the older VNG interpolation.  About twice as fast as the
-default AHD algorithm, but more prone to zipper artifacts.
+Use the older VNG interpolation.  Faster than the default AHD
+algorithm, but more prone to zipper artifacts.
 .TP
 .B -q
 Use bilinear interpolation.  Much faster than
@@ -69,6 +69,18 @@ each 2x2 block of sensors to one pixel.  Much faster than
 Interpolate RGB as four colors.  This blurs the image a little,
 but it eliminates false 2x2 mesh patterns.
 .TP
+.B -B sigma_domain sigma_range
+Use a bilateral filter to smooth noise while preserving edges.
+.B sigma_domain
+is in units of pixels, while
+.B sigma_range
+is in units of CIELab colorspace.
+Try
+.B -B 1 2
+or
+.B -B 2 4
+to start.
+.TP
 .B -a
 Automatic color balance.  The default is to use a fixed
 color balance based on a white card photographed in sunlight.
@@ -81,7 +93,7 @@ prints a warning and reverts to the default.
 .TP
 .B -r red_mul -l blue_mul
 Further adjust the color balance by multiplying the red and
-blue channels by these values.  Both default to 1.0.
+blue output channels by these values.  Both default to 1.0.
 .TP
 .B -b brightness
 Change the output brightness.  Default is 1.0.
