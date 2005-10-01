@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "September 25, 2005"
+.TH dcraw 1 "September 29, 2005"
 .LO 1
 .SH NAME
 dcraw - convert raw digital photos to PPM format
@@ -52,18 +52,24 @@ creates files with a ".ppm" extension.
 Show the raw data as a grayscale image with no interpolation.
 Good for photographing black-and-white documents.
 .TP
-.B -V
-Use the older VNG interpolation.  Faster than the default AHD
-algorithm, but more prone to zipper artifacts.
-.TP
-.B -q
-Use bilinear interpolation.  Much faster than
-.BR -V .
+.B -q [0-3]
+Set the interpolation quality (default is 3):
+
+.B \t0
+\ \ Bilinear (very fast, low quality)
+.br
+.B \t1
+\ \ Reserved
+.br
+.B \t2
+\ \ Variable Number of Gradients (VNG)
+.br
+.B \t3
+\ \ Adaptive Homogeneity-Directed (AHD)
 .TP
 .B -h
-Half-size the output image.  Instead of interpolating, reduce
-each 2x2 block of sensors to one pixel.  Much faster than
-.BR -q .
+Output a half-size image.  Twice as fast as
+.BR -q\ 0 .
 .TP
 .B -f
 Interpolate RGB as four colors.  This blurs the image a little,
@@ -76,9 +82,7 @@ is in units of pixels, while
 .B sigma_range
 is in units of CIELab colorspace.
 Try
-.B -B 1 2
-or
-.B -B 2 4
+.B -B\ 2\ 4
 to start.
 .TP
 .B -a
@@ -99,7 +103,7 @@ blue output channels by these values.  Both default to 1.0.
 Change the output brightness.  Default is 1.0.
 .TP
 .B -k black
-Change the black point.  Default depends on the camera.
+Set the black point.  Default depends on the camera.
 .TP
 .B -n
 By default,
