@@ -8,8 +8,8 @@
 
    This code is free for all uses.
 
-   $Revision: 1.48 $
-   $Date: 2005/08/28 18:54:50 $
+   $Revision: 1.49 $
+   $Date: 2005/10/01 04:06:07 $
  */
 
 #include <stdio.h>
@@ -382,11 +382,13 @@ int parse_tiff_ifd (int base, int level)
 	}
 	break;
       case 0x201:
-	if (strncmp(make,"OLYMPUS",7) || !thumb_offset)
+	if (!thumb_offset || (strncmp(make,"OLYMPUS",7)
+			   && strncmp(make,"SONY",4)))
 	  thumb_offset = val;
 	break;
       case 0x202:
-	if (strncmp(make,"OLYMPUS",7) || !thumb_length)
+	if (!thumb_length || (strncmp(make,"OLYMPUS",7)
+			   && strncmp(make,"SONY",4)))
 	  thumb_length = val;
 	break;
       case 34310:
@@ -573,6 +575,36 @@ int parse_jpeg (int offset)
   }
   thumb_length = 0;
   return 1;
+}
+
+void parse_riff (int level)
+{
+  unsigned i, size, end, save;
+  char tag[4], type[4], buf[64];
+
+  order = 0x4949;
+  fread (tag, 4, 1, ifp);
+  size = get4();
+  if (isdigit(tag[0])) {
+    fseek (ifp, size, SEEK_CUR);
+    return;
+  }
+  printf ("%*.4s size %d", level*4+4, tag, size);
+  if (!memcmp(tag,"RIFF",4) || !memcmp(tag,"LIST",4)) {
+    end = ftell(ifp) + size;
+    fread (type, 4, 1, ifp);
+    printf (" type %.4s:\n", type);
+    while (ftell(ifp) < end)
+      parse_riff (level+1);
+  } else {
+    save = ftell(ifp);
+    fread (buf, 1, 40, ifp);
+    printf (": ");
+    for (i=0; i < 40 && isprint(buf[i]); i++)
+      putchar (buf[i]);
+    putchar ('\n');
+    fseek (ifp, save+size, SEEK_SET);
+  }
 }
 
 void parse_mos(int level)
@@ -1074,6 +1106,9 @@ int identify()
     parse_tiff (toff+12);
     thumb_offset = toff;
     thumb_length = tlen;
+  } else if (!memcmp (head,"RIFF",4)) {
+    fseek (ifp, 0, SEEK_SET);
+    parse_riff(0);
   } else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
   else if (!memcmp (head,"FOVb",4))
