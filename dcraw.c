@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.287 $
-   $Date: 2005/10/01 04:55:11 $
+   $Revision: 1.288 $
+   $Date: 2005/10/03 05:31:46 $
  */
 
 #define _GNU_SOURCE
@@ -92,7 +92,7 @@ int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, tiff_samples;
 int black, maximum, clip_max, clip_color=1;
 int iheight, iwidth, shrink;
-int dng_version, is_canon, is_foveon, raw_color, use_gamma;
+int dng_version, is_foveon, raw_color, use_gamma;
 int flip, xmag, ymag;
 int zero_after_ff;
 unsigned filters;
@@ -789,12 +789,12 @@ void CLASS lossless_jpeg_load_raw()
 	  row = jidx / 1748;
 	  col = jidx % 1748 + 2*1680;
 	}
-      } else if (raw_width == 3516) {
-	row = jidx / 1758;
-	col = jidx % 1758;
+      } else if (raw_width == 4476 || raw_width == 3516) {
+	row = jidx / (raw_width/2);
+	col = jidx % (raw_width/2);
 	if (row >= raw_height) {
 	  row -= raw_height;
-	  col += 1758;
+	  col += raw_width/2;
 	}
       } else {
 	row = jidx / raw_width;
@@ -1785,7 +1785,6 @@ void CLASS kodak_yuv_load_raw()
 	FORC3 if (rgb[c] > 0) ip[c] = curve[rgb[c]];
       }
     }
-  maximum = 0xe74;
 }
 
 void CLASS sony_decrypt (unsigned *data, int len, int start, int key)
@@ -3442,7 +3441,8 @@ get2_256:
       camera_blue = get2() / 256.0;
     }
     if (tag == 0x4001) {
-      fseek (ifp, strstr(model,"EOS-1D") ? 68:50, SEEK_CUR);
+      fseek (ifp, strstr(model,"EOS-1D") ?  68 :
+		  strstr(model,"EOS 5D") ? 126 : 50, SEEK_CUR);
 get2_rggb:
       FORC4 cam_mul[c ^ (c >> 1)] = get2();
     }
@@ -3546,7 +3546,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	break;
       case 0x102:			/* Bits per sample */
 	fuji_secondary = len == 2;
-	if (level) maximum = (1 << (tiff_bps = get2())) - 1;
+	maximum = (1 << (tiff_bps = get2())) - 1;
 	break;
       case 0x103:			/* Compression */
 	tiff_data_compression = get2();
@@ -4267,6 +4267,8 @@ void CLASS adobe_coeff()
 	{ 9805,-2689,-1312,-5803,13064,3068,-2438,3075,8775 } },
     { "Canon EOS D60",
 	{ 6188,-1341,-890,-7168,14489,2937,-2640,3228,8483 } },
+    { "Canon EOS 5D",
+	{ 7082,-1419,-376,-6858,14220,2900,-969,1328,7630 } },
     { "Canon EOS 10D",
 	{ 8197,-2000,-1118,-6714,14335,2592,-2536,3178,8266 } },
     { "Canon EOS 20D",
@@ -4516,7 +4518,7 @@ short CLASS guess_byte_order (int words)
 int CLASS identify (int no_decode)
 {
   char head[32], *cp;
-  unsigned hlen, fsize, i, c, is_jpeg=0;
+  unsigned hlen, fsize, i, c, is_jpeg=0, is_canon;
   static const struct {
     int fsize;
     char make[12], model[15], withjpeg;
@@ -4716,9 +4718,11 @@ nucore:
 /*  We'll try to decode anything from Canon or Nikon. */
 
   if (filters == UINT_MAX) filters = 0x94949494;
-  if ((is_canon = !strcmp(make,"Canon")))
+  if ((is_canon = !strcmp(make,"Canon"))) {
     load_raw = memcmp (head+6,"HEAPCCDR",8) ?
 	lossless_jpeg_load_raw : canon_compressed_load_raw;
+    maximum = 0xfff;
+  }
   if (!strcmp(make,"NIKON"))
     load_raw = nikon_is_compressed() ?
 	nikon_compressed_load_raw : nikon_load_raw;
@@ -4825,6 +4829,10 @@ nucore:
   } else if (is_canon && raw_width == 3596) {
     top_margin  = 12;
     left_margin = 74;
+    goto canon_cr2;
+  } else if (is_canon && raw_width == 4476) {
+    top_margin  = 34;
+    left_margin = 90;
     goto canon_cr2;
   } else if (is_canon && raw_width == 5108) {
     top_margin  = 13;
@@ -5198,6 +5206,7 @@ konica_400z:
   } else if (!strcmp(model,"E-300")) {
     width -= 21;
     load_raw = olympus_e300_load_raw;
+    maximum = 0xfff;
     if (fsize > 15728640) {
       load_raw = unpacked_load_raw;
       maximum = 0xfc30;
@@ -5773,7 +5782,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.73"
+    "\nRaw Photo Decoder \"dcraw\" v7.74"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
