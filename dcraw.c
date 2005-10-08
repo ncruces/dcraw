@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.288 $
-   $Date: 2005/10/03 05:31:46 $
+   $Revision: 1.289 $
+   $Date: 2005/10/08 04:03:17 $
  */
 
 #define _GNU_SOURCE
@@ -85,7 +85,7 @@ short order;
 char *ifname, make[64], model[70], model2[64], *meta_data;
 float flash_used, canon_5814;
 time_t timestamp;
-unsigned shot_order;
+unsigned shot_order, kodak_cbpp;
 int data_offset, meta_offset, meta_length, nikon_curve_offset;
 int tiff_bps, tiff_data_compression, kodak_data_compression;
 int raw_height, raw_width, top_margin, left_margin;
@@ -1101,7 +1101,6 @@ void CLASS fuji_s2_load_raw()
   ushort pixel[2944];
   int row, col, r, c;
 
-  fseek (ifp, (2944*24+32)*2, SEEK_CUR);
   for (row=0; row < 2144; row++) {
     read_shorts (pixel, 2944);
     for (col=0; col < 2880; col++) {
@@ -1117,7 +1116,6 @@ void CLASS fuji_s3_load_raw()
   ushort pixel[4352];
   int row, col, r, c;
 
-  fseek (ifp, (4352*2+32)*2, SEEK_CUR);
   for (row=0; row < 1440; row++) {
     read_shorts (pixel, 4352);
     for (col=0; col < 4288; col++) {
@@ -1128,49 +1126,17 @@ void CLASS fuji_s3_load_raw()
   }
 }
 
-void CLASS fuji_common_load_raw (int ncol, int icol, int nrow)
-{
-  ushort pixel[2048];
-  int row, col, r, c;
-
-  for (row=0; row < nrow; row++) {
-    read_shorts (pixel, ncol);
-    for (col=0; col <= icol; col++) {
-      r = icol - col + (row >> 1);
-      c = col + ((row+1) >> 1);
-      BAYER(r,c) = pixel[col];
-    }
-  }
-}
-
-void CLASS fuji_s5000_load_raw()
-{
-  fseek (ifp, (1472*4+24)*2, SEEK_CUR);
-  fuji_common_load_raw (1472, 1423, 2152);
-}
-
-void CLASS fuji_s7000_load_raw()
-{
-  fuji_common_load_raw (2048, 2047, 3080);
-}
-
-/*
-   The Fuji Super CCD SR has two photodiodes for each pixel.
-   The secondary has about 1/16 the sensitivity of the primary,
-   but this ratio may vary.
- */
-void CLASS fuji_f700_load_raw()
+void CLASS fuji_common_load_raw()
 {
   ushort pixel[2944];
-  int row, col, r, c, val;
+  int row, col, r, c;
 
-  for (row=0; row < 2168; row++) {
-    read_shorts (pixel, 2944);
-    for (col=0; col < 1440; col++) {
-      r = 1439 - col + (row >> 1);
+  for (row=0; row < raw_height; row++) {
+    read_shorts (pixel, raw_width);
+    for (col=0; col <= fuji_width; col++) {
+      r = fuji_width - col + (row >> 1);
       c = col + ((row+1) >> 1);
-      val = pixel[col+16 + use_secondary*1472];
-      BAYER(r,c) = val;
+      BAYER(r,c) = pixel[col];
     }
   }
 }
@@ -1487,8 +1453,8 @@ int CLASS radc_token (int tree)
       s = make_decoder_int (s, 0);
     }
   if (tree == 18) {
-    if (model[2] == '5')
-      return (getbits(6) << 2) + 2;	/* DC50 */
+    if (kodak_cbpp == 243)
+      return (getbits(6) << 2) + 2;	/* most DC50 photos */
     else
       return (getbits(5) << 3) + 4;	/* DC40, Fotoman Pixtura */
   }
@@ -1563,7 +1529,7 @@ void CLASS kodak_radc_load_raw()
 	  BAYER(y,x) = val;
 	}
   }
-  maximum = 0x1fff;		/* wild guess */
+  maximum = 10000;
 }
 
 #undef FORYX
@@ -3076,7 +3042,7 @@ void CLASS cam_to_cielab (ushort cam[4], float lab[3])
   int c, i, j, k;
   float r, xyz[3];
   static const float d65[3] = { 0.950456, 1, 1.088754 };
-  static float cbrt[0x10000], xyz_cam[3][3];
+  static float cbrt[0x10000], xyz_cam[3][4];
 
   if (cam == NULL) {
     for (i=0; i < 0x10000; i++) {
@@ -3497,7 +3463,8 @@ void CLASS parse_exif (int base)
   }
 }
 
-void parse_mos(int offset);
+void CLASS parse_mos (int offset);
+void CLASS sony_decrypt (unsigned *data, int len, int start, int key);
 
 int CLASS parse_tiff_ifd (int base, int level)
 {
@@ -3509,6 +3476,8 @@ int CLASS parse_tiff_ifd (int base, int level)
   uchar cfa_pat[16], cfa_pc[] = { 0,1,2,3 }, tab[256];
   double dblack, cc[4][4], cm[4][3], cam_xyz[4][3];
   double ab[]={ 1,1,1,1 }, asn[] = { 0,0,0,0 }, xyz[] = { 1,1,1 };
+  unsigned *buf, sony_offset=0, sony_length=0, sony_key=0;
+  FILE *sfp;
 
   for (j=0; j < 4; j++)
     for (i=0; i < 4; i++)
@@ -3597,6 +3566,12 @@ int CLASS parse_tiff_ifd (int base, int level)
 	  fseek (ifp, i+4, SEEK_SET);
 	}
 	break;
+      case 29184: sony_offset = get4();  break;
+      case 29185: sony_length = get4();  break;
+      case 29217: sony_key    = get4();  break;
+      case 29443:
+	FORC4 cam_mul[c ^ (c < 2)] = get2();
+	break;
       case 33405:			/* Model2 */
 	fgets (model2, 64, ifp);
 	break;
@@ -3616,6 +3591,15 @@ int CLASS parse_tiff_ifd (int base, int level)
       case 34665:			/* EXIF tag */
 	fseek (ifp, get4()+base, SEEK_SET);
 	parse_exif (base);
+	break;
+      case 37122:			/* CompressedBitsPerPixel */
+	kodak_cbpp = get4();
+	break;
+      case 37400:
+	for (raw_color = i=0; i < 3; i++) {
+	  getrat();
+	  FORC3 rgb_cam[i][c] = getrat();
+	}
 	break;
       case 46275:
 	strcpy (make, "Imacon");
@@ -3689,6 +3673,11 @@ guess_cfa_pc:
 	xyz[1] = getrat();
 	xyz[2] = 1 - xyz[0] - xyz[1];
 	break;
+      case 50740:			/* DNGPrivateData */
+	if (dng_version) break;
+	fseek (ifp, get4()+base, SEEK_SET);
+	parse_tiff_ifd (base, level+1);
+	break;
       case 50829:			/* ActiveArea */
 	top_margin = get4();
 	left_margin = get4();
@@ -3697,6 +3686,22 @@ guess_cfa_pc:
     }
     fseek (ifp, save+4, SEEK_SET);
   }
+  if (sony_length && (buf = malloc(sony_length))) {
+    fseek (ifp, sony_offset, SEEK_SET);
+    fread (buf, sony_length, 1, ifp);
+    sony_decrypt (buf, sony_length/4, 1, sony_key);
+    sfp = ifp;
+    if ((ifp = tmpfile())) {
+      fwrite (buf, sony_length, 1, ifp);
+      fseek (ifp, 0, SEEK_SET);
+      parse_tiff_ifd (-sony_offset, level);
+      fclose (ifp);
+    }
+    ifp = sfp;
+    free (buf);
+  }
+  if (!(base | level | dng_version) &&
+    (strstr(make,"Minolta") || strstr(make,"MINOLTA"))) make[0] = 0;
   for (i=0; i < colors; i++)
     FORCC cc[i][c] *= ab[i];
   if (use_cm) {
@@ -3723,6 +3728,7 @@ void CLASS parse_tiff (int base)
   while ((doff = get4())) {
     fseek (ifp, doff+base, SEEK_SET);
     if (parse_tiff_ifd (base, 0)) break;
+    if (!dng_version && data_offset == 8) make[0] = 0;
   }
   if (!dng_version && !strncmp(make,"Kodak",5)) {
     fseek (ifp, 12+base, SEEK_SET);
@@ -4337,6 +4343,8 @@ void CLASS adobe_coeff()
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
     { "FUJIFILM FinePix S7000",
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
+    { "FUJIFILM FinePix S9",	/* copied from S7000 */
+	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
     { "KODAK NC2000F",		/* DJC */
 	{ 16475,-6903,-1218,-851,10375,477,2505,-7,1020 } },
     { "Kodak DCS315C",
@@ -4481,7 +4489,9 @@ void CLASS simple_coeff (int index)
   { 1.4032,-0.2231,-0.1016,-0.5263,1.4816,0.017,-0.0112,0.0183,0.9113 },
   /* index 1 -- Kodak DC20 and DC25 */
   { 2.25,0.75,-1.75,-0.25,-0.25,0.75,0.75,-0.25,-0.25,-1.75,0.75,2.25 },
-  /* index 2 -- Nikon E700, E800, and E950 */
+  /* index 2 -- Logitech Fotoman Pixtura */
+  { 1.893,-0.418,-0.476,-0.495,1.773,-0.278,-1.017,-0.655,2.672 },
+  /* index 3 -- Nikon E700, E800, and E950 */
   { -1.936280,  1.800443, -1.448486,  2.584324,
      1.405365, -0.524955, -0.289090,  0.408680,
     -1.204965,  1.082304,  2.941367, -1.818705 }
@@ -4572,7 +4582,7 @@ int CLASS identify (int no_decode)
   make[0] = model[0] = model2[0] = 0;
   memset (white, 0, sizeof white);
   data_offset = meta_length = tiff_bps = tiff_data_compression = 0;
-  zero_after_ff = dng_version = fuji_secondary = 0;
+  kodak_cbpp = zero_after_ff = dng_version = fuji_secondary = 0;
   timestamp = shot_order = tiff_samples = black = is_foveon = 0;
   raw_color = use_gamma = xmag = ymag = 1;
   filters = UINT_MAX;	/* 0 = no filters, UINT_MAX = unknown */
@@ -4866,7 +4876,7 @@ canon_cr2:
     maximum = 0x3f4;
     colors = 4;
     filters = 0x1e1e1e1e;
-    simple_coeff(2);
+    simple_coeff(3);
     pre_mul[0] = 1.2085;
     pre_mul[1] = 1.0943;
     pre_mul[3] = 1.1103;
@@ -4878,7 +4888,7 @@ canon_cr2:
     maximum = 0x3dd;
     colors = 4;
     filters = 0x4b4b4b4b;
-    simple_coeff(2);
+    simple_coeff(3);
     pre_mul[0] = 1.18193;
     pre_mul[2] = 1.16452;
     pre_mul[3] = 1.17250;
@@ -4889,7 +4899,7 @@ canon_cr2:
     width  = 2064;
     colors = 4;
     filters = 0xb4b4b4b4;
-    simple_coeff(2);
+    simple_coeff(3);
     pre_mul[0] = 1.196;
     pre_mul[1] = 1.246;
     pre_mul[2] = 1.018;
@@ -4965,6 +4975,7 @@ dimage_z2:
     height = 3584;
     width  = 3583;
     fuji_width = 2144;
+    data_offset += (24*2944+32)*2;
     filters = 0x61616161;
     load_raw = fuji_s2_load_raw;
     black = 128;
@@ -4973,18 +4984,12 @@ dimage_z2:
     height = 3583;
     width  = 3584;
     fuji_width = 2144;
+    data_offset += (2*4352+32)*2;
     if (fsize > 18000000 && use_secondary)
-      data_offset += 4352*2*1444;
+      data_offset += 1444*4352*2;
     filters = 0x49494949;
     load_raw = fuji_s3_load_raw;
     maximum = 0x3dfd;
-  } else if (!strcmp(model,"FinePix S5000")) {
-    height = 2499;
-    width  = 2500;
-    fuji_width = 1423;
-    filters = 0x49494949;
-    load_raw = fuji_s5000_load_raw;
-    maximum = 0x3e00;
   } else if (!strcmp(model,"FinePix S5100") ||
 	     !strcmp(model,"FinePix S5500")) {
     height = 1735;
@@ -4993,22 +4998,36 @@ dimage_z2:
     filters = 0x49494949;
     load_raw = unpacked_load_raw;
     maximum = 0xffff;
+  } else if (!strcmp(model,"FinePix S5000")) {
+    raw_height = 2152;
+    raw_width  = 1472;
+    fuji_width = 1423;
+    data_offset += (4*raw_width+24)*2;
+    goto fuji_common;
   } else if (!strcmp(model,"FinePix E550") ||
 	    !strncmp(model,"FinePix F8",10) ||
 	     !strcmp(model,"FinePix S7000")) {
-    height = 3587;
-    width  = 3588;
+    raw_height = 3080;
+    raw_width  = 2048;
     fuji_width = 2047;
-    filters = 0x49494949;
-    load_raw = fuji_s7000_load_raw;
-    maximum = 0x3e00;
+    goto fuji_common;
+  } else if (!strcmp(model,"FinePix S9000") ||
+	     !strcmp(model,"FinePix S9500")) {
+    raw_height = 3688;
+    raw_width  = 2512;
+    fuji_width = 2447;
+    data_offset += 64;
+    goto fuji_common;
   } else if (!strncmp(model,"FinePix F7",10) ||
 	     !strcmp(model,"FinePix S20Pro")) {
-    height = 2523;
-    width  = 2524;
-    fuji_width = 1440;
+    raw_height = 2168;
+    raw_width  = 2944;
+    fuji_width = 1439;
+    data_offset += 32 + use_secondary*2944;
+fuji_common:
+    width = 1 + (height = raw_height/2 + fuji_width);
+    load_raw = fuji_common_load_raw;
     filters = 0x49494949;
-    load_raw = fuji_f700_load_raw;
     maximum = 0x3e00;
   } else if (!strcmp(model,"RD175")) {
     height = 986;
@@ -5367,6 +5386,7 @@ konica_400z:
     data_offset = 3632;
     load_raw = kodak_radc_load_raw;
     filters = 0x61616161;
+    simple_coeff(2);
   } else if (!strcmp(make,"Rollei")) {
     switch (raw_width) {
       case 1316:
@@ -5782,7 +5802,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.74"
+    "\nRaw Photo Decoder \"dcraw\" v7.77"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
