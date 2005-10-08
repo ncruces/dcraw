@@ -8,8 +8,8 @@
 
    This code is free for all uses.
 
-   $Revision: 1.49 $
-   $Date: 2005/10/01 04:06:07 $
+   $Revision: 1.50 $
+   $Date: 2005/10/08 00:13:30 $
  */
 
 #include <stdio.h>
@@ -303,10 +303,29 @@ void nef_parse_exif(int base)
 
 void parse_mos(int level);
 
+void sony_decrypt (unsigned *data, int len, int start, int key)
+{
+  static unsigned pad[128], p;
+
+  if (start) {
+    for (p=0; p < 4; p++)
+      pad[p] = key = key * 48828125 + 1;
+    pad[3] = pad[3] << 1 | (pad[0]^pad[2]) >> 31;
+    for (p=4; p < 127; p++)
+      pad[p] = (pad[p-4]^pad[p-2]) << 1 | (pad[p-3]^pad[p-1]) >> 31;
+    for (p=0; p < 127; p++)
+      pad[p] = htonl(pad[p]);
+  }
+  while (len--)
+    *data++ ^= pad[p++ & 127] = pad[(p+1) & 127] ^ pad[(p+65) & 127];
+}
+
 int parse_tiff_ifd (int base, int level)
 {
   int entries, tag, type, count, slen, save, save2, val, i;
   int comp=0;
+  unsigned *buf, sony_offset=0, sony_length=0, sony_key=0;
+  FILE *sfp;
 
   entries = get2();
   if (entries > 255) return 1;
@@ -391,6 +410,9 @@ int parse_tiff_ifd (int base, int level)
 			   && strncmp(make,"SONY",4)))
 	  thumb_length = val;
 	break;
+      case 29184: sony_offset = val;  break;
+      case 29185: sony_length = val;  break;
+      case 29217: sony_key = get4();  break;
       case 34310:
 	parse_mos(0);
 	break;
@@ -400,9 +422,30 @@ int parse_tiff_ifd (int base, int level)
 	break;
       case 50706:
 	is_dng = 1;
+	break;
+      case 50740:
+	if (count != 4 || type != 1) break;
+	puts("Sony SR2 private IFD:");
+	fseek (ifp, get4()+base, SEEK_SET);
+	parse_tiff_ifd (base, level+1);
     }
 cont:
     fseek (ifp, save+12, SEEK_SET);
+  }
+  if (sony_length && (buf = malloc(sony_length))) {
+    fseek (ifp, sony_offset, SEEK_SET);
+    fread (buf, sony_length, 1, ifp);
+    sony_decrypt (buf, sony_length/4, 1, sony_key);
+    sfp = ifp;
+    if ((ifp = tmpfile())) {
+      fwrite (buf, sony_length, 1, ifp);
+      fseek (ifp, 0, SEEK_SET);
+      puts ("Sony SR2 encrypted IFD:");
+      parse_tiff_ifd (-sony_offset, level);
+      fclose (ifp);
+    }
+    ifp = sfp;
+    free (buf);
   }
   if (((comp == 6 && !strcmp(make,"Canon")) ||
        (comp == 7 && is_dng)) && offset) {
