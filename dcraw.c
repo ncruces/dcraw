@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.289 $
-   $Date: 2005/10/08 04:03:17 $
+   $Revision: 1.290 $
+   $Date: 2005/10/12 03:50:10 $
  */
 
 #define _GNU_SOURCE
@@ -4098,7 +4098,7 @@ void CLASS parse_fuji (int offset)
 
   fseek (ifp, offset, SEEK_SET);
   entries = get4();
-  if (entries > 60) return;
+  if (entries > 255) return;
   while (entries--) {
     tag = get2();
     len = get2();
