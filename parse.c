@@ -8,8 +8,8 @@
 
    This code is free for all uses.
 
-   $Revision: 1.51 $
-   $Date: 2005/10/12 03:50:10 $
+   $Revision: 1.52 $
+   $Date: 2005/10/18 07:00:57 $
  */
 
 #include <stdio.h>
@@ -1047,7 +1047,9 @@ void parse_fuji (int offset)
   int entries, tag, len;
 
   fseek (ifp, offset, SEEK_SET);
-  fseek (ifp, get4(), SEEK_SET);
+  if (!(len = get4())) return;
+  printf ("Fuji table at %d:\n",len);
+  fseek (ifp, len, SEEK_SET);
   entries = get4();
   if (entries > 255) return;
   while (entries--) {
