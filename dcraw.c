@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.291 $
-   $Date: 2005/10/18 07:43:44 $
+   $Revision: 1.292 $
+   $Date: 2005/10/19 21:55:29 $
  */
 
 #define _GNU_SOURCE
@@ -132,9 +132,11 @@ struct decode {
 
 #define SQR(x) ((x)*(x))
 #define ABS(x) (((int)(x) ^ ((int)(x) >> 31)) - ((int)(x) >> 31))
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
-#define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#define CLIP(x) (MAX(0,MIN((x),clip_max)))
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#define LIM(x,min,max) MAX(min,MIN(x,max))
+#define ULIM(x,y,z) ((y) < (z) ? LIM(x,y,z) : LIM(x,z,y))
+#define CLIP(x) LIM(x,0,clip_max)
 
 /*
    In order to inline this calculation, I make the risky
@@ -3081,10 +3083,10 @@ void CLASS ahd_interpolate()
 	  pix = image + row*width+col;
 	  val = ((pix[-1][1] + pix[0][fc] + pix[1][1]) * 2
 		- pix[-2][fc] - pix[2][fc]) >> 2;
-	  rgb[0][row-top][col-left][1] = CLIP(val);
+	  rgb[0][row-top][col-left][1] = ULIM(val,pix[-1][1],pix[1][1]);
 	  val = ((pix[-width][1] + pix[0][fc] + pix[width][1]) * 2
 		- pix[-2*width][fc] - pix[2*width][fc]) >> 2;
-	  rgb[1][row-top][col-left][1] = CLIP(val);
+	  rgb[1][row-top][col-left][1] = ULIM(val,pix[-width][1],pix[width][1]);
 	}
       }
 /*  Interpolate red and blue, and convert to CIELab:		*/
@@ -5766,7 +5768,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.78"
+    "\nRaw Photo Decoder \"dcraw\" v7.79"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
