@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.292 $
-   $Date: 2005/10/19 21:55:29 $
+   $Revision: 1.293 $
+   $Date: 2005/10/21 02:01:00 $
  */
 
 #define _GNU_SOURCE
@@ -222,6 +222,7 @@ int CLASS sget4 (uchar *s)
   else
     return s[0] << 24 | s[1] << 16 | s[2] << 8 | s[3];
 }
+#define sget4(s) sget4((uchar *)s)
 
 int CLASS get4()
 {
@@ -1522,7 +1523,7 @@ void CLASS kodak_jpeg_load_raw() {}
 METHODDEF(boolean)
 fill_input_buffer (j_decompress_ptr cinfo)
 {
-  static char jpeg_buffer[4096];
+  static uchar jpeg_buffer[4096];
   size_t nbytes;
 
   nbytes = fread (jpeg_buffer, 1, 4096, ifp);
@@ -1972,7 +1973,7 @@ void CLASS foveon_load_raw()
   int fixed, row, col, bit=-1, c, i;
 
   fixed = get4();
-  read_shorts (diff, 1024);
+  read_shorts ((ushort *) diff, 1024);
   if (!fixed) {
     for (i=0; i < 1024; i++)
       huff[i] = get4();
@@ -2112,11 +2113,13 @@ void CLASS foveon_make_curves
   FORC3 curvep[c] = foveon_make_curve (max, mul[c], filt);
 }
 
-int CLASS foveon_apply_curve (ushort *curve, int i)
+int CLASS foveon_apply_curve (short *curve, int i)
 {
   if (abs(i) >= curve[0]) return 0;
   return i < 0 ? -curve[1-i] : curve[1+i];
 }
+
+#define image ((short (*)[4]) image)
 
 void CLASS foveon_interpolate()
 {
@@ -2358,7 +2361,7 @@ void CLASS foveon_interpolate()
     if (min > i) min = i;
   }
   limit = min * 9 >> 4;
-  for (pix=image[0]; pix < (short *) image[height*width]; pix+=4) {
+  for (pix=image[0]; pix < image[height*width]; pix+=4) {
     if (pix[0] <= limit || pix[1] <= limit || pix[2] <= limit)
       continue;
     min = max = pix[0];
@@ -2427,7 +2430,7 @@ void CLASS foveon_interpolate()
   }
 
   /* Transform the image to a different colorspace */
-  for (pix=image[0]; pix < (short *) image[height*width]; pix+=4) {
+  for (pix=image[0]; pix < image[height*width]; pix+=4) {
     FORC3 pix[c] -= foveon_apply_curve (curve[c], pix[c]);
     sum = (pix[0]+pix[1]+pix[1]+pix[2]) >> 2;
     FORC3 pix[c] -= foveon_apply_curve (curve[c], pix[c]-sum);
@@ -2514,6 +2517,7 @@ void CLASS foveon_interpolate()
   width = i;
   height = row;
 }
+#undef image
 
 /* END GPL BLOCK */
 
@@ -3980,7 +3984,7 @@ void CLASS parse_rollei()
 
 void CLASS parse_mos (int offset)
 {
-  uchar data[40];
+  char data[40];
   int skip, from, i, c, neut[4];
   static const unsigned bayer[] =
 	{ 0x94949494, 0x61616161, 0x16161616, 0x49494949 };
