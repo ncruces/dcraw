@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.294 $
-   $Date: 2005/10/26 07:22:16 $
+   $Revision: 1.295 $
+   $Date: 2005/10/26 22:36:53 $
  */
 
 #define _GNU_SOURCE
@@ -3458,7 +3458,7 @@ int CLASS parse_tiff_ifd (int base, int level)
   unsigned entries, tag, type, len, plen=16, save;
   int done=0, use_cm=0, cfa, i, j, c;
   static const int size[] = { 1,1,1,2,4,8,1,1,2,4,8,4,8 };
-  char software[64];
+  char software[64], *cbuf, *cp;
   static const int flip_map[] = { 0,1,3,2,4,6,7,5 };
   uchar cfa_pat[16], cfa_pc[] = { 0,1,2,3 }, tab[256];
   double dblack, cc[4][4], cm[4][3], cam_xyz[4][3];
@@ -3539,8 +3539,9 @@ int CLASS parse_tiff_ifd (int base, int level)
 	if (level) {
 	  data_offset = ftell(ifp);
 	} else {
-	  strcpy (make, "Leaf");
+	  if (!make[0]) strcpy (make, "Leaf");
 	  data_offset = get4();
+	  done = 1;
 	}
 	break;
       case 0x14a:			/* SubIFD tag */
@@ -3594,6 +3595,15 @@ int CLASS parse_tiff_ifd (int base, int level)
 	raw_width = 4090;
 	raw_height = len / raw_width / 2;
 	done = 1;
+	break;
+      case 50454:			/* Sinar tag */
+      case 50455:
+	if (!(cbuf = malloc(len))) break;
+	fread (cbuf, 1, len, ifp);
+	for (cp = cbuf-1; cp && cp < cbuf+len; cp = strchr(cp,'\n'))
+	  if (!strncmp (++cp,"Neutral ",8))
+	    sscanf (cp+8, "%f %f %f", cam_mul, cam_mul+1, cam_mul+2);
+	free (cbuf);
 	break;
       case 50706:			/* DNGVersion */
 	FORC4 dng_version = (dng_version << 8) + fgetc(ifp);
@@ -4573,7 +4583,7 @@ int CLASS identify (int no_decode)
     { 12582980, "Sinar",    ""           ,0 } };
   static const char *corp[] =
     { "Canon", "NIKON", "EPSON", "KODAK", "Kodak", "OLYMPUS", "PENTAX",
-      "MINOLTA", "Minolta", "Konica", "CASIO" };
+      "MINOLTA", "Minolta", "Konica", "CASIO", "Sinar" };
 
 /*  What format is this file?  Set make[] if we recognize it. */
 
@@ -4703,7 +4713,7 @@ nucore:
   cp = model + strlen(model);
   while (*--cp == ' ') *cp = 0;
   i = strlen(make);			/* Remove make from model */
-  if (!strncmp (model, make, i++))
+  if (!strncmp (model, make, i) && model[i++] == ' ')
     memmove (model, model+i, 64-i);
   make[63] = model[63] = model2[63] = 0;
 
@@ -5161,14 +5171,16 @@ konica_400z:
     maximum = 0xffff;
     pre_mul[0] = 1.963;
     pre_mul[2] = 1.430;
-  } else if (!strcmp(make,"Sinar") && !memcmp(head,"8BPS",4)) {
-    fseek (ifp, 14, SEEK_SET);
-    height = get4();
-    width  = get4();
-    filters = 0x61616161;
-    data_offset = 68;
+  } else if (!strcmp(make,"Sinar")) {
+    if (!memcmp(head,"8BPS",4)) {
+      fseek (ifp, 14, SEEK_SET);
+      height = get4();
+      width  = get4();
+      filters = 0x61616161;
+      data_offset = 68;
+    }
     load_raw = unpacked_load_raw;
-    maximum = 0xffff;
+    maximum = 0x3fff;
   } else if (!strcmp(make,"Leaf")) {
     load_raw = unpacked_load_raw;
     if (tiff_data_compression == 99)
@@ -5777,7 +5789,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.80"
+    "\nRaw Photo Decoder \"dcraw\" v7.81"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
