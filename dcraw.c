@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.293 $
-   $Date: 2005/10/21 02:01:00 $
+   $Revision: 1.294 $
+   $Date: 2005/10/26 07:22:16 $
  */
 
 #define _GNU_SOURCE
@@ -1287,7 +1287,10 @@ void CLASS olympus_e300_load_raw()
     }
     for (col=0; col < width; col++)
       BAYER(row,col) = (pixel[col] & 0xfff);
+    for (col=width+4; col < raw_width; col++)
+      black += pixel[col] & 0xfff;
   }
+  black /= (raw_width - width - 4) * height;
   free (data);
 }
 
@@ -4449,6 +4452,8 @@ void CLASS adobe_coeff()
 	{ 13173,-4732,-1499,-5807,14036,1895,-2045,2452,7142 } },
     { "OLYMPUS E-300",
 	{ 7828,-1761,-348,-5788,14071,1830,-2853,4518,6557 } },
+    { "OLYMPUS E-500",	/* copied from E-300 */
+	{ 7828,-1761,-348,-5788,14071,1830,-2853,4518,6557 } },
     { "PENTAX *ist DS",
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D",
@@ -5192,15 +5197,15 @@ konica_400z:
     load_raw = unpacked_load_raw;
     maximum = 0xffc0;
     black = 2560;
-  } else if (!strcmp(model,"E-300")) {
-    width -= 21;
+  } else if (!strcmp(model,"E-300") ||
+	     !strcmp(model,"E-500")) {
+    width -= 20;
     load_raw = olympus_e300_load_raw;
     maximum = 0xfff;
     if (fsize > 15728640) {
       load_raw = unpacked_load_raw;
       maximum = 0xfc30;
-    } else
-      black = 62;
+    }
   } else if (!strcmp(model,"C770UZ")) {
     height = 1718;
     width  = 2304;
@@ -5772,7 +5777,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.79"
+    "\nRaw Photo Decoder \"dcraw\" v7.80"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
