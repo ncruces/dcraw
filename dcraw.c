@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.295 $
-   $Date: 2005/10/26 22:36:53 $
+   $Revision: 1.296 $
+   $Date: 2005/11/04 07:11:14 $
  */
 
 #define _GNU_SOURCE
@@ -524,14 +524,11 @@ void CLASS crw_init_tables (unsigned table)
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
       0x04,0x03,0x05,0x06,0x02,0x07,0x01,0x08,0x09,0x00,0x0a,0x0b,0xff  },
-
     { 0,2,2,3,1,1,1,1,2,0,0,0,0,0,0,0,
       0x03,0x02,0x04,0x01,0x05,0x00,0x06,0x07,0x09,0x08,0x0a,0x0b,0xff  },
-
     { 0,0,6,3,1,1,2,0,0,0,0,0,0,0,0,0,
       0x06,0x05,0x07,0x04,0x08,0x03,0x09,0x02,0x00,0x0a,0x01,0x0b,0xff  },
   };
-
   static const uchar second_tree[3][180] = {
     { 0,2,2,2,1,4,2,1,2,5,1,1,0,0,0,139,
       0x03,0x04,0x02,0x05,0x01,0x06,0x07,0x08,
@@ -548,7 +545,6 @@ void CLASS crw_init_tables (unsigned table)
       0xe1,0x4a,0x6a,0xe6,0xb3,0xf1,0xd3,0xa5,0x8a,0xb2,0x9a,0xba,
       0x84,0xa4,0x63,0xe5,0xc5,0xf3,0xd2,0xc4,0x82,0xaa,0xda,0xe4,
       0xf2,0xca,0x83,0xa3,0xa2,0xc3,0xea,0xc2,0xe2,0xe3,0xff,0xff  },
-
     { 0,2,2,1,4,1,4,1,3,3,1,0,0,0,0,140,
       0x02,0x03,0x01,0x04,0x05,0x12,0x11,0x06,
       0x13,0x07,0x08,0x14,0x22,0x09,0x21,0x00,0x23,0x15,0x31,0x32,
@@ -564,7 +560,6 @@ void CLASS crw_init_tables (unsigned table)
       0xa2,0xa3,0xe3,0xc2,0x66,0x67,0x93,0xaa,0xd4,0xd5,0xe7,0xf8,
       0x88,0x9a,0xd7,0x77,0xc4,0x64,0xe2,0x98,0xa5,0xca,0xda,0xe8,
       0xf3,0xf6,0xa9,0xb2,0xb3,0xf2,0xd2,0x83,0xba,0xd3,0xff,0xff  },
-
     { 0,0,6,2,1,3,3,2,5,1,2,2,8,10,0,117,
       0x04,0x05,0x03,0x06,0x02,0x07,0x01,0x08,
       0x09,0x12,0x13,0x14,0x11,0x15,0x0a,0x16,0x17,0xf0,0x00,0x22,
@@ -581,7 +576,6 @@ void CLASS crw_init_tables (unsigned table)
       0xd3,0xaa,0xc4,0xca,0xf2,0xb1,0xe4,0xd1,0x83,0x63,0xea,0xc3,
       0xe2,0x82,0xf1,0xa3,0xc2,0xa1,0xc1,0xe3,0xa2,0xe1,0xff,0xff  }
   };
-
   if (table > 2) table = 2;
   init_decoder();
   make_decoder ( first_tree[table], 0);
@@ -3539,7 +3533,6 @@ int CLASS parse_tiff_ifd (int base, int level)
 	if (level) {
 	  data_offset = ftell(ifp);
 	} else {
-	  if (!make[0]) strcpy (make, "Leaf");
 	  data_offset = get4();
 	  done = 1;
 	}
@@ -3716,13 +3709,13 @@ guess_cfa_pc:
 
 void CLASS parse_tiff (int base)
 {
-  int doff;
+  int doff, maxifd=1000;
 
   fseek (ifp, base, SEEK_SET);
   order = get2();
   if (order != 0x4949 && order != 0x4d4d) return;
   get2();
-  while ((doff = get4())) {
+  while ((doff = get4()) && maxifd--) {
     fseek (ifp, doff+base, SEEK_SET);
     if (parse_tiff_ifd (base, 0)) break;
     if (!dng_version && data_offset == 8) make[0] = 0;
@@ -4006,6 +3999,7 @@ void CLASS parse_mos (int offset)
   while (1) {
     fread (data, 1, 8, ifp);
     if (strcmp(data,"PKTS")) break;
+    if (!make[0]) strcpy (make, "Leaf");
     fread (data, 1, 40, ifp);
     skip = get4();
     from = ftell(ifp);
@@ -4283,11 +4277,13 @@ void CLASS adobe_coeff()
     { "Canon EOS D60",
 	{ 6188,-1341,-890,-7168,14489,2937,-2640,3228,8483 } },
     { "Canon EOS 5D",
-	{ 7082,-1419,-376,-6858,14220,2900,-969,1328,7630 } },
-    { "Canon EOS 10D",
-	{ 8197,-2000,-1118,-6714,14335,2592,-2536,3178,8266 } },
+	{ 6228,-404,-967,-8314,16108,2312,-1923,2179,7499 } },
     { "Canon EOS 20D",
 	{ 6599,-537,-891,-8071,15783,2424,-1983,2234,7462 } },
+    { "Canon EOS 350D",
+	{ 6018,-617,-965,-8645,15881,2975,-1530,1719,7642 } },
+    { "Canon EOS DIGITAL REBEL XT",
+	{ 6018,-617,-965,-8645,15881,2975,-1530,1719,7642 } },
     { "Canon EOS-1Ds Mark II",
 	{ 6517,-602,-867,-8180,15926,2378,-1618,1771,7633 } },
     { "Canon EOS-1D Mark II",
@@ -4295,7 +4291,7 @@ void CLASS adobe_coeff()
     { "Canon EOS-1DS",
 	{ 4374,3631,-1743,-7520,15212,2472,-2892,3632,8161 } },
     { "Canon EOS-1D",
-	{ 6906,-278,-1017,-6649,15074,1621,-2848,3897,7611 } },
+	{ 6806,-179,-1020,-8097,16415,1687,-3267,4236,7690 } },
     { "Canon EOS",
 	{ 8197,-2000,-1118,-6714,14335,2592,-2536,3178,8266 } },
     { "Canon PowerShot A50",
@@ -4398,6 +4394,8 @@ void CLASS adobe_coeff()
 	{ 8236,1746,-1314,-8251,15953,2428,-3673,5786,5771 } },
     { "Minolta DiMAGE 5",
 	{ 8983,-2942,-963,-6556,14476,2237,-2426,2887,8014 } },
+    { "Minolta DiMAGE 7Hi",
+	{ 11368,-3894,-1242,-6521,14358,2339,-2475,3056,7285 } },
     { "Minolta DiMAGE 7",
 	{ 9144,-2777,-998,-6676,14556,2281,-2470,3019,7744 } },
     { "Minolta DiMAGE A1",
@@ -4408,16 +4406,16 @@ void CLASS adobe_coeff()
 	{ 9097,-2726,-1053,-8073,15506,2762,-966,981,7763 } },
     { "MINOLTA DiMAGE Z2",	/* DJC */
 	{ 11222,-3449,-1675,-5789,13566,2225,-2339,2670,5549 } },
-    { "MINOLTA DYNAX 5D",
+    { "MINOLTA DYNAX 5",
 	{ 10284,-3283,-1086,-7957,15762,2316,-829,882,6644 } },
-    { "MINOLTA DYNAX 7D",
+    { "MINOLTA DYNAX 7",
 	{ 10239,-3104,-1099,-8037,15727,2451,-927,925,6871 } },
     { "NIKON D100",
-	{ 5915,-949,-778,-7516,15364,2282,-1228,1337,6404 } },
+	{ 5902,-933,-782,-8983,16719,2354,-1402,1455,6464 } },
     { "NIKON D1H",
 	{ 7577,-2166,-926,-7454,15592,1934,-2377,2808,8606 } },
     { "NIKON D1X",
-	{ 7620,-2173,-966,-7604,15843,1805,-2356,2811,8439 } },
+	{ 7702,-2245,-975,-9114,17242,1875,-2679,3055,8521 } },
     { "NIKON D1",
 	{ 7559,-2130,-965,-7611,15713,1972,-2478,3042,8290 } },
     { "NIKON D2H",
@@ -4468,16 +4466,18 @@ void CLASS adobe_coeff()
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D",
 	{ 9651,-2059,-1189,-8881,16512,2487,-1460,1345,10687 } },
+    { "Panasonic DMC-FZ30",
+	{ 10976,-4029,-1141,-7918,15491,2600,-1670,2071,8246 } },
     { "Panasonic DMC-LC1",
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
-    { "Panasonic DMC-FZ30",
-	{ 10473,-3277,-1222,-6421,14252,2352,-1907,2596,7460 } },
+    { "Panasonic DMC-LX1",
+	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
     { "SONY DSC-F828",
 	{ 7924,-1910,-777,-8226,15459,2998,-1517,2199,6818,-7242,11401,3481 } },
     { "SONY DSC-R1",		/* DJC */
 	{ 10528,-3695,-517,-2822,10699,2124,406,1240,5342 } },
     { "SONY DSC-V3",
-	{ 9877,-3775,-871,-7613,14807,3072,-1448,1305,7485 } },
+	{ 7511,-2571,-692,-7894,15088,3060,-948,1111,8128 } },
   };
   double cam_xyz[4][3];
   char name[130];
@@ -4633,11 +4633,12 @@ int CLASS identify (int no_decode)
     fseek (ifp, 4 + get2(), SEEK_SET);
     if (fgetc(ifp) != 0xff)
       parse_tiff(12);
-  } else if (!memcmp (head,"BM",2)) {
+  } else if (!memcmp (head,"BM",2) &&
+	head[26] == 1 && head[28] == 16 && head[30] == 0) {
     data_offset = 0x1000;
     order = 0x4949;
     fseek (ifp, 38, SEEK_SET);
-    if (get4() == 2834 && get4() == 2834) {
+    if (get4() == 2834 && get4() == 2834 && get4() == 0 && get4() == 4096) {
       strcpy (model, "BMQ");
       flip = 3;
       goto nucore;
@@ -5044,7 +5045,7 @@ dimage_z2:
     } else if (!strncmp(model,"ALPHA",5) ||
 	       !strncmp(model,"DYNAX",5) ||
 	       !strncmp(model,"MAXXUM",6)) {
-      sprintf (model, "DYNAX%s", strchr (model,' '));
+      sprintf (model, "DYNAX %s", model+6 + (model[0]=='M'));
       load_raw = packed_12_load_raw;
       maximum = 0xffb;
     } else if (!strncmp(model,"DiMAGE G",8)) {
@@ -5193,9 +5194,15 @@ konica_400z:
       strcpy (model, "Volare");
     }
   } else if (!strcmp(make,"LEICA") || !strcmp(make,"Panasonic")) {
-    if (width == 3304) width -= 16;
+    if (width == 3880) {
+      data_offset += 12;
+      maximum = 0xf7f0;
+      width -= 22;
+    } else if (width == 3304) {
+      maximum = 0xf94c;
+      width -= 16;
+    } else maximum = 0xfff0;
     load_raw = unpacked_load_raw;
-    maximum = 0xfff0;
   } else if (!strcmp(model,"E-1")) {
     filters = 0x61616161;
     load_raw = unpacked_load_raw;
@@ -5789,7 +5796,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.81"
+    "\nRaw Photo Decoder \"dcraw\" v7.82"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
