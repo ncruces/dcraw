@@ -8,8 +8,8 @@
 
    This code is free for all uses.
 
-   $Revision: 1.52 $
-   $Date: 2005/10/18 07:00:57 $
+   $Revision: 1.53 $
+   $Date: 2005/11/04 06:38:24 $
  */
 
 #include <stdio.h>
@@ -56,6 +56,7 @@ ushort sget2 (uchar *s)
   else				/* "MM" means big-endian */
     return s[0] << 8 | s[1];
 }
+#define sget2(s) sget2((uchar *)s)
 
 ushort get2()
 {
@@ -71,6 +72,7 @@ int sget4 (uchar *s)
   else
     return s[0] << 24 | s[1] << 16 | s[2] << 8 | s[3];
 }
+#define sget4(s) sget4((uchar *)s)
 
 int get4()
 {
@@ -181,7 +183,7 @@ void nikon_decrypt (uchar ci, uchar cj, int tag, int i, int size, uchar *buf)
     0xc6,0x67,0x4a,0xf5,0xa5,0x12,0x65,0x7e,0xb0,0xdf,0xaf,0x4e,0xb3,0x61,0x7f,0x2f } };
   uchar ck=0x60;
 
-  if (strncmp (buf, "02", 2)) return;
+  if (strncmp ((char *)buf, "02", 2)) return;
   ci = xlat[0][ci];
   cj = xlat[1][cj];
   printf("Decrypted tag 0x%x:\n%*s", tag, (i & 31)*3, "");
@@ -275,7 +277,7 @@ void nef_parse_makernote (base)
     fseek (ifp, save+12, SEEK_SET);
   }
   nikon_decrypt (serial, key, 0x91, 4, sizeof buf91, buf91);
-  if (!strncmp (buf97, "0205", 4))
+  if (!strncmp ((char *)buf97, "0205", 4))
     nikon_decrypt (serial, key, 0x97, 4, 284, buf97);
   else
     nikon_decrypt (serial, key, 0x97, 284, sizeof buf97, buf97);
@@ -652,7 +654,7 @@ void parse_riff (int level)
 
 void parse_mos(int level)
 {
-  uchar data[256];
+  char data[256];
   int i, skip, save;
   char *cp;
 
