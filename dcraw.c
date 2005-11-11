@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.297 $
-   $Date: 2005/11/06 04:17:59 $
+   $Revision: 1.298 $
+   $Date: 2005/11/11 01:39:54 $
  */
 
 #define _GNU_SOURCE
@@ -4547,6 +4547,7 @@ int CLASS identify (int no_decode)
     {    62464, "Kodak",    "DC20"            ,0 },
     {   124928, "Kodak",    "DC20"            ,0 },
     {   311696, "ST Micro", "STV680 VGA"      ,0 },  /* SPYz */
+    {   614400, "Kodak",    "KAI-0340"        ,0 },
     {   787456, "Creative", "PC-CAM 600"      ,0 },
     {  1138688, "Minolta",  "RD175"           ,0 },
     {  3840000, "Foculus",  "531C"            ,0 },
@@ -5119,6 +5120,14 @@ konica_400z:
     black = 16;
     pre_mul[0] = 1.097;
     pre_mul[2] = 1.128;
+  } else if (!strcmp(model,"KAI-0340")) {
+    height = 477;
+    width  = 640;
+    order = 0x4949;
+    data_offset = 3840;
+    load_raw = unpacked_load_raw;
+    pre_mul[0] = 1.561;
+    pre_mul[2] = 2.454;
   } else if (!strcmp(model,"531C")) {
     height = 1200;
     width  = 1600;
@@ -5797,7 +5806,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.82"
+    "\nRaw Photo Decoder \"dcraw\" v7.83"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
