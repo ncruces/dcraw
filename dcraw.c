@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.299 $
-   $Date: 2005/11/12 01:20:27 $
+   $Revision: 1.300 $
+   $Date: 2005/11/13 01:46:57 $
  */
 
 #define _GNU_SOURCE
@@ -3277,6 +3277,7 @@ void CLASS parse_makernote()
     fseek (ifp,  2, SEEK_CUR);
   } else if (!strcmp (buf,"OLYMP") ||
 	     !strcmp (buf,"LEICA") ||
+	     !strcmp (buf,"Ricoh") ||
 	     !strcmp (buf,"EPSON"))
     fseek (ifp, -2, SEEK_CUR);
   else if (!strcmp (buf,"AOC") ||
@@ -5475,7 +5476,7 @@ konica_400z:
     load_raw = packed_12_load_raw;
     pre_mul[0] = 2.07;
     pre_mul[2] = 1.88;
-  } else if (!strcmp(model,"EX-P600")) {
+  } else if (fsize == 9313536) {	/* EX-P600 or QV-R61 */
     height = 2142;
     width  = 2844;
     raw_width = 4288;
