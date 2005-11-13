@@ -8,8 +8,8 @@
 
    This code is free for all uses.
 
-   $Revision: 1.53 $
-   $Date: 2005/11/04 06:38:24 $
+   $Revision: 1.54 $
+   $Date: 2005/11/13 01:22:22 $
  */
 
 #include <stdio.h>
@@ -221,6 +221,7 @@ void nef_parse_makernote (base)
     fseek (ifp,  2, SEEK_CUR);
   } else if (!strcmp (buf,"OLYMP") ||
 	     !strcmp (buf,"LEICA") ||
+	     !strcmp (buf,"Ricoh") ||
 	     !strcmp (buf,"EPSON"))
     fseek (ifp, -2, SEEK_CUR);
   else if (!strcmp (buf,"AOC"))
