@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.300 $
-   $Date: 2005/11/13 01:46:57 $
+   $Revision: 1.301 $
+   $Date: 2005/11/23 08:07:55 $
  */
 
 #define _GNU_SOURCE
@@ -3264,6 +3264,7 @@ void CLASS parse_makernote()
   sorder = order;
   fread (buf, 1, 10, ifp);
   if (!strncmp (buf,"KC" ,2) ||		/* these aren't TIFF format */
+      !strncmp (buf,"KDK",3) ||
       !strncmp (buf,"MLY",3)) return;
   if (!strcmp (buf,"Nikon")) {
     base = ftell(ifp);
@@ -3844,7 +3845,7 @@ void CLASS parse_ciff (int offset, int length)
   int tboff, nrecs, i, c, type, len, roff, aoff, save, wbi=-1;
   static const int remap[] = { 1,2,3,4,5,1 };
   static const int remap_10d[] = { 0,1,3,4,5,6,0,0,2,8 };
-  static const int remap_s70[] = { 0,1,2,9,4,3,6,7,8,9,10,0,0,0,7,0,0,8 };
+  static const int remap_s70[] = { 0,1,3,4,5,10,0,0,0,0,0,0,0,0,6,0,0,8 };
   ushort key[] = { 0x410, 0x45f3 };
 
   if (strcmp(model,"Canon PowerShot G6") &&
@@ -3872,6 +3873,7 @@ void CLASS parse_ciff (int offset, int length)
     if (type == 0x102a) {		/* Find the White Balance index */
       fseek (ifp, aoff+14, SEEK_SET);	/* 0=auto, 1=daylight, 2=cloudy ... */
       wbi = get2();
+      if (wbi > 17) wbi = 0;
       if (((!strcmp(model,"Canon EOS DIGITAL REBEL") ||
 	    !strcmp(model,"Canon EOS 300D DIGITAL"))) && wbi == 6)
 	wbi++;
@@ -3895,13 +3897,8 @@ common:
 	camera_blue  = get2() ^ key[0];
 	camera_blue /= get2() ^ key[1];
 	if (!wbi) camera_red = -1;	/* Use my auto WB for this photo */
-      } else if (!strcmp(model,"Canon PowerShot G6") ||
-		 !strcmp(model,"Canon PowerShot S60") ||
-		 !strcmp(model,"Canon PowerShot S70")) {
+      } else if (key[0]) {
 	fseek (ifp, aoff+96 + remap_s70[wbi]*8, SEEK_SET);
-	goto common;
-      } else if (!strcmp(model,"Canon PowerShot Pro1")) {
-	fseek (ifp, aoff+96 + wbi*8, SEEK_SET);
 	goto common;
       } else {
 	fseek (ifp, aoff+80 + (wbi < 6 ? remap[wbi]*8 : 0), SEEK_SET);
@@ -4557,6 +4554,7 @@ int CLASS identify (int no_decode)
     {   787456, "Creative", "PC-CAM 600"      ,0 },
     {  1138688, "Minolta",  "RD175"           ,0 },
     {  3840000, "Foculus",  "531C"            ,0 },
+    {  1447680, "AVT",      "F-145C"          ,0 },
     {  1920000, "AVT",      "F-201C"          ,0 },
     {  5067304, "AVT",      "F-510C"          ,0 },
     { 10134608, "AVT",      "F-510C"          ,0 },
@@ -5140,6 +5138,10 @@ konica_400z:
     load_raw = unpacked_load_raw;
     filters = 0x49494949;
     pre_mul[1] = 1.218;
+  } else if (!strcmp(model,"F-145C")) {
+    height = 1040;
+    width  = 1392;
+    load_raw = eight_bit_load_raw;
   } else if (!strcmp(model,"F-201C")) {
     height = 1200;
     width  = 1600;
@@ -5812,7 +5814,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.84"
+    "\nRaw Photo Decoder \"dcraw\" v7.85"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
