@@ -8,8 +8,8 @@
 
    This code is free for all uses.
 
-   $Revision: 1.54 $
-   $Date: 2005/11/13 01:22:22 $
+   $Revision: 1.55 $
+   $Date: 2005/11/24 01:29:21 $
  */
 
 #include <stdio.h>
@@ -202,7 +202,6 @@ void nef_parse_makernote (base)
   short sorder;
   char buf[10];
 
-  puts("  Nikon MakerNote:");
 /*
    The MakerNote might have its own TIFF header (possibly with
    its own byte-order!), or it might just be a table.
@@ -216,6 +215,7 @@ void nef_parse_makernote (base)
     offset = get4();
     fseek (ifp, offset-8, SEEK_CUR);
   } else if (!strncmp (buf,"FUJIFILM",8) ||
+	     !strncmp (buf,"SONY",4) ||
 	     !strcmp  (buf,"Panasonic")) {
     order = 0x4949;
     fseek (ifp,  2, SEEK_CUR);
@@ -231,6 +231,7 @@ void nef_parse_makernote (base)
 
   entries = get2();
   if (entries > 100) return;
+  puts("  MakerNote:");
   while (entries--) {
     save = ftell(ifp);
     tag  = get2();
