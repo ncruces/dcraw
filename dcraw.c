@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.303 $
-   $Date: 2005/11/29 08:36:52 $
+   $Revision: 1.304 $
+   $Date: 2005/11/29 18:59:01 $
  */
 
 #define _GNU_SOURCE
@@ -4485,6 +4485,8 @@ void CLASS adobe_coeff()
 	{ 8136,-1968,-299,-5481,13742,1871,-2556,4205,6630 } },
     { "OLYMPUS SP500UZ",
 	{ 9493,-3415,-666,-5211,12334,3260,-1548,2262,6482 } },
+    { "PENTAX *ist DL",
+	{ 10829,-2838,-1115,-8339,15817,2696,-837,680,11939 } },
     { "PENTAX *ist DS",
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D",
