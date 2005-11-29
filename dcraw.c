@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.302 $
-   $Date: 2005/11/24 01:42:35 $
+   $Revision: 1.303 $
+   $Date: 2005/11/29 08:36:52 $
  */
 
 #define _GNU_SOURCE
@@ -3449,6 +3449,10 @@ void CLASS parse_exif (int base)
       get_timestamp(0);
     if (tag == 0x927c)
       parse_makernote();
+    if (!strncmp(make,"EASTMAN",7)) {
+      if (tag == 0xa002) raw_width  = val;
+      if (tag == 0xa003) raw_height = val;
+    }
     fseek (ifp, save, SEEK_SET);
   }
 }
@@ -3566,6 +3570,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	fgets (model2, 64, ifp);
 	break;
       case 33422:			/* CFAPattern */
+      case 64777:			/* Kodak P-series */
 	if ((plen=len) > 16) plen = 16;
 	fread (cfa_pat, 1, plen, ifp);
 	for (colors=cfa=i=0; i < plen; i++) {
@@ -3682,6 +3687,13 @@ guess_cfa_pc:
 	left_margin = get4();
 	height = get4() - top_margin;
 	width = get4() - left_margin;
+	break;
+      case 64772:			/* Kodak P-series */
+	fseek (ifp, 16, SEEK_CUR);
+	data_offset = get4();
+	fseek (ifp, 28, SEEK_CUR);
+	data_offset += get4();
+	load_raw = packed_12_load_raw;
     }
     fseek (ifp, save+4, SEEK_SET);
   }
@@ -4353,7 +4365,7 @@ void CLASS adobe_coeff()
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
     { "FUJIFILM FinePix S7000",
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
-    { "FUJIFILM FinePix S9",	/* copied from S7000 */
+    { "FUJIFILM FinePix S9",
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
     { "KODAK NC2000F",		/* DJC */
 	{ 16475,-6903,-1218,-851,10375,477,2505,-7,1020 } },
@@ -4393,6 +4405,8 @@ void CLASS adobe_coeff()
 	{ 16414,-6060,-1470,-3555,13037,473,2545,122,4948 } },
     { "Kodak ProBack",
 	{ 21179,-8316,-2918,-915,11019,-165,3477,-180,4210 } },
+    { "KODAK P880",		/* DJC */
+	{ 22050,-9634,-1863,-1864,9899,1966,-349,1453,4769 } },
     { "LEICA DIGILUX 2",
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "Leaf Valeo",
@@ -4453,6 +4467,8 @@ void CLASS adobe_coeff()
 	{ 10508,-3124,-1273,-6079,14294,1901,-1653,2306,6237 } },
     { "OLYMPUS C5060",
 	{ 10445,-3362,-1307,-7662,15690,2058,-1135,1176,7602 } },
+    { "OLYMPUS C7070",
+	{ 10252,-3531,-1095,-7114,14850,2436,-1451,1723,6365 } },
     { "OLYMPUS C70",
 	{ 10793,-3791,-1146,-7498,15177,2488,-1390,1577,7321 } },
     { "OLYMPUS C80",
@@ -4465,8 +4481,10 @@ void CLASS adobe_coeff()
 	{ 13173,-4732,-1499,-5807,14036,1895,-2045,2452,7142 } },
     { "OLYMPUS E-300",
 	{ 7828,-1761,-348,-5788,14071,1830,-2853,4518,6557 } },
-    { "OLYMPUS E-500",	/* copied from E-300 */
-	{ 7828,-1761,-348,-5788,14071,1830,-2853,4518,6557 } },
+    { "OLYMPUS E-500",
+	{ 8136,-1968,-299,-5481,13742,1871,-2556,4205,6630 } },
+    { "OLYMPUS SP500UZ",
+	{ 9493,-3415,-666,-5211,12334,3260,-1548,2262,6482 } },
     { "PENTAX *ist DS",
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D",
@@ -5255,6 +5273,8 @@ konica_400z:
     if (!strcmp(model,"C5050Z") ||
 	!strcmp(model,"C8080WZ"))
       filters = 0x16161616;
+    if (!strcmp(model,"SP500UZ"))
+      filters = 0x49494949;
   } else if (!strcmp(model,"N Digital")) {
     height = 2047;
     width  = 3072;
@@ -5281,12 +5301,8 @@ konica_400z:
     load_raw = unpacked_load_raw;
     black = 512;
   } else if (!strncmp(model,"P850",4)) {
-    height = 1950;
-    width  = 2608;
-    data_offset = 76456;
-    filters = 0x16161616;
-    load_raw = packed_12_load_raw;
-  } else if (!strcasecmp(make,"KODAK")) {
+    maximum = 0xf7c;
+  } else if (!strcasecmp(make,"KODAK") && !load_raw) {
     filters = 0x61616161;
     if (!strcmp(model,"NC2000F")) {
       width -= 4;
@@ -5816,7 +5832,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.85"
+    "\nRaw Photo Decoder \"dcraw\" v7.86"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
