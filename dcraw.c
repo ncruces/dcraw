@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.304 $
-   $Date: 2005/11/29 18:59:01 $
+   $Revision: 1.305 $
+   $Date: 2005/12/06 08:18:35 $
  */
 
 #define _GNU_SOURCE
@@ -83,7 +83,7 @@ typedef unsigned short ushort;
 FILE *ifp;
 short order;
 char *ifname, make[64], model[70], model2[64], *meta_data;
-float flash_used, canon_5814;
+float flash_used, canon_ev, iso_speed, shutter, aperture, focal_len;
 time_t timestamp;
 unsigned shot_order, kodak_cbpp;
 int data_offset, meta_offset, meta_length, nikon_curve_offset;
@@ -137,6 +137,7 @@ struct decode {
 #define LIM(x,min,max) MAX(min,MIN(x,max))
 #define ULIM(x,y,z) ((y) < (z) ? LIM(x,y,z) : LIM(x,z,y))
 #define CLIP(x) LIM(x,0,clip_max)
+#define SWAP(a,b) { a ^= b; a ^= (b ^= a); }
 
 /*
    In order to inline this calculation, I make the risky
@@ -308,7 +309,7 @@ void CLASS canon_600_auto_wb()
   int test[8], total[2][8], ratio[2][2], stat[2];
 
   memset (&total, 0, sizeof total);
-  i = canon_5814 + 0.5;
+  i = canon_ev + 0.5;
   if      (i < 10) mar = 150;
   else if (i > 12) mar = 20;
   else mar = 280 - 20 * i;
@@ -3297,6 +3298,8 @@ void CLASS parse_makernote()
     if (len * size[type < 13 ? type:0] > 4)
       fseek (ifp, get4()+base, SEEK_SET);
 
+    if (tag == 2 && strstr(make,"NIKON"))
+      iso_speed = (get2(),get2());
     if (tag == 8 && type == 4)
       shot_order = get4();
     if (tag == 0xc && len == 4) {
@@ -3348,8 +3351,7 @@ void CLASS parse_makernote()
 	sget2 (buf97 + (ver97 == 0x205 ? 14:6) + c*2);
     }
     if (tag == 0xe0 && len == 17) {
-      get2();
-      raw_width  = get2();
+      raw_width = (get2(),get2());
       raw_height = get2();
     }
     if (tag == 0x200 && len == 4)
@@ -3435,25 +3437,32 @@ void CLASS get_timestamp (int reversed)
 
 void CLASS parse_exif (int base)
 {
-  int entries, tag, type, len, val, save;
+  int kodak, entries, tag, type, len, save;
+  static const int size[] = { 1,1,1,2,4,8,1,1,2,4,8,4,8 };
 
+  kodak = !strncmp(make,"EASTMAN",7);
   entries = get2();
   while (entries--) {
     tag  = get2();
     type = get2();
     len  = get4();
-    val  = get4();
     save = ftell(ifp);
-    fseek (ifp, base+val, SEEK_SET);
-    if (tag == 0x9003 || tag == 0x9004)
-      get_timestamp(0);
-    if (tag == 0x927c)
-      parse_makernote();
-    if (!strncmp(make,"EASTMAN",7)) {
-      if (tag == 0xa002) raw_width  = val;
-      if (tag == 0xa003) raw_height = val;
+    if (len * size[type < 13 ? type:0] > 4)
+      fseek (ifp, get4()+base, SEEK_SET);
+    switch (tag) {
+      case 33434:  shutter = getrat();			break;
+      case 33437:  aperture = getrat();			break;
+      case 34855:  iso_speed = get2();			break;
+      case 36867:
+      case 36868:  get_timestamp(0);			break;
+      case 37377:  shutter = pow (2, -getrat());	break;
+      case 37378:  aperture = pow (2, getrat()/2);	break;
+      case 37386:  focal_len = getrat();		break;
+      case 37500:  parse_makernote();			break;
+      case 40962:  if (kodak) raw_width  = get4();	break;
+      case 40963:  if (kodak) raw_height = get4();	break;
     }
-    fseek (ifp, save, SEEK_SET);
+    fseek (ifp, save+4, SEEK_SET);
   }
 }
 
@@ -3580,6 +3589,9 @@ int CLASS parse_tiff_ifd (int base, int level)
 	if (cfa == 070) memcpy (cfa_pc,"\003\004\005",3);	/* CMY */
 	if (cfa == 072) memcpy (cfa_pc,"\005\003\004\001",4);	/* GMCY */
 	goto guess_cfa_pc;
+      case 33434:  shutter = getrat();		break;
+      case 33437:  aperture = getrat();		break;
+      case 37386:  focal_len = getrat();	break;
       case 34310:
 	parse_mos (ftell(ifp));
 	break;
@@ -3834,9 +3846,7 @@ void CLASS ciff_block_1030()
   int i, bpp, row, col, vbits=0;
   unsigned long bitbuf=0;
 
-  get2();
-  if (get4() != 0x80008) return;
-  if (get4() == 0) return;
+  if ((get2(),get4()) != 0x80008 || !get4()) return;
   bpp = get2();
   if (bpp != 10 && bpp != 12) return;
   for (i=row=0; row < 8; row++)
@@ -3884,9 +3894,12 @@ void CLASS parse_ciff (int offset, int length)
       fseek (ifp, aoff+strlen(make)+1, SEEK_SET);
       fread (model, 64, 1, ifp);
     }
-    if (type == 0x102a) {		/* Find the White Balance index */
-      fseek (ifp, aoff+14, SEEK_SET);	/* 0=auto, 1=daylight, 2=cloudy ... */
-      wbi = get2();
+    if (type == 0x102a) {		/* Exposure info */
+      fseek (ifp, aoff+4, SEEK_SET);
+      iso_speed = 50 * pow (2, get2()/32.0 - 4);
+      aperture = (get2(), pow (2, get2()/64.0));
+      shutter = pow (2, ((short) get2())/-32.0);
+      wbi = (get2(),get2());
       if (wbi > 17) wbi = 0;
       if (((!strcmp(model,"Canon EOS DIGITAL REBEL") ||
 	    !strcmp(model,"Canon EOS 300D DIGITAL"))) && wbi == 6)
@@ -3942,8 +3955,6 @@ common:
       fseek (ifp, aoff, SEEK_SET);
       timestamp = get4();
     }
-    if (type == 0x5817)
-      shot_order = len;
     if (type == 0x580e)
       timestamp = len;
 #ifdef LOCALTIME
@@ -3953,10 +3964,17 @@ common:
     if (type == 0x5813)
       flash_used = int_to_float(len);
     if (type == 0x5814)
-      canon_5814 = int_to_float(len);
+      canon_ev = int_to_float(len);
+    if (type == 0x5817)
+      shot_order = len;
     if (type == 0x1810) {		/* Get the rotation */
       fseek (ifp, aoff+12, SEEK_SET);
       flip = get4();
+    }
+    if (type == 0x1818) {
+      fseek (ifp, aoff+4, SEEK_SET);
+      shutter = pow (2, -int_to_float(get4()));
+      aperture = pow (2, int_to_float(get4())/2);
     }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
@@ -4037,7 +4055,7 @@ void CLASS parse_mos (int offset)
     if (!strcmp(data,"NeutObj_neutrals")) {
       for (i=0; i < 4; i++)
 	fscanf (ifp, "%d", neut+i);
-      FORC3 cam_mul[c] = 1.0 / neut[c+1];
+      FORC3 cam_mul[c] = (float) neut[0] / neut[c+1];
     }
     parse_mos (from);
     fseek (ifp, skip+from, SEEK_SET);
@@ -4213,7 +4231,7 @@ char * CLASS foveon_gets (int offset, char *str, int len)
 void CLASS parse_foveon()
 {
   int entries, off, len, tag, save, i, wide, high, pent, poff[256][2];
-  char name[64];
+  char name[64], value[64];
 
   order = 0x4949;			/* Little-endian */
   fseek (ifp, 36, SEEK_SET);
@@ -4221,8 +4239,7 @@ void CLASS parse_foveon()
   fseek (ifp, -4, SEEK_END);
   fseek (ifp, get4(), SEEK_SET);
   if (get4() != 0x64434553) return;	/* SECd */
-  get4();
-  entries = get4();
+  entries = (get4(),get4());
   while (entries--) {
     off = get4();
     len = get4();
@@ -4249,8 +4266,7 @@ void CLASS parse_foveon()
 	    meta_length = 0x20000;
 	break;
       case 0x504f5250:			/* PROP */
-	get4();
-	pent = get4();
+	pent = (get4(),get4());
 	fseek (ifp, 12, SEEK_CUR);
 	off += pent*8 + 24;
 	if (pent > 256) pent=256;
@@ -4258,14 +4274,23 @@ void CLASS parse_foveon()
 	  poff[0][i] = off + get4()*2;
 	for (i=0; i < pent; i++) {
 	  foveon_gets (poff[i][0], name, 64);
+	  foveon_gets (poff[i][1], value, 64);
+	  if (!strcmp (name, "ISO"))
+	    iso_speed = atoi(value);
 	  if (!strcmp (name, "CAMMANUF"))
-	    foveon_gets (poff[i][1], make, 64);
+	    strcpy (make, value);
 	  if (!strcmp (name, "CAMMODEL"))
-	    foveon_gets (poff[i][1], model, 64);
+	    strcpy (model, value);
 	  if (!strcmp (name, "WB_DESC"))
-	    foveon_gets (poff[i][1], model2, 64);
+	    strcpy (model2, value);
 	  if (!strcmp (name, "TIME"))
-	    timestamp = atoi (foveon_gets (poff[i][1], name, 64));
+	    timestamp = atoi(value);
+	  if (!strcmp (name, "EXPTIME"))
+	    shutter = atoi(value) / 1000000.0;
+	  if (!strcmp (name, "APERTURE"))
+	    aperture = atof(value);
+	  if (!strcmp (name, "FLENGTH"))
+	    focal_len = atof(value);
 	}
 #ifdef LOCALTIME
 	timestamp = mktime (gmtime (&timestamp));
@@ -4362,6 +4387,8 @@ void CLASS adobe_coeff()
     { "FUJIFILM FinePix S5000",
 	{ 8754,-2732,-1019,-7204,15069,2276,-1702,2334,6982 } },
     { "FUJIFILM FinePix S5100",
+	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
+    { "FUJIFILM FinePix S5500",
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
     { "FUJIFILM FinePix S7000",
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
@@ -4512,7 +4539,7 @@ void CLASS adobe_coeff()
   for (i=0; i < sizeof table / sizeof *table; i++)
     if (!strncmp (name, table[i].prefix, strlen(table[i].prefix))) {
       for (j=0; j < 12; j++)
-	cam_xyz[0][j] = table[i].trans[j];
+	cam_xyz[0][j] = table[i].trans[j] / 10000.0;
       cam_xyz_coeff (cam_xyz);
       break;
     }
@@ -4618,6 +4645,7 @@ int CLASS identify (int no_decode)
   raw_height = raw_width = fuji_width = flip = 0;
   height = width = top_margin = left_margin = 0;
   make[0] = model[0] = model2[0] = 0;
+  iso_speed = shutter = aperture = focal_len = 0;
   memset (white, 0, sizeof white);
   data_offset = meta_length = tiff_bps = tiff_data_compression = 0;
   kodak_cbpp = zero_after_ff = dng_version = fuji_secondary = 0;
@@ -4677,8 +4705,7 @@ nucore:
     order = 0x4949;
     fseek (ifp, 10, SEEK_SET);
     data_offset += get4();
-    get4();
-    raw_width  = get4();
+    raw_width = (get4(),get4());
     raw_height = get4();
     if (model[0] == 'B' && raw_width == 2597) {
       raw_width++;
@@ -5021,7 +5048,7 @@ dimage_z2:
   } else if (!strcmp(model,"FinePix S5100") ||
 	     !strcmp(model,"FinePix S5500")) {
     load_raw = unpacked_load_raw;
-    maximum = 0xffff;
+    maximum = 0x3e00;
   } else if (!strncmp(model,"FinePix",7)) {
     if (!strcmp(model+7,"S2Pro")) {
       strcpy (model+7," S2Pro");
@@ -5664,7 +5691,7 @@ void CLASS fuji_rotate()
 void CLASS flip_image()
 {
   unsigned *flag;
-  int size, base, dest, next, row, col, temp;
+  int size, base, dest, next, row, col;
   INT64 *img, hold;
 
   if (verbose)
@@ -5702,12 +5729,8 @@ void CLASS flip_image()
   }
   free (flag);
   if (flip & 4) {
-    temp = height;
-    height = width;
-    width = temp;
-    temp = ymag;
-    ymag = xmag;
-    xmag = temp;
+    SWAP(height,width);
+    SWAP(ymag,xmag);
   }
 }
 
@@ -5819,7 +5842,7 @@ int CLASS main (int argc, char **argv)
 {
   int arg, status=0, user_flip=-1, user_black=-1, user_qual=-1;
   int timestamp_only=0, identify_only=0, write_to_stdout=0;
-  int half_size=0, use_fuji_rotate=1, quality;
+  int half_size=0, use_fuji_rotate=1, quality, i, c;
   char opt, *ofname, *cp;
   struct utimbuf ut;
   const char *write_ext = ".ppm";
@@ -5834,7 +5857,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.86"
+    "\nRaw Photo Decoder \"dcraw\" v7.90"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -5964,15 +5987,55 @@ int CLASS main (int argc, char **argv)
       case 180:  flip = 3;  break;
       case  90:  flip = 6;
     }
+    shrink = half_size && filters;
+    iheight = (height + shrink) >> shrink;
+    iwidth  = (width  + shrink) >> shrink;
     if (identify_only) {
-      fprintf (stderr, "%s is a %s %s image.\n", ifname, make, model);
+      if (verbose) {
+	printf ("Filename: %s\n", ifname);
+	printf ("Timestamp: %s", ctime(&timestamp));
+	printf ("Camera: %s %s\n", make, model);
+	printf ("ISO speed: %d\n", (int) iso_speed);
+	printf ("Shutter: ");
+	if (shutter > 0 && shutter < 1)
+	  shutter = (printf ("1/"), 1 / shutter);
+	printf ("%0.1f sec\n", shutter);
+	printf ("Aperture: f/%0.1f\n", aperture);
+	printf ("Focal Length: %d mm\n", (int) focal_len);
+	printf ("Raw colors: %d", colors);
+	if (filters) {
+	  printf ("\nFilter pattern: ");
+	  cp = "RGBGMCYRGBE" + (colors == 3 ? 0 :
+		strcmp(model,"DSC-F828") ? 3 : 7);
+	  for (i=0; i < 32; i+=2)
+	    putchar (cp[filters >> i & 3]);
+	}
+	printf ("\nDaylight multipliers:");
+	FORCC printf (" %f", pre_mul[c]);
+	if (cam_mul[0] > 0) {
+	  printf ("\nCamera multipliers:");
+	  FORCC printf (" %f", cam_mul[c]);
+	}
+	printf ("\nRaw size: %d x %d\n", raw_width, raw_height);
+	printf ("Image size: %d x %d\n", width, height);
+	if (fuji_width && use_fuji_rotate) {
+	  fuji_width = (fuji_width - 1 + shrink) >> shrink;
+	  iwidth = fuji_width / sqrt(0.5);
+	  iheight = (iheight - fuji_width) / sqrt(0.5);
+	}
+	if (write_fun == write_ppm) {
+	  iheight *= ymag;
+	  iwidth  *= xmag;
+	}
+	if (flip & 4)
+	  SWAP(iheight,iwidth);
+	printf ("Output size: %d x %d\n\n", iwidth, iheight);
+      } else
+	printf ("%s is a %s %s image.\n", ifname, make, model);
 next:
       fclose(ifp);
       continue;
     }
-    shrink = half_size && filters;
-    iheight = (height + shrink) >> shrink;
-    iwidth  = (width  + shrink) >> shrink;
     image = calloc (iheight*iwidth*sizeof *image + meta_length, 1);
     merror (image, "main()");
     meta_data = (char *) (image + iheight*iwidth);
