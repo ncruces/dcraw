@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.305 $
-   $Date: 2005/12/06 08:18:35 $
+   $Revision: 1.306 $
+   $Date: 2005/12/08 01:42:17 $
  */
 
 #define _GNU_SOURCE
@@ -2727,11 +2727,11 @@ void CLASS colorcheck()
   }
   cam_xyz_coeff (best);
   if (verbose) {
-    fprintf (stderr, "    { \"%s %s\",\n\t{ ", make, model);
+    printf ("    { \"%s %s\", %d,\n\t{", make, model, black);
     num = 10000 / (best[1][0] + best[1][1] + best[1][2]);
     FORCC for (j=0; j < 3; j++)
-      fprintf (stderr, "%d,", (int) (best[c][j] * num + 0.5));
-    fprintf (stderr, "\b } },\n");
+      printf ("%c%d", (c | j) ? ',':' ', (int) (best[c][j] * num + 0.5));
+    puts (" } },");
   }
 #undef NSQ
 }
@@ -4308,227 +4308,227 @@ void CLASS adobe_coeff()
 {
   static const struct {
     const char *prefix;
-    short trans[12];
+    short black, trans[12];
   } table[] = {
-    { "Canon EOS D2000",
+    { "Canon EOS D2000", 0,
 	{ 24542,-10860,-3401,-1490,11370,-297,2858,-605,3225 } },
-    { "Canon EOS D6000",
+    { "Canon EOS D6000", 0,
 	{ 20482,-7172,-3125,-1033,10410,-285,2542,226,3136 } },
-    { "Canon EOS D30",
+    { "Canon EOS D30", 0,
 	{ 9805,-2689,-1312,-5803,13064,3068,-2438,3075,8775 } },
-    { "Canon EOS D60",
+    { "Canon EOS D60", 0,
 	{ 6188,-1341,-890,-7168,14489,2937,-2640,3228,8483 } },
-    { "Canon EOS 5D",
+    { "Canon EOS 5D", 0,
 	{ 6228,-404,-967,-8314,16108,2312,-1923,2179,7499 } },
-    { "Canon EOS 20D",
+    { "Canon EOS 20D", 0,
 	{ 6599,-537,-891,-8071,15783,2424,-1983,2234,7462 } },
-    { "Canon EOS 350D",
+    { "Canon EOS 350D", 0,
 	{ 6018,-617,-965,-8645,15881,2975,-1530,1719,7642 } },
-    { "Canon EOS DIGITAL REBEL XT",
+    { "Canon EOS DIGITAL REBEL XT", 0,
 	{ 6018,-617,-965,-8645,15881,2975,-1530,1719,7642 } },
-    { "Canon EOS-1Ds Mark II",
+    { "Canon EOS-1Ds Mark II", 0,
 	{ 6517,-602,-867,-8180,15926,2378,-1618,1771,7633 } },
-    { "Canon EOS-1D Mark II",
+    { "Canon EOS-1D Mark II", 0,
 	{ 6264,-582,-724,-8312,15948,2504,-1744,1919,8664 } },
-    { "Canon EOS-1DS",
+    { "Canon EOS-1DS", 0,
 	{ 4374,3631,-1743,-7520,15212,2472,-2892,3632,8161 } },
-    { "Canon EOS-1D",
+    { "Canon EOS-1D", 0,
 	{ 6806,-179,-1020,-8097,16415,1687,-3267,4236,7690 } },
-    { "Canon EOS",
+    { "Canon EOS", 0,
 	{ 8197,-2000,-1118,-6714,14335,2592,-2536,3178,8266 } },
-    { "Canon PowerShot A50",
+    { "Canon PowerShot A50", 0,
 	{ -5300,9846,1776,3436,684,3939,-5540,9879,6200,-1404,11175,217 } },
-    { "Canon PowerShot A5",
+    { "Canon PowerShot A5", 0,
 	{ -4801,9475,1952,2926,1611,4094,-5259,10164,5947,-1554,10883,547 } },
-    { "Canon PowerShot G1",
+    { "Canon PowerShot G1", 0,
 	{ -4778,9467,2172,4743,-1141,4344,-5146,9908,6077,-1566,11051,557 } },
-    { "Canon PowerShot G2",
+    { "Canon PowerShot G2", 0,
 	{ 9087,-2693,-1049,-6715,14382,2537,-2291,2819,7790 } },
-    { "Canon PowerShot G3",
+    { "Canon PowerShot G3", 0,
 	{ 9212,-2781,-1073,-6573,14189,2605,-2300,2844,7664 } },
-    { "Canon PowerShot G5",
+    { "Canon PowerShot G5", 0,
 	{ 9757,-2872,-933,-5972,13861,2301,-1622,2328,7212 } },
-    { "Canon PowerShot G6",
+    { "Canon PowerShot G6", 0,
 	{ 9877,-3775,-871,-7613,14807,3072,-1448,1305,7485 } },
-    { "Canon PowerShot Pro1",
+    { "Canon PowerShot Pro1", 0,
 	{ 10062,-3522,-999,-7643,15117,2730,-765,817,7323 } },
-    { "Canon PowerShot Pro70",
+    { "Canon PowerShot Pro70", 34,
 	{ -4155,9818,1529,3939,-25,4522,-5521,9870,6610,-2238,10873,1342 } },
-    { "Canon PowerShot Pro90",
+    { "Canon PowerShot Pro90", 0,
 	{ -4963,9896,2235,4642,-987,4294,-5162,10011,5859,-1770,11230,577 } },
-    { "Canon PowerShot S30",
+    { "Canon PowerShot S30", 0,
 	{ 10566,-3652,-1129,-6552,14662,2006,-2197,2581,7670 } },
-    { "Canon PowerShot S40",
+    { "Canon PowerShot S40", 0,
 	{ 8510,-2487,-940,-6869,14231,2900,-2318,2829,9013 } },
-    { "Canon PowerShot S45",
+    { "Canon PowerShot S45", 0,
 	{ 8163,-2333,-955,-6682,14174,2751,-2077,2597,8041 } },
-    { "Canon PowerShot S50",
+    { "Canon PowerShot S50", 0,
 	{ 8882,-2571,-863,-6348,14234,2288,-1516,2172,6569 } },
-    { "Canon PowerShot S60",
+    { "Canon PowerShot S60", 0,
 	{ 8795,-2482,-797,-7804,15403,2573,-1422,1996,7082 } },
-    { "Canon PowerShot S70",
+    { "Canon PowerShot S70", 0,
 	{ 9976,-3810,-832,-7115,14463,2906,-901,989,7889 } },
-    { "Contax N Digital",
+    { "Contax N Digital", 0,
 	{ 7777,1285,-1053,-9280,16543,2916,-3677,5679,7060 } },
-    { "EPSON R-D1",
+    { "EPSON R-D1", 0,
 	{ 6827,-1878,-732,-8429,16012,2564,-704,592,7145 } },
-    { "FUJIFILM FinePix E550",
+    { "FUJIFILM FinePix E550", 0,
 	{ 11044,-3888,-1120,-7248,15168,2208,-1531,2277,8069 } },
-    { "FUJIFILM FinePix F8",
+    { "FUJIFILM FinePix F8", 0,
 	{ 11044,-3888,-1120,-7248,15168,2208,-1531,2277,8069 } },
-    { "FUJIFILM FinePix F7",
+    { "FUJIFILM FinePix F7", 0,
 	{ 10004,-3219,-1201,-7036,15047,2107,-1863,2565,7736 } },
-    { "FUJIFILM FinePix S20Pro",
+    { "FUJIFILM FinePix S20Pro", 0,
 	{ 10004,-3219,-1201,-7036,15047,2107,-1863,2565,7736 } },
-    { "FUJIFILM FinePix S2Pro",
+    { "FUJIFILM FinePix S2Pro", 128,
 	{ 12492,-4690,-1402,-7033,15423,1647,-1507,2111,7697 } },
-    { "FUJIFILM FinePix S3Pro",
+    { "FUJIFILM FinePix S3Pro", 0,
 	{ 11807,-4612,-1294,-8927,16968,1988,-2120,2741,8006 } },
-    { "FUJIFILM FinePix S5000",
+    { "FUJIFILM FinePix S5000", 0,
 	{ 8754,-2732,-1019,-7204,15069,2276,-1702,2334,6982 } },
-    { "FUJIFILM FinePix S5100",
+    { "FUJIFILM FinePix S5100", 0,
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
-    { "FUJIFILM FinePix S5500",
+    { "FUJIFILM FinePix S5500", 0,
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
-    { "FUJIFILM FinePix S7000",
+    { "FUJIFILM FinePix S7000", 0,
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
-    { "FUJIFILM FinePix S9",
+    { "FUJIFILM FinePix S9", 0,
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
-    { "KODAK NC2000F",		/* DJC */
+    { "KODAK NC2000F", 0,	/* DJC */
 	{ 16475,-6903,-1218,-851,10375,477,2505,-7,1020 } },
-    { "Kodak DCS315C",
+    { "Kodak DCS315C", 8,
 	{ 17523,-4827,-2510,756,8546,-137,6113,1649,2250 } },
-    { "Kodak DCS330C",
+    { "Kodak DCS330C", 8,
 	{ 20620,-7572,-2801,-103,10073,-396,3551,-233,2220 } },
-    { "KODAK DCS420",
+    { "KODAK DCS420", 0,
 	{ 10868,-1852,-644,-1537,11083,484,2343,628,2216 } },
-    { "KODAK DCS460",
+    { "KODAK DCS460", 0,
 	{ 10592,-2206,-967,-1944,11685,230,2206,670,1273 } },
-    { "KODAK EOSDCS1",
+    { "KODAK EOSDCS1", 0,
 	{ 10592,-2206,-967,-1944,11685,230,2206,670,1273 } },
-    { "KODAK EOSDCS3B",
+    { "KODAK EOSDCS3B", 0,
 	{ 9898,-2700,-940,-2478,12219,206,1985,634,1031 } },
-    { "Kodak DCS520C",
+    { "Kodak DCS520C", 180,
 	{ 24542,-10860,-3401,-1490,11370,-297,2858,-605,3225 } },
-    { "Kodak DCS560C",
+    { "Kodak DCS560C", 188,
 	{ 20482,-7172,-3125,-1033,10410,-285,2542,226,3136 } },
-    { "Kodak DCS620C",
+    { "Kodak DCS620C", 180,
 	{ 23617,-10175,-3149,-2054,11749,-272,2586,-489,3453 } },
-    { "Kodak DCS620X",
+    { "Kodak DCS620X", 185,
 	{ 13095,-6231,154,12221,-21,-2137,895,4602,2258 } },
-    { "Kodak DCS660C",
+    { "Kodak DCS660C", 214,
 	{ 18244,-6351,-2739,-791,11193,-521,3711,-129,2802 } },
-    { "Kodak DCS720X",
+    { "Kodak DCS720X", 0,
 	{ 11775,-5884,950,9556,1846,-1286,-1019,6221,2728 } },
-    { "Kodak DCS760C",
+    { "Kodak DCS760C", 0,
 	{ 16623,-6309,-1411,-4344,13923,323,2285,274,2926 } },
-    { "Kodak DCS Pro SLR",
+    { "Kodak DCS Pro SLR", 0,
 	{ 5494,2393,-232,-6427,13850,2846,-1876,3997,5445 } },
-    { "Kodak DCS Pro 14nx",
+    { "Kodak DCS Pro 14nx", 0,
 	{ 5494,2393,-232,-6427,13850,2846,-1876,3997,5445 } },
-    { "Kodak DCS Pro 14",
+    { "Kodak DCS Pro 14", 0,
 	{ 7791,3128,-776,-8588,16458,2039,-2455,4006,6198 } },
-    { "Kodak ProBack645",
+    { "Kodak ProBack645", 0,
 	{ 16414,-6060,-1470,-3555,13037,473,2545,122,4948 } },
-    { "Kodak ProBack",
+    { "Kodak ProBack", 0,
 	{ 21179,-8316,-2918,-915,11019,-165,3477,-180,4210 } },
-    { "KODAK P880",		/* DJC */
+    { "KODAK P880", 0,		/* DJC */
 	{ 22050,-9634,-1863,-1864,9899,1966,-349,1453,4769 } },
-    { "LEICA DIGILUX 2",
+    { "LEICA DIGILUX 2", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
-    { "Leaf Valeo",
+    { "Leaf Valeo", 0,
 	{ 8236,1746,-1314,-8251,15953,2428,-3673,5786,5771 } },
-    { "Minolta DiMAGE 5",
+    { "Minolta DiMAGE 5", 0,
 	{ 8983,-2942,-963,-6556,14476,2237,-2426,2887,8014 } },
-    { "Minolta DiMAGE 7Hi",
+    { "Minolta DiMAGE 7Hi", 0,
 	{ 11368,-3894,-1242,-6521,14358,2339,-2475,3056,7285 } },
-    { "Minolta DiMAGE 7",
+    { "Minolta DiMAGE 7", 0,
 	{ 9144,-2777,-998,-6676,14556,2281,-2470,3019,7744 } },
-    { "Minolta DiMAGE A1",
+    { "Minolta DiMAGE A1", 0,
 	{ 9274,-2547,-1167,-8220,16323,1943,-2273,2720,8340 } },
-    { "MINOLTA DiMAGE A200",
+    { "MINOLTA DiMAGE A200", 0,
 	{ 8560,-2487,-986,-8112,15535,2771,-1209,1324,7743 } },
-    { "Minolta DiMAGE A2",
+    { "Minolta DiMAGE A2", 0,
 	{ 9097,-2726,-1053,-8073,15506,2762,-966,981,7763 } },
-    { "MINOLTA DiMAGE Z2",	/* DJC */
+    { "MINOLTA DiMAGE Z2", 68,	/* DJC */
 	{ 11222,-3449,-1675,-5789,13566,2225,-2339,2670,5549 } },
-    { "MINOLTA DYNAX 5",
+    { "MINOLTA DYNAX 5", 0,
 	{ 10284,-3283,-1086,-7957,15762,2316,-829,882,6644 } },
-    { "MINOLTA DYNAX 7",
+    { "MINOLTA DYNAX 7", 0,
 	{ 10239,-3104,-1099,-8037,15727,2451,-927,925,6871 } },
-    { "NIKON D100",
+    { "NIKON D100", 0,
 	{ 5902,-933,-782,-8983,16719,2354,-1402,1455,6464 } },
-    { "NIKON D1H",
+    { "NIKON D1H", 0,
 	{ 7577,-2166,-926,-7454,15592,1934,-2377,2808,8606 } },
-    { "NIKON D1X",
+    { "NIKON D1X", 0,
 	{ 7702,-2245,-975,-9114,17242,1875,-2679,3055,8521 } },
-    { "NIKON D1",
+    { "NIKON D1", 0,
 	{ 7559,-2130,-965,-7611,15713,1972,-2478,3042,8290 } },
-    { "NIKON D2H",
+    { "NIKON D2H", 0,
 	{ 5710,-901,-615,-8594,16617,2024,-2975,4120,6830 } },
-    { "NIKON D2X",
+    { "NIKON D2X", 0,
 	{ 10231,-2769,-1255,-8301,15900,2552,-797,680,7148 } },
-    { "NIKON D50",
+    { "NIKON D50", 0,
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
-    { "NIKON D70",
+    { "NIKON D70", 0,
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
-    { "NIKON E995",	/* copied from E5000 */
+    { "NIKON E995", 0,	/* copied from E5000 */
 	{ -5547,11762,2189,5814,-558,3342,-4924,9840,5949,688,9083,96 } },
-    { "NIKON E2500",
+    { "NIKON E2500", 0,
 	{ -5547,11762,2189,5814,-558,3342,-4924,9840,5949,688,9083,96 } },
-    { "NIKON E4500",
+    { "NIKON E4500", 0,
 	{ -5547,11762,2189,5814,-558,3342,-4924,9840,5949,688,9083,96 } },
-    { "NIKON E5000",
+    { "NIKON E5000", 0,
 	{ -5547,11762,2189,5814,-558,3342,-4924,9840,5949,688,9083,96 } },
-    { "NIKON E5400",
+    { "NIKON E5400", 0,
 	{ 9349,-2987,-1001,-7919,15766,2266,-2098,2680,6839 } },
-    { "NIKON E5700",
+    { "NIKON E5700", 0,
 	{ -5368,11478,2368,5537,-113,3148,-4969,10021,5782,778,9028,211 } },
-    { "NIKON E8400",
+    { "NIKON E8400", 0,
 	{ 7842,-2320,-992,-8154,15718,2599,-1098,1342,7560 } },
-    { "NIKON E8700",
+    { "NIKON E8700", 0,
 	{ 8489,-2583,-1036,-8051,15583,2643,-1307,1407,7354 } },
-    { "NIKON E8800",
+    { "NIKON E8800", 0,
 	{ 7971,-2314,-913,-8451,15762,2894,-1442,1520,7610 } },
-    { "OLYMPUS C5050",
+    { "OLYMPUS C5050", 0,
 	{ 10508,-3124,-1273,-6079,14294,1901,-1653,2306,6237 } },
-    { "OLYMPUS C5060",
+    { "OLYMPUS C5060", 0,
 	{ 10445,-3362,-1307,-7662,15690,2058,-1135,1176,7602 } },
-    { "OLYMPUS C7070",
+    { "OLYMPUS C7070", 0,
 	{ 10252,-3531,-1095,-7114,14850,2436,-1451,1723,6365 } },
-    { "OLYMPUS C70",
+    { "OLYMPUS C70", 0,
 	{ 10793,-3791,-1146,-7498,15177,2488,-1390,1577,7321 } },
-    { "OLYMPUS C80",
+    { "OLYMPUS C80", 0,
 	{ 8606,-2509,-1014,-8238,15714,2703,-942,979,7760 } },
-    { "OLYMPUS E-10",
+    { "OLYMPUS E-10", 0,
 	{ 12745,-4500,-1416,-6062,14542,1580,-1934,2256,6603 } },
-    { "OLYMPUS E-1",
+    { "OLYMPUS E-1", 0,
 	{ 11846,-4767,-945,-7027,15878,1089,-2699,4122,8311 } },
-    { "OLYMPUS E-20",
+    { "OLYMPUS E-20", 0,
 	{ 13173,-4732,-1499,-5807,14036,1895,-2045,2452,7142 } },
-    { "OLYMPUS E-300",
+    { "OLYMPUS E-300", 0,
 	{ 7828,-1761,-348,-5788,14071,1830,-2853,4518,6557 } },
-    { "OLYMPUS E-500",
+    { "OLYMPUS E-500", 0,
 	{ 8136,-1968,-299,-5481,13742,1871,-2556,4205,6630 } },
-    { "OLYMPUS SP500UZ",
+    { "OLYMPUS SP500UZ", 0,
 	{ 9493,-3415,-666,-5211,12334,3260,-1548,2262,6482 } },
-    { "PENTAX *ist DL",
+    { "PENTAX *ist DL", 0,
 	{ 10829,-2838,-1115,-8339,15817,2696,-837,680,11939 } },
-    { "PENTAX *ist DS",
+    { "PENTAX *ist DS", 0,
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
-    { "PENTAX *ist D",
+    { "PENTAX *ist D", 0,
 	{ 9651,-2059,-1189,-8881,16512,2487,-1460,1345,10687 } },
-    { "Panasonic DMC-FZ30",
+    { "Panasonic DMC-FZ30", 0,
 	{ 10976,-4029,-1141,-7918,15491,2600,-1670,2071,8246 } },
-    { "Panasonic DMC-LC1",
+    { "Panasonic DMC-LC1", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
-    { "Panasonic DMC-LX1",
+    { "Panasonic DMC-LX1", 0,
 	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
-    { "SONY DSC-F828",
+    { "SONY DSC-F828", 491,
 	{ 7924,-1910,-777,-8226,15459,2998,-1517,2199,6818,-7242,11401,3481 } },
-    { "SONY DSC-R1",		/* DJC */
+    { "SONY DSC-R1", 512,	/* DJC */
 	{ 10528,-3695,-517,-2822,10699,2124,406,1240,5342 } },
-    { "SONY DSC-V3",
+    { "SONY DSC-V3", 0,
 	{ 7511,-2571,-692,-7894,15088,3060,-948,1111,8128 } },
   };
   double cam_xyz[4][3];
@@ -4538,6 +4538,8 @@ void CLASS adobe_coeff()
   sprintf (name, "%s %s", make, model);
   for (i=0; i < sizeof table / sizeof *table; i++)
     if (!strncmp (name, table[i].prefix, strlen(table[i].prefix))) {
+      if (table[i].black)
+	black = table[i].black;
       for (j=0; j < 12; j++)
 	cam_xyz[0][j] = table[i].trans[j] / 10000.0;
       cam_xyz_coeff (cam_xyz);
@@ -4847,7 +4849,6 @@ nucore:
     colors = 4;
     filters = 0x1e4b4e1b;
     load_raw = canon_a5_load_raw;
-    black = 34;
   } else if (!strcmp(model,"PowerShot Pro90 IS")) {
     width  = 1896;
     colors = 4;
@@ -5031,7 +5032,6 @@ dimage_z2:
     width  = 2288;
     filters = 0x16161616;
     load_raw = nikon_e2100_load_raw;
-    black = 68;
   } else if (!strcmp(model,"E4500")) {
     height = 1708;
     width  = 2288;
@@ -5054,7 +5054,6 @@ dimage_z2:
       strcpy (model+7," S2Pro");
       height = 2144;
       width  = 2880;
-      black = 128;
       flip = 6;
     } else
       maximum = 0x3e00;
@@ -5318,7 +5317,6 @@ konica_400z:
     load_raw = sony_load_raw;
     filters = 0x9c9c9c9c;
     colors = 4;
-    black = 491;
   } else if (!strcmp(model,"DSC-V3")) {
     width = 3109;
     left_margin = 59;
@@ -5328,7 +5326,6 @@ konica_400z:
     width = 3925;
     order = 0x4d4d;
     load_raw = unpacked_load_raw;
-    black = 512;
   } else if (!strncmp(model,"P850",4)) {
     maximum = 0xf7c;
   } else if (!strcasecmp(make,"KODAK") && !load_raw) {
@@ -5342,10 +5339,6 @@ konica_400z:
     } else if (!strcmp(model,"EOSDCS1")) {
       width -= 4;
       left_margin = 2;
-    } else if (!strcmp(model,"DCS315C")) {
-      black = 8;
-    } else if (!strcmp(model,"DCS330C")) {
-      black = 8;
     } else if (!strcmp(model,"DCS420")) {
       width -= 4;
       left_margin = 2;
@@ -5357,16 +5350,6 @@ konica_400z:
       left_margin = 2;
       colors = 1;
       filters = 0;
-    } else if (!strcmp(model,"DCS520C")) {
-      black = 180;
-    } else if (!strcmp(model,"DCS560C")) {
-      black = 188;
-    } else if (!strcmp(model,"DCS620C")) {
-      black = 180;
-    } else if (!strcmp(model,"DCS620X")) {
-      black = 185;
-    } else if (!strcmp(model,"DCS660C")) {
-      black = 214;
     } else if (!strcmp(model,"DCS660M")) {
       black = 214;
       colors = 1;
@@ -5857,7 +5840,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.90"
+    "\nRaw Photo Decoder \"dcraw\" v7.91"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
