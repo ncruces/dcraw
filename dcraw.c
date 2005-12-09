@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.306 $
-   $Date: 2005/12/08 01:42:17 $
+   $Revision: 1.307 $
+   $Date: 2005/12/09 03:05:18 $
  */
 
 #define _GNU_SOURCE
@@ -940,7 +940,7 @@ void CLASS nikon_load_raw()
   getbits(-1);
   for (irow=0; irow < height; irow++) {
     row = irow;
-    if (model[0] == 'E') {
+    if (make[0] == 'O' || model[0] == 'E') {
       row = irow * 2 % height + irow / (height/2);
       if (row == 1 && data_offset == 0) {
 	fseek (ifp, 0, SEEK_END);
@@ -980,21 +980,21 @@ int CLASS nikon_is_compressed()
 }
 
 /*
-   Returns 1 for a Coolpix 990, 0 for a Coolpix 995.
+   Returns 1 for a Coolpix 995, 0 for anything else.
  */
-int CLASS nikon_e990()
+int CLASS nikon_e995()
 {
   int i, histo[256];
   const uchar often[] = { 0x00, 0x55, 0xaa, 0xff };
 
   memset (histo, 0, sizeof histo);
-  fseek (ifp, 2064*1540*3/4, SEEK_SET);
+  fseek (ifp, -2000, SEEK_END);
   for (i=0; i < 2000; i++)
     histo[fgetc(ifp)]++;
   for (i=0; i < 4; i++)
-    if (histo[often[i]] > 400)
-      return 1;
-  return 0;
+    if (histo[often[i]] < 200)
+      return 0;
+  return 1;
 }
 
 /*
@@ -2704,7 +2704,7 @@ void CLASS colorcheck()
       }
     FORCC gmb_cam[sq][c] /= count[c];
   }
-  for (b=0; b < 2000; b++) {
+  for (b=0; b < 1; b++) {
     pseudoinverse (gmb_xyz, inverse, NSQ);
     for (i=0; i < colors; i++)
       for (j=0; j < 3; j++)
@@ -3804,7 +3804,7 @@ void CLASS parse_external_jpeg()
   if (!file) file = strrchr (ifname, '\\');
   if (!file) file = ifname-1;
   file++;
-  if (strlen(ext) != 4 || ext-file != 8) return;
+  if (!ext || strlen(ext) != 4 || ext-file != 8) return;
   jname = malloc (strlen(ifname) + 1);
   merror (jname, "parse_external()");
   strcpy (jname, ifname);
@@ -4432,8 +4432,8 @@ void CLASS adobe_coeff()
 	{ 16414,-6060,-1470,-3555,13037,473,2545,122,4948 } },
     { "Kodak ProBack", 0,
 	{ 21179,-8316,-2918,-915,11019,-165,3477,-180,4210 } },
-    { "KODAK P880", 0,		/* DJC */
-	{ 22050,-9634,-1863,-1864,9899,1966,-349,1453,4769 } },
+    { "KODAK P8", 0,		/* DJC */
+	{ 17293,-6824,-2050,-3999,12397,1602,-1209,2283,5375 } },
     { "LEICA DIGILUX 2", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "Leaf Valeo", 0,
@@ -4450,8 +4450,8 @@ void CLASS adobe_coeff()
 	{ 8560,-2487,-986,-8112,15535,2771,-1209,1324,7743 } },
     { "Minolta DiMAGE A2", 0,
 	{ 9097,-2726,-1053,-8073,15506,2762,-966,981,7763 } },
-    { "MINOLTA DiMAGE Z2", 68,	/* DJC */
-	{ 11222,-3449,-1675,-5789,13566,2225,-2339,2670,5549 } },
+    { "MINOLTA DiMAGE Z2", 0,	/* DJC */
+	{ 11280,-3564,-1370,-4655,12374,2282,-1423,2168,5396 } },
     { "MINOLTA DYNAX 5", 0,
 	{ 10284,-3283,-1086,-7957,15762,2316,-829,882,6644 } },
     { "MINOLTA DYNAX 7", 0,
@@ -4617,7 +4617,7 @@ int CLASS identify (int no_decode)
     {  1581060, "NIKON",    "E900"            ,1 },  /* or E900s,E910 */
     {  2465792, "NIKON",    "E950"            ,1 },  /* or E800,E700 */
     {  2940928, "NIKON",    "E2100"           ,1 },  /* or E2500 */
-    {  4771840, "NIKON",    "E990"            ,1 },  /* or E995 */
+    {  4771840, "NIKON",    "E990"            ,1 },  /* or E995, Oly C3030Z */
     {  4775936, "NIKON",    "E3700"           ,1 },  /* or Optio 33WR */
     {  5869568, "NIKON",    "E4300"           ,1 },  /* or DiMAGE Z2 */
     {  5865472, "NIKON",    "E4500"           ,1 },
@@ -4967,24 +4967,21 @@ canon_cr2:
     pre_mul[0] = 1.18193;
     pre_mul[2] = 1.16452;
     pre_mul[3] = 1.17250;
-  } else if (!strcmp(model,"E880") ||
-	     !strcmp(model,"E990")) {
-    if (!timestamp && !nikon_e990()) goto cp_e995;
-    height = 1540;
-    width  = 2064;
-    colors = 4;
-    filters = 0xb4b4b4b4;
-    simple_coeff(3);
-    pre_mul[0] = 1.196;
-    pre_mul[1] = 1.246;
-    pre_mul[2] = 1.018;
-  } else if (!strcmp(model,"E995")) {
-cp_e995:
-    strcpy (model, "E995");
+  } else if (fsize == 4771840) {
     height = 1540;
     width  = 2064;
     colors = 4;
     filters = 0xe1e1e1e1;
+    load_raw = nikon_load_raw;
+    if (!timestamp && nikon_e995())
+      strcpy (model, "E995");
+    if (strcmp(model,"E995")) {
+      filters = 0xb4b4b4b4;
+      simple_coeff(3);
+      pre_mul[0] = 1.196;
+      pre_mul[1] = 1.246;
+      pre_mul[2] = 1.018;
+    }
   } else if (!strcmp(model,"E2100")) {
     if (!timestamp && !nikon_e2100()) goto cp_e2500;
     height = 1206;
@@ -5840,7 +5837,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v7.91"
+    "\nRaw Photo Decoder \"dcraw\" v7.92"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
