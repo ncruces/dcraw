@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.310 $
-   $Date: 2006/01/21 10:41:56 $
+   $Revision: 1.311 $
+   $Date: 2006/01/23 09:31:52 $
  */
 
 #define _GNU_SOURCE
@@ -88,21 +88,19 @@ short order;
 char *ifname, make[64], model[72], model2[64], *meta_data, cdesc[5];
 float flash_used, canon_ev, iso_speed, shutter, aperture, focal_len;
 time_t timestamp;
-unsigned shot_order, kodak_cbpp;
+unsigned shot_order, kodak_cbpp, filters;
 int profile_offset, profile_length;
 int thumb_offset, thumb_length, thumb_width, thumb_height, thumb_misc;
 int data_offset, meta_offset, meta_length, nikon_curve_offset;
 int tiff_nifds, tiff_flip, tiff_bps, tiff_compress;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, tiff_samples;
-int black, maximum, clip_max, clip_color=1;
+int black, maximum, clip_max, raw_color, use_gamma;
 int iheight, iwidth, shrink, flip, xmag, ymag;
-int dng_version, is_foveon, raw_color, use_gamma;
-int zero_after_ff;
-unsigned filters;
+int zero_after_ff, is_raw, dng_version, is_foveon;
 ushort (*image)[4], white[8][8], curve[0x1000], cr2_slice[3];
 float bright=1, red_scale=1, blue_scale=1, sigma_d=0, sigma_r=0;
-int four_color_rgb=0, document_mode=0;
+int four_color_rgb=0, document_mode=0, clip_color=1;
 int verbose=0, use_auto_wb=0, use_camera_wb=0, output_color=1;
 int fuji_layout, fuji_secondary, use_secondary=0;
 float cam_mul[4], pre_mul[4], rgb_cam[3][4];	/* RGB from camera color */
@@ -623,6 +621,7 @@ void CLASS canon_compressed_load_raw()
   int block, diffbuf[64], leaf, len, diff, carry=0, pnum=0, base[2];
   uchar c;
 
+  crw_init_tables (tiff_compress);
   pixel = calloc (raw_width*8, sizeof *pixel);
   merror (pixel, "canon_compressed_load_raw()");
   lowbits = canon_has_lowbits();
@@ -2003,32 +2002,30 @@ void CLASS foveon_decoder (unsigned size, unsigned code)
 
 void CLASS foveon_thumb (FILE *tfp)
 {
-  int width, height, bwide, row, col, bit=-1, c, i;
+  int bwide, row, col, bit=-1, c, i;
   char *buf;
   struct decode *dindex;
   short pred[3];
   unsigned bitbuf=0;
 
-  width  = get4();
-  height = get4();
-  bwide  = get4();
-  fprintf (tfp, "P6\n%d %d\n255\n", width, height);
+  bwide = get4();
+  fprintf (tfp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
   if (bwide > 0) {
     buf = malloc (bwide);
     merror (buf, "foveon_thumb()");
-    for (row=0; row < height; row++) {
+    for (row=0; row < thumb_height; row++) {
       fread  (buf, 1, bwide, ifp);
-      fwrite (buf, 3, width, tfp);
+      fwrite (buf, 3, thumb_width, tfp);
     }
     free (buf);
     return;
   }
   foveon_decoder (256, 0);
 
-  for (row=0; row < height; row++) {
+  for (row=0; row < thumb_height; row++) {
     memset (pred, 0, sizeof pred);
     if (!bit) get4();
-    for (col=bit=0; col < width; col++)
+    for (col=bit=0; col < thumb_width; col++)
       FORC3 {
 	for (dindex=first_decode; dindex->branch[0]; ) {
 	  if ((bit = (bit-1) & 31) == 31)
@@ -2827,40 +2824,48 @@ void CLASS colorcheck()
 
 void CLASS scale_colors()
 {
-  int row, col, c, val, shift=0;
-  int min[4], max[4], count[4];
-  double sum[4], dmin;
+  int row, col, x, y, c, val, shift=0;
+  int min[4], max[4], sum[8];
+  double dsum[8], dmin;
 
   maximum -= black;
   if (use_auto_wb || (use_camera_wb && camera_red == -1)) {
     FORC4 min[c] = INT_MAX;
-    FORC4 max[c] = count[c] = sum[c] = 0;
-    for (row=0; row < height; row++)
-      for (col=0; col < width; col++)
-	FORC4 {
-	  val = image[row*width+col][c];
-	  if (!val) continue;
-	  if (min[c] > val) min[c] = val;
-	  if (max[c] < val) max[c] = val;
-	  val -= black;
-	  if (val > maximum-25) continue;
-	  if (val < 0) val = 0;
-	  sum[c] += val;
-	  count[c]++;
-	}
-    FORC4 if (sum[c]) pre_mul[c] = count[c] / sum[c];
+    FORC4 max[c] = 0;
+    memset (dsum, 0, sizeof dsum);
+    for (row=0; row < height-7; row++)
+      for (col=0; col < width-7; col++) {
+	memset (sum, 0, sizeof sum);
+	for (y=row; y < row+7; y++)
+	  for (x=col; x < col+7; x++)
+	    FORC4 {
+	      val = image[y*width+x][c];
+	      if (!val) continue;
+	      if (min[c] > val) min[c] = val;
+	      if (max[c] < val) max[c] = val;
+	      val -= black;
+	      if (val > maximum-25) goto skip_block;
+	      if (val < 0) val = 0;
+	      sum[c] += val;
+	      sum[c+4]++;
+	    }
+	for (c=0; c < 8; c++) dsum[c] += sum[c];
+skip_block:
+	continue;
+      }
+    FORC4 if (dsum[c]) pre_mul[c] = dsum[c+4] / dsum[c];
   }
   if (use_camera_wb && camera_red != -1) {
-    FORC4 count[c] = sum[c] = 0;
+    memset (sum, 0, sizeof sum);
     for (row=0; row < 8; row++)
       for (col=0; col < 8; col++) {
 	c = FC(row,col);
 	if ((val = white[row][col] - black) > 0)
 	  sum[c] += val;
-	count[c]++;
+	sum[c+4]++;
       }
     if (sum[0] && sum[1] && sum[2] && sum[3])
-      FORC4 pre_mul[c] = count[c] / sum[c];
+      FORC4 pre_mul[c] = (float) sum[c+4] / sum[c];
     else if (camera_red && camera_blue)
       memcpy (pre_mul, cam_mul, sizeof pre_mul);
     else
@@ -3407,6 +3412,11 @@ void CLASS parse_makernote (int base)
     tiff_get (base, &tag, &type, &len, &save);
     if (tag == 2 && strstr(make,"NIKON"))
       iso_speed = (get2(),get2());
+    if (tag == 4 && len == 27) {
+      iso_speed = 50 * pow (2, (get4(),get2())/32.0 - 4);
+      aperture = (get2(), pow (2, get2()/64.0));
+      shutter = pow (2, ((short) get2())/-32.0);
+    }
     if (tag == 8 && type == 4)
       shot_order = get4();
     if (tag == 0xc && len == 4) {
@@ -3711,7 +3721,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	if (!strncmp(software,"Adobe",5) ||
 	    !strncmp(software,"Bibble",6) ||
 	    !strcmp (software,"Digital Photo Professional"))
-	  make[0] = 0;
+	  is_raw = 0;
 	break;
       case 306:				/* DateTime */
 	get_timestamp(0);
@@ -3969,9 +3979,10 @@ void CLASS parse_tiff (int base)
       }
   }
   if (((strstr(make,"Minolta") || strstr(make,"MINOLTA")) && tiff_bps == 8)
+	|| (!strncmp(make,"NIKON",5) && filters == UINT_MAX)
 	|| (!strcmp(make,"SONY") && tiff_bps != 14)
 	|| (tiff_samples == 3 && data_offset == 8))
-    if (!dng_version) make[0] = 0;
+    if (!dng_version) is_raw = 0;
   for (i=0; i < tiff_nifds; i++)
     if (i != raw && tiff_ifd[i].samples == max_samp &&
 	tiff_ifd[i].width * tiff_ifd[i].height / SQR(tiff_ifd[i].bps+1) >
@@ -4071,6 +4082,7 @@ void CLASS parse_external_jpeg()
 	fprintf (stderr, "Reading metadata from %s...\n", jname);
       parse_tiff (12);
       thumb_offset = 0;
+      is_raw = 1;
       fclose (ifp);
     }
   }
@@ -4219,7 +4231,7 @@ common:
     }
     if (type == 0x1835) {		/* Get the decoder table */
       fseek (ifp, aoff, SEEK_SET);
-      crw_init_tables (get4());
+      tiff_compress = get4();
     }
     if (type == 0x2007) {		/* Found the JPEG thumbnail */
       thumb_offset = aoff;
@@ -4355,15 +4367,20 @@ void CLASS parse_fuji (int offset)
 
 int CLASS parse_jpeg (int offset)
 {
-  int len, save, hlen;
+  int len, save, hlen, mark;
 
   fseek (ifp, offset, SEEK_SET);
   if (fgetc(ifp) != 0xff || fgetc(ifp) != 0xd8) return 0;
 
-  while (fgetc(ifp) == 0xff && fgetc(ifp) >> 4 != 0xd) {
+  while (fgetc(ifp) == 0xff && (mark = fgetc(ifp)) != 0xda) {
     order = 0x4d4d;
     len   = get2() - 2;
     save  = ftell(ifp);
+    if (mark == 0xc0 || mark == 0xc3) {
+      fgetc(ifp);
+      raw_height = get2();
+      raw_width  = get2();
+    }
     order = get2();
     hlen  = get4();
     if (get4() == 0x48454150)		/* "HEAP" */
@@ -4470,7 +4487,9 @@ void CLASS parse_foveon()
 	  thumb_length = len-28;
 	}
 	if (++img == 2 && !thumb_length) {
-	  thumb_offset = off+16;
+	  thumb_offset = off+24;
+	  thumb_width = wide;
+	  thumb_height = high;
 	  write_thumb = foveon_thumb;
 	}
 	break;
@@ -4813,6 +4832,7 @@ void CLASS identify()
 {
   char head[32], *cp;
   unsigned hlen, fsize, i, c, is_canon;
+  struct jhead jh;
   static const struct {
     int fsize;
     char make[12], model[15], withjpeg;
@@ -4860,8 +4880,6 @@ void CLASS identify()
     { "Canon", "NIKON", "EPSON", "KODAK", "Kodak", "OLYMPUS", "PENTAX",
       "MINOLTA", "Minolta", "Konica", "CASIO", "Sinar", "Phase One" };
 
-/*  What format is this file?  Set make[] if we recognize it. */
-
   tiff_flip = flip = filters = -1;	/* 0 is valid, so -1 is unknown */
   raw_height = raw_width = fuji_width = cr2_slice[0] = 0;
   maximum = height = width = top_margin = left_margin = 0;
@@ -4874,7 +4892,7 @@ void CLASS identify()
   data_offset = meta_length = tiff_bps = tiff_compress = 0;
   kodak_cbpp = zero_after_ff = dng_version = fuji_secondary = 0;
   timestamp = shot_order = tiff_samples = black = is_foveon = 0;
-  raw_color = use_gamma = xmag = ymag = 1;
+  is_raw = raw_color = use_gamma = xmag = ymag = 1;
   for (i=0; i < 4; i++) {
     cam_mul[i] = i == 1;
     pre_mul[i] = i < 3;
@@ -4901,8 +4919,6 @@ void CLASS identify()
       parse_ciff (hlen, fsize - hlen);
     } else {
       parse_tiff(0);
-      if (!dng_version && !strncmp(make,"NIKON",5) && filters == UINT_MAX)
-	make[0] = 0;
     }
   } else if (!memcmp (head,"\xff\xd8\xff\xe1",4) &&
 	     !memcmp (head+6,"Exif",4)) {
@@ -4979,10 +4995,8 @@ nucore:
   parse_mos(8);
   parse_mos(3472);
   if (make[0] == 0) parse_smal (0, fsize);
-  if (make[0] == 0) {
-    parse_jpeg(0);
-    make[0] = 0;
-  }
+  if (make[0] == 0) parse_jpeg (is_raw = 0);
+
   for (i=0; i < sizeof corp / sizeof *corp; i++)
     if (strstr (make, corp[i]))		/* Simplify company names */
 	strcpy (make, corp[i]);
@@ -4996,7 +5010,7 @@ nucore:
   if (!strncmp (model, make, i) && model[i++] == ' ')
     memmove (model, model+i, 64-i);
   make[63] = model[63] = model2[63] = 0;
-  if (make[0] == 0) return;
+  if (!is_raw) return;
 
   if ((raw_height | raw_width) < 0)
        raw_height = raw_width  = 0;
@@ -5706,7 +5720,21 @@ konica_400z:
     sprintf (model, "%dx%d", width, height);
   if (filters == UINT_MAX) filters = 0x94949494;
   if (raw_color) adobe_coeff();
+  if (thumb_offset && !thumb_height) {
+    fseek (ifp, thumb_offset, SEEK_SET);
+    if (ljpeg_start (&jh, 1)) {
+      thumb_width  = jh.wide;
+      thumb_height = jh.high;
+    }
+  }
 dng_skip:
+  if (!load_raw || !height) is_raw = 0;
+#ifdef NO_JPEG
+  if (load_raw == kodak_jpeg_load_raw) {
+    fprintf (stderr, "%s: You must link dcraw.c with libjpeg!!\n", ifname);
+    is_raw = 0;
+  }
+#endif
   if (flip == -1) flip = tiff_flip;
   if (flip == -1) flip = 0;
   if (!cdesc[0])
@@ -6011,7 +6039,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.00"
+    "\nRaw Photo Decoder \"dcraw\" v8.01"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -6129,7 +6157,7 @@ int CLASS main (int argc, char **argv)
       perror (ifname);
       continue;
     }
-    identify();
+    status = (identify(),!is_raw);
     if (timestamp_only) {
       if ((status = !timestamp))
 	fprintf (stderr, "%s has no timestamp.\n", ifname);
@@ -6160,22 +6188,29 @@ int CLASS main (int argc, char **argv)
 	goto thumbnail;
       }
     }
-    if ((status = !make[0])) {
-      fprintf (stderr, "%s: unsupported file format.\n", ifname);
-      goto next;
-    } else if ((status = !load_raw || !height)) {
-      fprintf (stderr, "%s: Cannot decode %s %s images.\n",
-		ifname, make, model);
-      goto next;
-#ifdef NO_JPEG
-    } else if (load_raw == kodak_jpeg_load_raw) {
-      fprintf (stderr, "%s: dcraw was not linked with libjpeg.\n", ifname);
-      goto next;
-#endif
-    } else if (load_raw == kodak_ycbcr_load_raw) {
+    if (load_raw == kodak_ycbcr_load_raw) {
       height += height & 1;
       width  += width  & 1;
     }
+    if (identify_only && verbose && make[0]) {
+      printf ("\nFilename: %s\n", ifname);
+      printf ("Timestamp: %s", ctime(&timestamp));
+      printf ("Camera: %s %s\n", make, model);
+      printf ("ISO speed: %d\n", (int) iso_speed);
+      printf ("Shutter: ");
+      if (shutter > 0 && shutter < 1)
+	shutter = (printf ("1/"), 1 / shutter);
+      printf ("%0.1f sec\n", shutter);
+      printf ("Aperture: f/%0.1f\n", aperture);
+      printf ("Focal Length: %d mm\n", (int) focal_len);
+      printf ("Embedded ICC profile: %s\n", profile_length ? "yes":"no");
+      printf ("Decodable with dcraw: %s\n", is_raw ? "yes":"no");
+      if (thumb_offset)
+	printf ("Thumb size:  %4d x %d\n", thumb_width, thumb_height);
+      printf ("Full size:   %4d x %d\n", raw_width, raw_height);
+    } else if (!is_raw)
+      fprintf (stderr, "Cannot decode %s\n", ifname);
+    if (!is_raw) goto next;
     if (user_flip >= 0)
       flip = user_flip;
     switch ((flip+3600) % 360) {
@@ -6188,16 +6223,19 @@ int CLASS main (int argc, char **argv)
     iwidth  = (width  + shrink) >> shrink;
     if (identify_only) {
       if (verbose) {
-	printf ("Filename: %s\n", ifname);
-	printf ("Timestamp: %s", ctime(&timestamp));
-	printf ("Camera: %s %s\n", make, model);
-	printf ("ISO speed: %d\n", (int) iso_speed);
-	printf ("Shutter: ");
-	if (shutter > 0 && shutter < 1)
-	  shutter = (printf ("1/"), 1 / shutter);
-	printf ("%0.1f sec\n", shutter);
-	printf ("Aperture: f/%0.1f\n", aperture);
-	printf ("Focal Length: %d mm\n", (int) focal_len);
+	if (fuji_width && use_fuji_rotate) {
+	  fuji_width = (fuji_width - 1 + shrink) >> shrink;
+	  iwidth = fuji_width / sqrt(0.5);
+	  iheight = (iheight - fuji_width) / sqrt(0.5);
+	}
+	if (write_fun == write_ppm) {
+	  iheight *= ymag;
+	  iwidth  *= xmag;
+	}
+	if (flip & 4)
+	  SWAP(iheight,iwidth);
+	printf ("Image size:  %4d x %d\n", width, height);
+	printf ("Output size: %4d x %d\n", iwidth, iheight);
 	printf ("Raw colors: %d", colors);
 	if (filters) {
 	  printf ("\nFilter pattern: ");
@@ -6211,20 +6249,7 @@ int CLASS main (int argc, char **argv)
 	  printf ("\nCamera multipliers:");
 	  FORCC printf (" %f", cam_mul[c]);
 	}
-	printf ("\nRaw size: %d x %d\n", raw_width, raw_height);
-	printf ("Image size: %d x %d\n", width, height);
-	if (fuji_width && use_fuji_rotate) {
-	  fuji_width = (fuji_width - 1 + shrink) >> shrink;
-	  iwidth = fuji_width / sqrt(0.5);
-	  iheight = (iheight - fuji_width) / sqrt(0.5);
-	}
-	if (write_fun == write_ppm) {
-	  iheight *= ymag;
-	  iwidth  *= xmag;
-	}
-	if (flip & 4)
-	  SWAP(iheight,iwidth);
-	printf ("Output size: %d x %d\n\n", iwidth, iheight);
+	putchar ('\n');
       } else
 	printf ("%s is a %s %s image.\n", ifname, make, model);
 next:
