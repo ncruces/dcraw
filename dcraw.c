@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.311 $
-   $Date: 2006/01/23 09:31:52 $
+   $Revision: 1.312 $
+   $Date: 2006/01/24 08:47:38 $
  */
 
 #define _GNU_SOURCE
@@ -1139,8 +1139,9 @@ void CLASS ppm_thumb (FILE *tfp)
 void CLASS layer_thumb (FILE *tfp)
 {
   int i, c;
+  char *thumb;
   colors = thumb_misc >> 5;
-  char *thumb = malloc (thumb_length*colors);
+  thumb = malloc (thumb_length*colors);
   merror (thumb, "layer_thumb()");
   fprintf (tfp, "P%d\n%d %d\n255\n",
 	5 + (thumb_misc >> 6), thumb_width, thumb_height);
@@ -1236,16 +1237,19 @@ unsigned CLASS ph1_bits (int nbits)
 void CLASS phase_one_load_raw_c()
 {
   static const int length[] = { 8,7,6,9,11,10,5,12,14,13 };
-  int len[2], pred[2], row, col, ncols, i, j;
+  int *offset, len[2], pred[2], row, col, i, j;
   ushort *pixel;
 
-  ncols = (raw_width + 7) & -8;
-  pixel = calloc (ncols, sizeof *pixel);
+  pixel = calloc (raw_width + raw_height*2, 2);
   merror (pixel, "phase_one_load_raw_c()");
+  offset = (int *) (pixel + raw_width);
+  for (row=0; row < raw_height; row++)
+    offset[row] = get4();
   for (row=0; row < raw_height; row++) {
+    fseek (ifp, 20 + offset[row], SEEK_SET);
     ph1_bits(0);
     pred[0] = pred[1] = 0;
-    for (col=0; col < ncols; col++) {
+    for (col=0; col < raw_width; col++) {
       if (col >= (raw_width & -8))
 	len[0] = len[1] = 14;
       else if ((col & 7) == 0)
@@ -4314,7 +4318,8 @@ void CLASS parse_phase_one (int base)
       case 0x10c:  width       = data;  break;
       case 0x10d:  height      = data;  break;
       case 0x10e:  tiff_compress = data;  break;
-      case 0x10f:  data_offset = data+base;  break;
+      case 0x10f: case 0x21c:
+	data_offset = data + base;      break;
       case 0x112:
 	nikon_curve_offset = save - 4;  break;
       case 0x301:
@@ -6039,7 +6044,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.01"
+    "\nRaw Photo Decoder \"dcraw\" v8.02"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
