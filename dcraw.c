@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.312 $
-   $Date: 2006/01/24 08:47:38 $
+   $Revision: 1.313 $
+   $Date: 2006/01/24 16:51:53 $
  */
 
 #define _GNU_SOURCE
@@ -91,7 +91,7 @@ time_t timestamp;
 unsigned shot_order, kodak_cbpp, filters;
 int profile_offset, profile_length;
 int thumb_offset, thumb_length, thumb_width, thumb_height, thumb_misc;
-int data_offset, meta_offset, meta_length, nikon_curve_offset;
+int data_offset, strip_offset, curve_offset, meta_offset, meta_length;
 int tiff_nifds, tiff_flip, tiff_bps, tiff_compress;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, tiff_samples;
@@ -903,7 +903,7 @@ void CLASS nikon_compressed_load_raw()
   init_decoder();
   make_decoder (nikon_tree, 0);
 
-  fseek (ifp, nikon_curve_offset, SEEK_SET);
+  fseek (ifp, curve_offset, SEEK_SET);
   read_shorts (vpred, 4);
   csize = get2();
   curve = calloc (csize, sizeof *curve);
@@ -1197,7 +1197,7 @@ void CLASS phase_one_load_raw()
   int row, col, a, b;
   ushort *pixel, akey, bkey, mask;
 
-  fseek (ifp, nikon_curve_offset, SEEK_SET);
+  fseek (ifp, curve_offset, SEEK_SET);
   akey = get2();
   bkey = get2();
   mask = tiff_compress == 1 ? 0x5555:0x1354;
@@ -1243,10 +1243,11 @@ void CLASS phase_one_load_raw_c()
   pixel = calloc (raw_width + raw_height*2, 2);
   merror (pixel, "phase_one_load_raw_c()");
   offset = (int *) (pixel + raw_width);
+  fseek (ifp, strip_offset, SEEK_SET);
   for (row=0; row < raw_height; row++)
     offset[row] = get4();
   for (row=0; row < raw_height; row++) {
-    fseek (ifp, 20 + offset[row], SEEK_SET);
+    fseek (ifp, data_offset + offset[row], SEEK_SET);
     ph1_bits(0);
     pred[0] = pred[1] = 0;
     for (col=0; col < raw_width; col++) {
@@ -3456,9 +3457,9 @@ void CLASS parse_makernote (int base)
     if (tag == 0x89 && type == 4)
       thumb_length = get4();
     if (tag == 0x8c)
-      nikon_curve_offset = ftell(ifp) + 2112;
+      curve_offset = ftell(ifp) + 2112;
     if (tag == 0x96)
-      nikon_curve_offset = ftell(ifp) + 2;
+      curve_offset = ftell(ifp) + 2;
     if (tag == 0x97) {
       for (i=0; i < 4; i++)
 	ver97 = (ver97 << 4) + fgetc(ifp)-'0';
@@ -4311,21 +4312,20 @@ void CLASS parse_phase_one (int base)
       case 0x107:
 	FORC3 cam_mul[c] = pre_mul[c] = int_to_float(get4());
 	break;
-      case 0x108:  raw_width   = data;  break;
-      case 0x109:  raw_height  = data;  break;
-      case 0x10a:  left_margin = data;  break;
-      case 0x10b:  top_margin  = data;  break;
-      case 0x10c:  width       = data;  break;
-      case 0x10d:  height      = data;  break;
-      case 0x10e:  tiff_compress = data;  break;
-      case 0x10f: case 0x21c:
-	data_offset = data + base;      break;
-      case 0x112:
-	nikon_curve_offset = save - 4;  break;
+      case 0x108:  raw_width     = data;	break;
+      case 0x109:  raw_height    = data;	break;
+      case 0x10a:  left_margin   = data;	break;
+      case 0x10b:  top_margin    = data;	break;
+      case 0x10c:  width         = data;	break;
+      case 0x10d:  height        = data;	break;
+      case 0x10e:  tiff_compress = data;	break;
+      case 0x10f:  data_offset   = data+base;	break;
+      case 0x112:  curve_offset  = save - 4;	break;
+      case 0x21c:  strip_offset  = data+base;	break;
       case 0x301:
-	fread (model, 64, 1, ifp);
-	cp = strstr(model," camera");
-	if (cp && cp < model+64) *cp = 0;
+	model[63] = 0;
+	fread (model, 1, 63, ifp);
+	if ((cp = strstr(model," camera"))) *cp = 0;
     }
     fseek (ifp, save, SEEK_SET);
   }
@@ -5487,6 +5487,8 @@ konica_400z:
       width -= 16;
     } else maximum = 0xfff0;
     load_raw = unpacked_load_raw;
+  } else if (!strcmp(model,"P 30") || !strcmp(model,"P 45")) {
+    black = 256;
   } else if (!strcmp(model,"E-1")) {
     filters = 0x61616161;
     maximum = 0xfff0;
@@ -6044,7 +6046,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.02"
+    "\nRaw Photo Decoder \"dcraw\" v8.03"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
