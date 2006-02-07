@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "January 21, 2006"
+.TH dcraw 1 "February 7, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -123,15 +123,18 @@ option is not used:
 \ \ Raw color (unique to each camera)
 .br
 .B \t1
-\ \ sRGB (default)
+\ \ sRGB D65 (default)
 .br
 .B \t2
-\ \ Adobe 1998 RGB
+\ \ Adobe 1998 D65
 .br
 .B \t3
 \ \ Wide Gamut D65
 .br
 .B \t4
+\ \ Kodak ProPhoto D65
+.br
+.B \t5
 \ \ XYZ
 .TP
 .BR -p\ camera.icm \ [\  -o\ output.icm \ ]
