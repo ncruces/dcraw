@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.313 $
-   $Date: 2006/01/24 16:51:53 $
+   $Revision: 1.314 $
+   $Date: 2006/02/07 06:56:51 $
  */
 
 #define _GNU_SOURCE
@@ -2090,7 +2090,7 @@ void CLASS foveon_load_raw()
     }
   }
   foveon_load_camf();
-  maximum = clip_max = 0xffff;
+  clip_max = 0xffff;
 }
 
 char * CLASS foveon_camf_param (char *block, char *param)
@@ -3518,7 +3518,7 @@ void CLASS parse_makernote (int base)
       fseek (ifp, 176, SEEK_CUR);
       goto get2_256;
     }
-    if (tag == 0x1011 && len == 9) {
+    if (tag == 0x1011 && len == 9 && use_camera_wb) {
       for (i=0; i < 3; i++)
 	FORC3 rgb_cam[i][c] = ((short) get2()) / 256.0;
       raw_color = rgb_cam[0][0] < 1;
@@ -3986,6 +3986,7 @@ void CLASS parse_tiff (int base)
   if (((strstr(make,"Minolta") || strstr(make,"MINOLTA")) && tiff_bps == 8)
 	|| (!strncmp(make,"NIKON",5) && filters == UINT_MAX)
 	|| (!strcmp(make,"SONY") && tiff_bps != 14)
+	|| (!strcmp(make,"Canon") && tiff_bps == 8)
 	|| (tiff_samples == 3 && data_offset == 8))
     if (!dng_version) is_raw = 0;
   for (i=0; i < tiff_nifds; i++)
@@ -4558,7 +4559,9 @@ void CLASS adobe_coeff()
     { "Canon EOS D60", 0,
 	{ 6188,-1341,-890,-7168,14489,2937,-2640,3228,8483 } },
     { "Canon EOS 5D", 0,
-	{ 6228,-404,-967,-8314,16108,2312,-1923,2179,7499 } },
+	{ 6347,-479,-972,-8297,15954,2480,-1968,2131,7649 } },
+    { "Canon EOS 20Da", 0,
+	{ 14155,-5065,-1382,-6550,14633,2039,-1623,1824,6561 } },
     { "Canon EOS 20D", 0,
 	{ 6599,-537,-891,-8071,15783,2424,-1983,2234,7462 } },
     { "Canon EOS 350D", 0,
@@ -4615,6 +4618,8 @@ void CLASS adobe_coeff()
 	{ 6827,-1878,-732,-8429,16012,2564,-704,592,7145 } },
     { "FUJIFILM FinePix E550", 0,
 	{ 11044,-3888,-1120,-7248,15168,2208,-1531,2277,8069 } },
+    { "FUJIFILM FinePix E900", 0,
+	{ 9183,-2526,-1078,-7461,15071,2574,-2022,2440,8639 } },
     { "FUJIFILM FinePix F8", 0,
 	{ 11044,-3888,-1120,-7248,15168,2208,-1531,2277,8069 } },
     { "FUJIFILM FinePix F7", 0,
@@ -4631,10 +4636,14 @@ void CLASS adobe_coeff()
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
     { "FUJIFILM FinePix S5500", 0,
 	{ 11940,-4431,-1255,-6766,14428,2542,-993,1165,7421 } },
+    { "FUJIFILM FinePix S5200", 0,
+	{ 9636,-2804,-988,-7442,15040,2589,-1803,2311,8621 } },
+    { "FUJIFILM FinePix S5600", 0,
+	{ 9636,-2804,-988,-7442,15040,2589,-1803,2311,8621 } },
     { "FUJIFILM FinePix S7000", 0,
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
     { "FUJIFILM FinePix S9", 0,
-	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
+	{ 10491,-3423,-1145,-7385,15027,2538,-1809,2275,8692 } },
     { "KODAK NC2000F", 0,	/* DJC */
 	{ 16475,-6903,-1218,-851,10375,477,2505,-7,1020 } },
     { "Kodak DCS315C", 8,
@@ -4673,8 +4682,10 @@ void CLASS adobe_coeff()
 	{ 16414,-6060,-1470,-3555,13037,473,2545,122,4948 } },
     { "Kodak ProBack", 0,
 	{ 21179,-8316,-2918,-915,11019,-165,3477,-180,4210 } },
-    { "KODAK P8", 0,		/* DJC */
-	{ 17293,-6824,-2050,-3999,12397,1602,-1209,2283,5375 } },
+    { "KODAK P850", 0,
+	{ 10511,-3836,-1102,-6946,14587,2558,-1481,1792,6246 } },
+    { "KODAK P880", 0,
+	{ 12805,-4662,-1376,-7480,15267,2360,-1626,2194,7904 } },
     { "LEICA DIGILUX 2", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "Leaf Valeo", 0,
@@ -4703,8 +4714,8 @@ void CLASS adobe_coeff()
 	{ 7577,-2166,-926,-7454,15592,1934,-2377,2808,8606 } },
     { "NIKON D1X", 0,
 	{ 7702,-2245,-975,-9114,17242,1875,-2679,3055,8521 } },
-    { "NIKON D1", 0,
-	{ 7559,-2130,-965,-7611,15713,1972,-2478,3042,8290 } },
+    { "NIKON D1", 0,	/* multiplied by 2.218750, 1.0, 1.148438 */
+	{ 16772,-4726,-2141,-7611,15713,1972,-2846,3494,9521 } },
     { "NIKON D2H", 0,
 	{ 5710,-901,-615,-8594,16617,2024,-2975,4120,6830 } },
     { "NIKON D2X", 0,
@@ -4713,6 +4724,8 @@ void CLASS adobe_coeff()
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON D70", 0,
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
+    { "NIKON D200", 0,
+	{ 8367,-2248,-763,-8758,16447,2422,-1527,1550,8053 } },
     { "NIKON E995", 0,	/* copied from E5000 */
 	{ -5547,11762,2189,5814,-558,3342,-4924,9840,5949,688,9083,96 } },
     { "NIKON E2500", 0,
@@ -4757,6 +4770,8 @@ void CLASS adobe_coeff()
 	{ 9493,-3415,-666,-5211,12334,3260,-1548,2262,6482 } },
     { "PENTAX *ist DL", 0,
 	{ 10829,-2838,-1115,-8339,15817,2696,-837,680,11939 } },
+    { "PENTAX *ist DS2", 0,
+	{ 10504,-2438,-1189,-8603,16207,2531,-1022,863,12242 } },
     { "PENTAX *ist DS", 0,
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D", 0,
@@ -4769,8 +4784,8 @@ void CLASS adobe_coeff()
 	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
     { "SONY DSC-F828", 491,
 	{ 7924,-1910,-777,-8226,15459,2998,-1517,2199,6818,-7242,11401,3481 } },
-    { "SONY DSC-R1", 512,	/* DJC */
-	{ 10528,-3695,-517,-2822,10699,2124,406,1240,5342 } },
+    { "SONY DSC-R1", 512,
+	{ 8512,-2641,-694,-8042,15670,2526,-1821,2117,7414 } },
     { "SONY DSC-V3", 0,
 	{ 7511,-2571,-692,-7894,15088,3060,-948,1111,8128 } },
   };
@@ -5807,13 +5822,17 @@ void CLASS convert_to_rgb()
   { { 0.593087, 0.404710, 0.002206 },
     { 0.095413, 0.843149, 0.061439 },
     { 0.011621, 0.069091, 0.919288 } };
+  static const double prophoto_rgb[3][3] =
+  { { 0.529317, 0.330092, 0.140588 },
+    { 0.098368, 0.873465, 0.028169 },
+    { 0.016879, 0.117663, 0.865457 } };
   static const double (*out_rgb[])[3] =
-  { adobe_rgb, wgd65_rgb, xyz_rgb };
+  { adobe_rgb, wgd65_rgb, prophoto_rgb, xyz_rgb };
   static const char *name[] =
-  { "sRGB", "Adobe 1998 RGB", "Wide Gamut D65", "XYZ" };
+  { "sRGB", "Adobe 1998 RGB", "Wide Gamut D65", "ProPhoto D65", "XYZ" };
 
   memcpy (out_cam, rgb_cam, sizeof out_cam);
-  raw_color |= colors == 1 || output_color < 1 || output_color > 4;
+  raw_color |= colors == 1 || output_color < 1 || output_color > 5;
   if (!raw_color) {
     if (output_color > 1)
       for (i=0; i < 3; i++)
@@ -6046,7 +6065,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.03"
+    "\nRaw Photo Decoder \"dcraw\" v8.04"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -6062,7 +6081,7 @@ int CLASS main (int argc, char **argv)
     "\n-b <num>  Set brightness      (default = 1.0)"
     "\n-k <num>  Set black point"
     "\n-n        Don't clip colors"
-    "\n-o [0-4]  Output colorspace (raw,sRGB,Adobe,Wide,XYZ)"
+    "\n-o [0-5]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"
 #ifndef NO_LCMS
     "\n-o <file> Apply output ICC profile from file"
     "\n-p <file> Apply camera ICC profile from file or \"embed\""
@@ -6323,7 +6342,7 @@ thumbnail:
       }
     }
     if (verbose)
-      fprintf (stderr, "Writing data to %s...\n", ofname);
+      fprintf (stderr, "Writing data to %s ...\n", ofname);
     (*write_fun)(ofp);
     fclose(ifp);
     if (ofp != stdout) fclose(ofp);
