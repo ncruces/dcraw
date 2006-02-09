@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.314 $
-   $Date: 2006/02/07 06:56:51 $
+   $Revision: 1.315 $
+   $Date: 2006/02/09 05:23:08 $
  */
 
 #define _GNU_SOURCE
@@ -3389,6 +3389,7 @@ void CLASS parse_makernote (int base)
   if (!strncmp (buf,"KC"  ,2) ||	/* these aren't TIFF format */
       !strncmp (buf,"KDK" ,3) ||
       !strncmp (buf,"MLY" ,3) ||
+      !strncmp (buf,"VER" ,3) ||
       !strncmp (buf,"IIII",4) ||
       !strncmp (buf,"MMMM",4)) return;
   if (!strcmp (buf,"Nikon")) {
@@ -3413,6 +3414,7 @@ void CLASS parse_makernote (int base)
   else fseek (ifp, -10, SEEK_CUR);
 
   entries = get2();
+  if (entries > 1000) return;
   while (entries--) {
     tiff_get (base, &tag, &type, &len, &save);
     if (tag == 2 && strstr(make,"NIKON"))
@@ -3983,11 +3985,7 @@ void CLASS parse_tiff (int base)
 	case 32803: load_raw = kodak_65000_load_raw;
       }
   }
-  if (((strstr(make,"Minolta") || strstr(make,"MINOLTA")) && tiff_bps == 8)
-	|| (!strncmp(make,"NIKON",5) && filters == UINT_MAX)
-	|| (!strcmp(make,"SONY") && tiff_bps != 14)
-	|| (!strcmp(make,"Canon") && tiff_bps == 8)
-	|| (tiff_samples == 3 && data_offset == 8))
+  if (tiff_samples == 3 && tiff_bps == 8)
     if (!dng_version) is_raw = 0;
   for (i=0; i < tiff_nifds; i++)
     if (i != raw && tiff_ifd[i].samples == max_samp &&
@@ -6065,7 +6063,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.04"
+    "\nRaw Photo Decoder \"dcraw\" v8.05"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
