@@ -7,8 +7,8 @@
 
    Free for all uses.
 
-   $Revision: 1.2 $
-   $Date: 2006/02/17 05:31:14 $
+   $Revision: 1.3 $
+   $Date: 2006/02/17 17:51:29 $
  */
 
 #include <stdio.h>
@@ -19,8 +19,6 @@
 #include <math.h>
 #include <jpeglib.h>
 #include <tiffio.h>
-
-#define PHOTOMETRIC_CFA 32803		/* missing from tiff.h */
 
 #ifdef MODE1
 #define ROT(x) (x)
@@ -34,7 +32,7 @@ int main (int argc, char **argv)
   static const float cam_xyz[] =
   { 2.005,-0.771,-0.269, -0.752,1.688,0.064, -0.149,0.283,0.745 };
   static const float neutral[] = { 0.807133, 1.0, 0.913289 };
-  long sub_offset=0;
+  long sub_offset=0, white=0x3fff;
   struct jpeg_error_mgr jerr;
   struct jpeg_decompress_struct cinfo;
   float gam;
@@ -118,9 +116,10 @@ int main (int argc, char **argv)
   TIFFSetField (tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
   TIFFSetField (tif, TIFFTAG_CFAREPEATPATTERNDIM, CFARepeatPatternDim);
   TIFFSetField (tif, TIFFTAG_CFAPATTERN, 4, "\001\0\002\001");
-  if (gam != 100)
+  if (gam != 100) {
     TIFFSetField (tif, TIFFTAG_LINEARIZATIONTABLE, 256, curve);
-
+    TIFFSetField (tif, TIFFTAG_WHITELEVEL, 1, &white);
+  }
   for (row=0; row < cinfo.image_height; row += 16) {
     for (r=0; r < 16; )
       r += jpeg_read_scanlines (&cinfo, buf+r, 16-r);
