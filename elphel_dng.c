@@ -7,17 +7,20 @@
 
    Free for all uses.
 
-   $Revision: 1.1 $
-   $Date: 2006/02/13 23:25:39 $
+   $Revision: 1.2 $
+   $Date: 2006/02/17 05:31:14 $
  */
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <math.h>
 #include <jpeglib.h>
 #include <tiffio.h>
+
+#define PHOTOMETRIC_CFA 32803		/* missing from tiff.h */
 
 #ifdef MODE1
 #define ROT(x) (x)
@@ -30,6 +33,8 @@ int main (int argc, char **argv)
   static const short CFARepeatPatternDim[] = { 2,2 };
   static const float cam_xyz[] =
   { 2.005,-0.771,-0.269, -0.752,1.688,0.064, -0.149,0.283,0.745 };
+  static const float neutral[] = { 0.807133, 1.0, 0.913289 };
+  long sub_offset=0;
   struct jpeg_error_mgr jerr;
   struct jpeg_decompress_struct cinfo;
   float gam;
@@ -78,25 +83,41 @@ int main (int argc, char **argv)
 	((j_common_ptr) &cinfo, JPOOL_IMAGE, cinfo.image_width, 17);
   if (!(tif = TIFFOpen (argv[3], "w"))) goto fail;
 
-  TIFFSetField (tif, TIFFTAG_IMAGEWIDTH, cinfo.image_width);
-  TIFFSetField (tif, TIFFTAG_IMAGELENGTH, cinfo.image_height);
-  TIFFSetField (tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
-  TIFFSetField (tif, TIFFTAG_SAMPLESPERPIXEL, 1);
+  TIFFSetField (tif, TIFFTAG_SUBFILETYPE, 1);
+  TIFFSetField (tif, TIFFTAG_IMAGEWIDTH, cinfo.image_width >> 4);
+  TIFFSetField (tif, TIFFTAG_IMAGELENGTH, cinfo.image_height >> 4);
   TIFFSetField (tif, TIFFTAG_BITSPERSAMPLE, 8);
-  TIFFSetField (tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
-  TIFFSetField (tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
   TIFFSetField (tif, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
+  TIFFSetField (tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
   TIFFSetField (tif, TIFFTAG_MAKE, "Elphel");
   TIFFSetField (tif, TIFFTAG_MODEL, "Model 323");
+  TIFFSetField (tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+  TIFFSetField (tif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField (tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
   TIFFSetField (tif, TIFFTAG_SOFTWARE, "elphel_dng");
   TIFFSetField (tif, TIFFTAG_DATETIME, datetime);
-  TIFFSetField (tif, TIFFTAG_CFAREPEATPATTERNDIM, CFARepeatPatternDim);
-  TIFFSetField (tif, TIFFTAG_CFAPATTERN, 4, "\001\0\002\001");
+  TIFFSetField (tif, TIFFTAG_SUBIFD, 1, &sub_offset);
   TIFFSetField (tif, TIFFTAG_DNGVERSION, "\001\001\0\0");
   TIFFSetField (tif, TIFFTAG_DNGBACKWARDVERSION, "\001\0\0\0");
-  TIFFSetField (tif, TIFFTAG_CALIBRATIONILLUMINANT1, 15);
+  TIFFSetField (tif, TIFFTAG_UNIQUECAMERAMODEL, "Elphel Model 323");
   TIFFSetField (tif, TIFFTAG_COLORMATRIX1, 9, cam_xyz);
+  TIFFSetField (tif, TIFFTAG_ASSHOTNEUTRAL, 3, neutral);
+  TIFFSetField (tif, TIFFTAG_CALIBRATIONILLUMINANT1, 21);
   TIFFSetField (tif, TIFFTAG_ORIGINALRAWFILENAME, argv[2]);
+  memset (buf[0], 0, cinfo.image_width);	// all-black thumbnail
+  for (row=0; row < cinfo.image_height >> 4; row++)
+    TIFFWriteScanline (tif, buf[0], row, 0);
+  TIFFWriteDirectory (tif);
+
+  TIFFSetField (tif, TIFFTAG_SUBFILETYPE, 0);
+  TIFFSetField (tif, TIFFTAG_IMAGEWIDTH, cinfo.image_width);
+  TIFFSetField (tif, TIFFTAG_IMAGELENGTH, cinfo.image_height);
+  TIFFSetField (tif, TIFFTAG_BITSPERSAMPLE, 8);
+  TIFFSetField (tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_CFA);
+  TIFFSetField (tif, TIFFTAG_SAMPLESPERPIXEL, 1);
+  TIFFSetField (tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField (tif, TIFFTAG_CFAREPEATPATTERNDIM, CFARepeatPatternDim);
+  TIFFSetField (tif, TIFFTAG_CFAPATTERN, 4, "\001\0\002\001");
   if (gam != 100)
     TIFFSetField (tif, TIFFTAG_LINEARIZATIONTABLE, 256, curve);
 
