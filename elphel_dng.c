@@ -7,8 +7,8 @@
 
    Free for all uses.
 
-   $Revision: 1.3 $
-   $Date: 2006/02/17 17:51:29 $
+   $Revision: 1.4 $
+   $Date: 2006/02/18 22:50:53 $
  */
 
 #include <stdio.h>
@@ -35,13 +35,13 @@ int main (int argc, char **argv)
   long sub_offset=0, white=0x3fff;
   struct jpeg_error_mgr jerr;
   struct jpeg_decompress_struct cinfo;
+  JSAMPARRAY buf;
   float gam;
   int status=1, i, r, c, row, col;
-  unsigned short curve[256];
+  unsigned short curve[256], *out;
   struct stat st;
   struct tm tm;
   char datetime[64];
-  JSAMPARRAY buf;
   FILE *ifp;
   TIFF *tif;
 
@@ -78,8 +78,9 @@ int main (int argc, char **argv)
   cinfo.out_color_space = JCS_GRAYSCALE;
   jpeg_start_decompress (&cinfo);
   buf = (*cinfo.mem->alloc_sarray)
-	((j_common_ptr) &cinfo, JPOOL_IMAGE, cinfo.image_width, 17);
+	((j_common_ptr) &cinfo, JPOOL_IMAGE, cinfo.image_width, 16);
   if (!(tif = TIFFOpen (argv[3], "w"))) goto fail;
+  out = calloc (cinfo.image_width, sizeof *out);
 
   TIFFSetField (tif, TIFFTAG_SUBFILETYPE, 1);
   TIFFSetField (tif, TIFFTAG_IMAGEWIDTH, cinfo.image_width >> 4);
@@ -110,26 +111,26 @@ int main (int argc, char **argv)
   TIFFSetField (tif, TIFFTAG_SUBFILETYPE, 0);
   TIFFSetField (tif, TIFFTAG_IMAGEWIDTH, cinfo.image_width);
   TIFFSetField (tif, TIFFTAG_IMAGELENGTH, cinfo.image_height);
-  TIFFSetField (tif, TIFFTAG_BITSPERSAMPLE, 8);
+  TIFFSetField (tif, TIFFTAG_BITSPERSAMPLE, 16);
   TIFFSetField (tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_CFA);
   TIFFSetField (tif, TIFFTAG_SAMPLESPERPIXEL, 1);
   TIFFSetField (tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
   TIFFSetField (tif, TIFFTAG_CFAREPEATPATTERNDIM, CFARepeatPatternDim);
   TIFFSetField (tif, TIFFTAG_CFAPATTERN, 4, "\001\0\002\001");
-  if (gam != 100) {
-    TIFFSetField (tif, TIFFTAG_LINEARIZATIONTABLE, 256, curve);
-    TIFFSetField (tif, TIFFTAG_WHITELEVEL, 1, &white);
-  }
+  TIFFSetField (tif, TIFFTAG_LINEARIZATIONTABLE, 256, curve);
+  TIFFSetField (tif, TIFFTAG_WHITELEVEL, 1, &white);
+
   for (row=0; row < cinfo.image_height; row += 16) {
     for (r=0; r < 16; )
       r += jpeg_read_scanlines (&cinfo, buf+r, 16-r);
     for (r=0; r < 16; r++) {
       for (col=0; col < cinfo.image_width; col += 16)
 	for (c=0; c < 16; c++)
-	  buf[16][col+c] = buf[ROT(r)][col+ROT(c)];
-      TIFFWriteScanline (tif, buf[16], row+r, 0);
+	  out[col+c] = buf[ROT(r)][col+ROT(c)];
+      TIFFWriteScanline (tif, out, row+r, 0);
     }
   }
+  free (out);
   TIFFClose (tif);
   jpeg_finish_decompress (&cinfo);
   status = 0;
