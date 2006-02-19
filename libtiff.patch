@@ -1,0 +1,47 @@
+--- tiff-3.8.0/libtiff/tif_dirinfo.c	2005-12-29 16:46:38.000000000 -0500
++++ tiff-3.8.0/libtiff/tif_dirinfo.c	2006-02-17 12:48:02.000000000 -0500
+@@ -252,6 +252,10 @@
+       FIELD_CUSTOM,	1,	0,	"MatrixWorldToScreen" },
+     { TIFFTAG_PIXAR_MATRIX_WORLDTOCAMERA,	16,16,	TIFF_FLOAT,
+        FIELD_CUSTOM,	1,	0,	"MatrixWorldToCamera" },
++    { TIFFTAG_CFAREPEATPATTERNDIM, 2, 2, TIFF_SHORT,	FIELD_CUSTOM, 
++      0,	0,	"CFARepeatPatternDim" },
++    { TIFFTAG_CFAPATTERN,	-1, -1,	TIFF_BYTE,	FIELD_CUSTOM, 
++      0,	1,	"CFAPattern" },
+     { TIFFTAG_COPYRIGHT,	-1, -1,	TIFF_ASCII,	FIELD_CUSTOM,
+       1,	0,	"Copyright" },
+ /* end Pixar tags */
+@@ -298,10 +302,10 @@
+       0,	1,	"BlackLevelDeltaH" },
+     { TIFFTAG_BLACKLEVELDELTAV,	-1, -1,	TIFF_SRATIONAL,	FIELD_CUSTOM, 
+       0,	1,	"BlackLevelDeltaV" },
+-    { TIFFTAG_WHITELEVEL,	-2, -2,	TIFF_LONG,	FIELD_CUSTOM, 
+-      0,	0,	"WhiteLevel" },
+-    { TIFFTAG_WHITELEVEL,	-2, -2,	TIFF_SHORT,	FIELD_CUSTOM, 
+-      0,	0,	"WhiteLevel" },
++    { TIFFTAG_WHITELEVEL,	-2, -1,	TIFF_LONG,	FIELD_CUSTOM, 
++      0,	1,	"WhiteLevel" },
++    { TIFFTAG_WHITELEVEL,	-2, -1,	TIFF_SHORT,	FIELD_CUSTOM, 
++      0,	1,	"WhiteLevel" },
+     { TIFFTAG_DEFAULTSCALE,	2, 2,	TIFF_RATIONAL,	FIELD_CUSTOM, 
+       0,	0,	"DefaultScale" },
+     { TIFFTAG_BESTQUALITYSCALE,	1, 1,	TIFF_RATIONAL,	FIELD_CUSTOM, 
+--- tiff-3.8.0/libtiff/tiff.h	2005-12-24 09:13:26.000000000 -0500
++++ tiff-3.8.0/libtiff/tiff.h	2006-02-16 21:18:54.000000000 -0500
+@@ -207,6 +207,7 @@
+ #define	    PHOTOMETRIC_CIELAB		8	/* !1976 CIE L*a*b* */
+ #define	    PHOTOMETRIC_ICCLAB		9	/* ICC L*a*b* [Adobe TIFF Technote 4] */
+ #define	    PHOTOMETRIC_ITULAB		10	/* ITU L*a*b* */
++#define	    PHOTOMETRIC_CFA		32803	/* color filter array */
+ #define     PHOTOMETRIC_LOGL		32844	/* CIE Log2(L) */
+ #define     PHOTOMETRIC_LOGLUV		32845	/* CIE Log2(L) (u',v') */
+ #define	TIFFTAG_THRESHHOLDING		263	/* +thresholding used on data */
+@@ -383,6 +384,8 @@
+ #define TIFFTAG_PIXAR_MATRIX_WORLDTOCAMERA 33306
+ /* tag 33405 is a private tag registered to Eastman Kodak */
+ #define TIFFTAG_WRITERSERIALNUMBER      33405   /* device serial number */
++#define TIFFTAG_CFAREPEATPATTERNDIM	33421	/* dimensions of CFA pattern */
++#define TIFFTAG_CFAPATTERN		33422	/* color filter array pattern */
+ /* tag 33432 is listed in the 6.0 spec w/ unknown ownership */
+ #define	TIFFTAG_COPYRIGHT		33432	/* copyright string */
+ /* IPTC TAG from RichTIFF specifications */
