@@ -1,52 +1,29 @@
 /*
    fuji_green -- read Fuji green pixels
 
-   $Revision: 1.1 $
-   $Date: 2005/01/19 22:27:43 $
+   $Revision: 1.2 $
+   $Date: 2006/03/01 01:46:47 $
  */
 
-#define _GNU_SOURCE
 #include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <float.h>
-#include <limits.h>
 #include <math.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-
-#ifdef WIN32
-#include <winsock2.h>
-#pragma comment(lib, "ws2_32.lib")
-#define strcasecmp stricmp
-typedef __int64 INT64;
-#else
-#include <unistd.h>
-#include <netinet/in.h>
-typedef long long INT64;
-#endif
 
 #define ushort UshORt
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
-/*
-   All global variables are defined here, and all functions that
-   access them are prefixed with "CLASS".  Note that a thread-safe
-   C++ class cannot have non-const static local variables.
- */
 FILE *ifp;
 short order;
 char *ifname, make[64], model[64];
-int data_offset;
-int height, width, trim;
+int data_offset, raw_height, raw_width, height, width;
+int fuji_layout, fuji_secondary, use_secondary=0, verbose=0;
 ushort *image;
 void (*load_raw)();
 float bright=1.0;
-int verbose=0;
 void write_ppm(FILE *);
 void (*write_fun)(FILE *) = write_ppm;
 jmp_buf failure;
@@ -60,33 +37,26 @@ void CLASS merror (void *ptr, char *where)
   longjmp (failure, 1);
 }
 
-/*
-   Get a 2-byte integer, making no assumptions about CPU byte order.
-   Nor should we assume that the compiler evaluates left-to-right.
- */
-ushort CLASS fget2 (FILE *f)
+ushort CLASS get2()
 {
   uchar a, b;
 
-  a = fgetc(f);
-  b = fgetc(f);
+  a = fgetc(ifp);
+  b = fgetc(ifp);
   if (order == 0x4949)		/* "II" means little-endian */
     return a + (b << 8);
   else				/* "MM" means big-endian */
     return (a << 8) + b;
 }
 
-/*
-   Same for a 4-byte integer.
- */
-int CLASS fget4 (FILE *f)
+int CLASS get4()
 {
   uchar a, b, c, d;
 
-  a = fgetc(f);
-  b = fgetc(f);
-  c = fgetc(f);
-  d = fgetc(f);
+  a = fgetc(ifp);
+  b = fgetc(ifp);
+  c = fgetc(ifp);
+  d = fgetc(ifp);
   if (order == 0x4949)
     return a + (b << 8) + (c << 16) + (d << 24);
   else
@@ -94,7 +64,7 @@ int CLASS fget4 (FILE *f)
 }
 
 /*
-   Faster than calling fget2() multiple times.
+   Faster than calling get2() multiple times.
  */
 void CLASS read_shorts (ushort *pixel, int count)
 {
@@ -103,68 +73,68 @@ void CLASS read_shorts (ushort *pixel, int count)
     swab (pixel, pixel, count*2);
 }
 
-void CLASS fuji_s2_load_raw()
-{
-  ushort pixel[2944];
-  int row, col;
-
-  fseek (ifp, (2944*24+32)*2, SEEK_CUR);
-  for (col=width; col--; ) {
-    read_shorts (pixel, 2944);
-    for (row=0; row < height; row++)
-      image[row*width+col] = pixel[row*2+1];
-  }
-}
-
-void CLASS fuji_s3_load_raw()
-{
-  ushort pixel[4352];
-  int row, col;
-
-  for (row=0; row < height; row++) {
-    read_shorts (pixel, width*2);
-    for (col=0; col < width; col++)
-      image[row*width+col] = pixel[col*2+1];
-  }
-}
-
 void CLASS fuji_load_raw()
 {
-  ushort pixel[2944];
+  ushort *pixel, *img;
   int row, col;
 
-  for (row=0; row < height; row++) {
-    read_shorts (pixel, width);
-    read_shorts (pixel, width);
-    for (col=0; col < width; col++) {
-      image[row*width+col] = pixel[col];
+  pixel = calloc (raw_width, 2);
+  merror (pixel, "fuji_load_raw()");
+  for (row=0; row < height; row++)
+    if (fuji_layout) {
+      read_shorts (image+row*width, width);
+      fseek (ifp, (raw_width*2 - width)*2, SEEK_CUR);
+    } else {
+      read_shorts (pixel, raw_width);
+      for (img=image+row*width, col=0; col < width; col++)
+	img[col] = pixel[col*2+1];
     }
+  free (pixel);
+}
+
+void CLASS parse_fuji (int offset)
+{
+  unsigned entries, tag, len, save;
+
+  fseek (ifp, offset, SEEK_SET);
+  entries = get4();
+  if (entries > 255) return;
+  while (entries--) {
+    tag = get2();
+    len = get2();
+    save = ftell(ifp);
+    if (tag == 0x100) {
+      raw_height = get2();
+      raw_width  = get2();
+    } else if (tag == 0x121) {
+      height = get2();
+      width  = get2();
+    } else if (tag == 0x130)
+      fuji_layout = fgetc(ifp) >> 7;
+    fseek (ifp, save+len, SEEK_SET);
+  }
+  if (fuji_layout) {
+    height *= 2;
+    width  /= 2;
   }
 }
 
-/*
-   Parse a TIFF file looking for camera model and decompress offsets.
- */
 void CLASS parse_tiff (int base)
 {
-  int doff, entries, tag, type, len, val, save;
+  int doff, entries, tag, type, len, save;
 
   fseek (ifp, base, SEEK_SET);
-  order = fget2(ifp);
-  val = fget2(ifp);		/* Should be 42 for standard TIFF */
-  while ((doff = fget4(ifp))) {
+  order = get2();
+  get2();				/* Should be 42 for standard TIFF */
+  while ((doff = get4())) {
     fseek (ifp, doff+base, SEEK_SET);
-    entries = fget2(ifp);
+    entries = get2();
     while (entries--) {
-      tag  = fget2(ifp);
-      type = fget2(ifp);
-      len  = fget4(ifp);
-      if (type == 3 && len < 3) {
-	val = fget2(ifp);  fget2(ifp);
-      } else
-	val = fget4(ifp);
-      save = ftell(ifp);
-      fseek (ifp, base+val, SEEK_SET);
+      tag  = get2();
+      type = get2();
+      len  = get4();
+      save = ftell(ifp)+4;
+      fseek (ifp, base+get4(), SEEK_SET);
       switch (tag) {
 	case 0x10f:			/* Make tag */
 	  fgets (make, 64, ifp);
@@ -177,94 +147,61 @@ void CLASS parse_tiff (int base)
   }
 }
 
-int fgetint (int offset)
-{
-  fseek (ifp, offset, SEEK_SET);
-  fread (&offset, 4, 1, ifp);
-  return ntohl(offset);
-}
-
-/*
-   Identify which camera created this file, and set global variables
-   accordingly.  Return nonzero if the file cannot be decoded.
- */
 int CLASS identify()
 {
   char head[32], *c;
-  unsigned i;
-
-/*  What format is this file?  Set make[] if we recognize it. */
+  int thumb_offset;
 
   make[0] = model[0] = 0;
-  data_offset = 0;
+  data_offset = raw_height = raw_width = height = width = 0;
+  fuji_secondary = 0;
 
+  order = 0x4d4d;
   fread (head, 1, 32, ifp);
-  if (!memcmp (head, "FUJIFILM", 8)) {
-    parse_tiff (fgetint(84)+12);
-    data_offset = fgetint(100);
+  if (memcmp (head, "FUJIFILM", 8)) return 1;
+  fseek (ifp, 84, SEEK_SET);
+  thumb_offset = get4();
+  fseek (ifp, 92, SEEK_SET);
+  parse_fuji (get4());
+  if (thumb_offset > 120) {
+    fseek (ifp, 120, SEEK_SET);
+    fuji_secondary = get4() && 1;
   }
-  c = make + strlen(make);		/* Remove trailing spaces */
+  fseek (ifp, 100, SEEK_SET);
+  data_offset = get4();
+  parse_tiff (thumb_offset+12);
+  c = model + strlen(model);		/* Remove trailing spaces */
   while (*--c == ' ') *c = 0;
-  c = model + strlen(model);
-  while (*--c == ' ') *c = 0;
-  i = strlen(make);			/* Remove make from model */
-  if (!strncmp (model, make, i++))
-    memmove (model, model+i, 64-i);
-
-  if (make[0] == 0) {
-    fprintf (stderr, "%s: unsupported file format.\n", ifname);
-    return 1;
-  }
-
-/*  File format is OK.  Do we support this camera? */
-/*  Start with some useful defaults:		   */
-  height = width = 0;
+  if (!strcmp(model,"FinePix S5100") ||
+      !strcmp(model,"FinePix S5500")) return 1;
   load_raw = fuji_load_raw;
-
-  if (!strcmp(model,"FinePixS2Pro")) {
-    height = 2880;
-    width = 2144;
-    load_raw = fuji_s2_load_raw;
-  } else if (!strcmp(model,"FinePix S3Pro")) {
-    fseek (ifp, 0, SEEK_END);
-    height = (ftell(ifp) - data_offset) / 4352;
-    width  = 4352/2;
-    load_raw = fuji_s3_load_raw;
-  } else if (!strcmp(model,"FinePix S5000")) {
-    height = 2156;
-    width  = 1472;
-  } else if (!strcmp(model,"FinePix S7000") ||
-	     !strcmp(model,"FinePix E550") ||
-	     !strcmp(model,"FinePix F810")) {
-    height = 3080;
-    width  = 2048;
-  } else if (!strcmp(model,"FinePix F700") ||
-	     !strcmp(model,"FinePix S20Pro")) {
-    height = 2168;
-    width  = 2944;
+  if (!strcmp(model+7,"S2Pro")) {
+    strcpy (model+7," S2Pro");
+    height = 2144;
+    width  = 2880;
   }
-  if (!height) {
-    fprintf (stderr, "%s: %s %s is not supported.\n",
-	ifname, make, model);
-    return 1;
-  }
-  height /= 2;
+  data_offset += (raw_height - height + 1)*raw_width - width;
+  if (fuji_secondary)
+    data_offset += use_secondary * ( strcmp(model+7," S3Pro")
+		? (raw_width *= 2) : raw_height*raw_width*2 );
+  data_offset += fuji_layout*raw_width*2;
+  width >>= !fuji_layout;
+  height >>= fuji_layout;
   fseek (ifp, data_offset, SEEK_SET);
   return 0;
 }
 
 void CLASS write_ppm (FILE *ofp)
 {
-  int row, col, i, val, total, histogram[0x2000];
+  int i, size, val, total, histogram[0x2000];
   float white, r;
   uchar lut[0x10000];
 
-/*  Set the white point to the 99th percentile  */
   memset (histogram, 0, sizeof histogram);
-  for (row = trim; row < height-trim; row++)
-    for (col = trim; col < width-trim; col++)
-      histogram[image[row*width+col] >> 4]++;
-  i = width * height * 0.01;
+  size = width * height;
+  for (i = 0; i < size; i++)
+    histogram[image[i] >> 4]++;
+  i = size * 0.01;			/* 99th percentile white point */
   for (val=0x2000, total=0; --val; )
     if ((total += histogram[val]) > i) break;
   white = (val << 4) / bright;
@@ -275,11 +212,22 @@ void CLASS write_ppm (FILE *ofp)
     if (val > 255) val = 255;
     lut[i] = val;
   }
-  fprintf (ofp, "P5\n%d %d\n255\n",
-	width-trim*2, height-trim*2);
-  for (row=trim; row < height-trim; row++)
-    for (col=trim; col < width-trim; col++)
-      fputc (lut[image[row*width+col]], ofp);
+  fprintf (ofp, "P5\n%d %d\n255\n", width, height);
+  for (i=0; i < size; i++)
+    fputc (lut[image[i]], ofp);
+}
+
+void CLASS write_raw16 (FILE *ofp)
+{
+  if (ntohs(0x1234) != 0x1234)
+    swab (image, image, width*height*2);
+  fwrite (image, width*height, 2, ofp);
+}
+
+void CLASS write_ppm16 (FILE *ofp)
+{
+  fprintf (ofp, "P5\n%d %d\n%d\n", width, height, 65535);
+  write_raw16 (ofp);
 }
 
 void CLASS write_psd (FILE *ofp)
@@ -295,49 +243,14 @@ void CLASS write_psd (FILE *ofp)
     0,0,0,0,			/* color mode data */
     0,0,0,0,			/* image resources */
     0,0,0,0,			/* layer/mask info */
-    0,0				/* no compression */
-  };
-  int hw[2], psize, row, col, val;
-  ushort *buffer, *pred;
+    0,0 };			/* no compression */
+  int hw[2];
 
-  hw[0] = htonl(height-trim*2);	/* write the header */
-  hw[1] = htonl(width-trim*2);
+  hw[0] = htonl(height*2);	/* write the header */
+  hw[1] = htonl(width*2);
   memcpy (head+14, hw, sizeof hw);
   fwrite (head, 40, 1, ofp);
-
-  psize = (height-trim*2) * (width-trim*2);
-  buffer = calloc (2, psize);
-  merror (buffer, "write_psd()");
-  pred = buffer;
-
-  for (row = trim; row < height-trim; row++) {
-    for (col = trim; col < width-trim; col++) {
-      val = image[row*width+col] * bright;
-      if (val > 0xffff)
-	  val = 0xffff;
-      *pred++ = htons(val);
-    }
-  }
-  fwrite (buffer, psize, 2, ofp);
-  free (buffer);
-}
-
-void CLASS write_ppm16 (FILE *ofp)
-{
-  int row, col, val;
-
-  fprintf (ofp, "P5\n%d %d\n%d\n",
-	width-trim*2, height-trim*2, 65535);
-
-  for (row = trim; row < height-trim; row++) {
-    for (col = trim; col < width-trim; col++) {
-      val = image[row*width+col] * bright;
-      if (val > 0xffff)
-	  val = 0xffff;
-      fputc (val >> 8, ofp);
-      fputc (val & 255, ofp);
-    }
-  }
+  write_raw16 (ofp);
 }
 
 int CLASS main (int argc, char **argv)
@@ -354,13 +267,14 @@ int CLASS main (int argc, char **argv)
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
-    "\n-i        Identify files but don't decode them"
-    "\n-c        Write to standard output"
-    "\n-v        Print verbose messages while decoding"
-    "\n-b <num>  Set brightness (1.0 by default)"
-    "\n-2        Write  8-bit PGM (default)"
-    "\n-3        Write 16-bit PSD (Adobe Photoshop)"
-    "\n-4        Write 16-bit PGM"
+    "\n-v        Print verbose messages"
+    "\n-c        Write image data to standard output"
+    "\n-i        Identify files without decoding them"
+    "\n-s        Use secondary pixels if available"
+    "\n-b <num>  Set brightness (default = 1.0)"
+    "\n-2        Write  8-bit non-linear PGM (default)"
+    "\n-4        Write 16-bit linear PGM"
+    "\n-3        Write 16-bit linear PSD (Adobe Photoshop)"
     "\n\n", argv[0]);
     return 1;
   }
@@ -372,16 +286,14 @@ int CLASS main (int argc, char **argv)
       return 1;
     }
     switch (opt) {
-      case 'b':  bright      = atof(argv[arg++]);  break;
-
+      case 'v':  verbose           = 1;  break;
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
-      case 'v':  verbose           = 1;  break;
-
-      case '2':  write_fun = write_ppm;   write_ext = ".pgm";  break;
-      case '3':  write_fun = write_psd;   write_ext = ".psd";  break;
-      case '4':  write_fun = write_ppm16; write_ext = ".pgm";  break;
-
+      case 's':  use_secondary     = 1;  break;
+      case 'b':  bright = atof(argv[arg++]);  break;
+      case '2':  write_fun = write_ppm;    break;
+      case '4':  write_fun = write_ppm16;  break;
+      case '3':  write_fun = write_psd;  write_ext = ".psd";  break;
       default:
 	fprintf (stderr, "Unknown option \"-%c\".\n", opt);
 	return 1;
@@ -419,6 +331,7 @@ int CLASS main (int argc, char **argv)
       continue;
     }
     if ((status = identify())) {
+      fprintf (stderr, "%s: unsupported file format.\n", ifname);
       fclose (ifp);
       continue;
     }
@@ -434,7 +347,6 @@ int CLASS main (int argc, char **argv)
 	"Loading %s %s image from %s...\n", make, model, ifname);
     (*load_raw)();
     fclose (ifp);
-    trim = 0;
     ofname = malloc (strlen(ifname) + 16);
     merror (ofname, "main()");
     if (write_to_stdout)
