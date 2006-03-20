@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.315 $
-   $Date: 2006/02/09 05:23:08 $
+   $Revision: 1.316 $
+   $Date: 2006/03/20 21:50:28 $
  */
 
 #define _GNU_SOURCE
@@ -1192,6 +1192,65 @@ void CLASS rollei_load_raw()
   maximum = 0x3ff;
 }
 
+int CLASS bayer (unsigned row, unsigned col)
+{
+  return (row < height && col < width) ? BAYER(row,col) : 0;
+}
+
+void CLASS phase_one_correct()
+{
+  unsigned entries, tag, data, save, col, row, type;
+  int len, i, j, val[4], dev[4], sum, max;
+  static const signed char dir[12][2] =
+    { {-1,-1}, {-1,1}, {1,-1}, {1,1}, {-2,0}, {0,-2}, {0,2}, {2,0},
+      {-2,-2}, {-2,2}, {2,-2}, {2,2} };
+
+  if (!meta_length) return;
+  fseek (ifp, meta_offset, SEEK_SET);
+  order = get2();
+  fseek (ifp, 6, SEEK_CUR);
+  fseek (ifp, meta_offset+get4(), SEEK_SET);
+  entries = get4();  get4();
+  while (entries--) {
+    tag  = get4();
+    len  = get4();
+    data = get4();
+    save = ftell(ifp);
+    fseek (ifp, meta_offset+data, SEEK_SET);
+    if (tag == 0x400)				/* Sensor defects */
+      while ((len -= 8) >= 0) {
+	col  = get2() - left_margin;
+	row  = get2() - top_margin;
+	type = get2(); get2();
+	if (col >= width) continue;
+	if (type == 131)			/* Bad column */
+	  for (row=0; row < height; row++)
+	    if (FC(row,col) == 1) {
+	      for (sum=i=0; i < 4; i++)
+		sum += val[i] = bayer (row+dir[i][0], col+dir[i][1]);
+	      for (max=i=0; i < 4; i++) {
+		dev[i] = abs((val[i] << 2) - sum);
+		if (dev[max] < dev[i]) max = i;
+	      }
+	      BAYER(row,col) = (sum - val[max])/3.0 + 0.5;
+	    } else {
+	      for (sum=0, i=8; i < 12; i++)
+		sum += bayer (row+dir[i][0], col+dir[i][1]);
+	      BAYER(row,col) = 0.5 + sum * 0.0732233 +
+		(bayer(row,col-2) + bayer(row,col+2)) * 0.3535534;
+	    }
+	else if (type == 129) {			/* Bad pixel */
+	  if (row >= height) continue;
+	  j = (FC(row,col) != 1) * 4;
+	  for (sum=0, i=j; i < j+8; i++)
+	    sum += bayer (row+dir[i][0], col+dir[i][1]);
+	  BAYER(row,col) = (sum + 4) >> 3;
+	}
+      }
+    fseek (ifp, save, SEEK_SET);
+  }
+}
+
 void CLASS phase_one_load_raw()
 {
   int row, col, a, b;
@@ -1217,6 +1276,7 @@ void CLASS phase_one_load_raw()
   }
   free (pixel);
   maximum = 0xffff;
+  phase_one_correct();
 }
 
 unsigned CLASS ph1_bits (int nbits)
@@ -1269,6 +1329,7 @@ void CLASS phase_one_load_raw_c()
   }
   free (pixel);
   maximum = 0x3fff;
+  phase_one_correct();
 }
 
 void CLASS leaf_load_raw()
@@ -1320,8 +1381,10 @@ void CLASS olympus_e300_load_raw()
 {
   uchar  *data,  *dp;
   ushort *pixel, *pix;
-  int dwide, row, col;
+  int dwide, row, col, bls=width, ble=raw_width;
 
+  if (raw_width == 3360) bls += 4;
+  if (raw_width == 3280) ble = bls + 8;
   dwide = raw_width * 16 / 10;
   data = malloc (dwide + raw_width*2);
   merror (data, "olympus_e300_load_raw()");
@@ -1335,10 +1398,10 @@ void CLASS olympus_e300_load_raw()
     }
     for (col=0; col < width; col++)
       BAYER(row,col) = (pixel[col] & 0xfff);
-    for (col=width+4; col < raw_width; col++)
+    for (col=bls; col < ble; col++)
       black += pixel[col] & 0xfff;
   }
-  black /= (raw_width - width - 4) * height;
+  if (ble > bls) black /= (ble - bls) * height;
   free (data);
 }
 
@@ -2089,6 +2152,9 @@ void CLASS foveon_load_raw()
       FORC3 image[row*width+col][c] = pred[c];
     }
   }
+  if (document_mode)
+    for (i=0; i < height*width*4; i++)
+      if ((short) image[0][i] < 0) image[0][i] = 0;
   foveon_load_camf();
   clip_max = 0xffff;
 }
@@ -3779,6 +3845,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	parse_exif (base);
 	break;
       case 34675:			/* InterColorProfile */
+      case 50831:			/* AsShotICCProfile */
 	profile_offset = ftell(ifp);
 	profile_length = len;
 	break;
@@ -3866,7 +3933,7 @@ guess_cfa_pc:
 	FORCC ab[c] = getrat();
 	break;
       case 50728:			/* AsShotNeutral */
-	FORCC asn[c] = getrat();
+	FORCC asn[c] = type == 3 ? get2() : getrat();
 	break;
       case 50729:			/* AsShotWhiteXY */
 	xyz[0] = getrat();
@@ -4319,6 +4386,8 @@ void CLASS parse_phase_one (int base)
       case 0x10d:  height        = data;	break;
       case 0x10e:  tiff_compress = data;	break;
       case 0x10f:  data_offset   = data+base;	break;
+      case 0x110:  meta_offset   = data+base;
+		   meta_length   = len;		break;
       case 0x112:  curve_offset  = save - 4;	break;
       case 0x21c:  strip_offset  = data+base;	break;
       case 0x301:
@@ -5520,6 +5589,9 @@ konica_400z:
       maximum = 0xfff;
       load_raw = olympus_e300_load_raw;
     }
+  } else if (!strcmp(model,"E-330")) {
+    width -= 30;
+    load_raw = olympus_e300_load_raw;
   } else if (!strcmp(model,"C770UZ")) {
     height = 1718;
     width  = 2304;
@@ -5851,7 +5923,7 @@ void CLASS convert_to_rgb()
   for (row=0; row < height; row++)
     for (col=0; col < width; col++) {
       img = image[row*width+col];
-      if (document_mode)
+      if (document_mode && filters)
 	img[0] = img[FC(row,col)];
       else if (mix_green)
 	img[1] = (img[1] + img[3]) >> 1;
@@ -5863,7 +5935,7 @@ void CLASS convert_to_rgb()
       FORCC histogram[c][img[c] >> 3]++;
     }
   if (colors == 4 && (output_color || mix_green)) colors = 3;
-  if (document_mode) colors = 1;
+  if (document_mode && filters) colors = 1;
 }
 
 void CLASS fuji_rotate()
@@ -6063,7 +6135,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.05"
+    "\nRaw Photo Decoder \"dcraw\" v8.06"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -6085,6 +6157,7 @@ int CLASS main (int argc, char **argv)
     "\n-p <file> Apply camera ICC profile from file or \"embed\""
 #endif
     "\n-d        Document Mode (no color, no interpolation)"
+    "\n-D        Document Mode without scaling (totally raw)"
     "\n-q [0-3]  Set the interpolation quality"
     "\n-h        Half-size color image (twice as fast as \"-q 0\")"
     "\n-f        Interpolate RGGB as four colors"
@@ -6134,6 +6207,7 @@ int CLASS main (int argc, char **argv)
       case 'h':  half_size         = 1;		/* "-h" implies "-f" */
       case 'f':  four_color_rgb    = 1;  break;
       case 'd':  document_mode     = 1;  break;
+      case 'D':  document_mode     = 2;  break;
       case 'a':  use_auto_wb       = 1;  break;
       case 'w':  use_camera_wb     = 1;  break;
       case 'j':  use_fuji_rotate   = 0;  break;
@@ -6297,8 +6371,8 @@ next:
     quality = 2 + !fuji_width;
     if (user_qual >= 0) quality = user_qual;
     if (user_black >= 0) black = user_black;
-    if (is_foveon) foveon_interpolate();
-    else scale_colors();
+    if (is_foveon && !document_mode) foveon_interpolate();
+    if (!is_foveon && document_mode < 2) scale_colors();
     if (shrink) filters = 0;
     cam_to_cielab (NULL,NULL);
     if (filters && !document_mode) {
