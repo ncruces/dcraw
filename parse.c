@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.56 $
-   $Date: 2006/01/21 04:43:57 $
+   $Revision: 1.57 $
+   $Date: 2006/03/20 22:45:17 $
  */
 
 #include <stdio.h>
@@ -772,6 +772,7 @@ void parse_fuji (int offset)
 void parse_phase_one (int base)
 {
   unsigned entries, tag, type, len, data, save;
+  unsigned meta=0, wide=0, high=0, i, j;
   char str[256];
 
   fseek (ifp, base, SEEK_SET);
@@ -788,6 +789,7 @@ void parse_phase_one (int base)
     save = ftell(ifp);
     printf ("Phase One tag=0x%x, type=%d, len=%2d, data = 0x%x\n",
 		tag, type, len, data);
+    if (tag == 0x110) meta = base+data;
     if (len > 4)
       fseek (ifp, base+data, SEEK_SET);
     if (type == 1 && len < 256) {
@@ -803,6 +805,57 @@ void parse_phase_one (int base)
   }
   strcpy (make, "Phase One");
   strcpy (model, "unknown");
+  if (!meta) return;
+  fseek (ifp, meta, SEEK_SET);
+  order = get2();
+  fseek (ifp, 6, SEEK_CUR);
+  fseek (ifp, meta+get4(), SEEK_SET);
+  entries = get4();
+  get4();
+  while (entries--) {
+    tag  = get4();
+    len  = get4();
+    data = get4();
+    save = ftell(ifp);
+    printf ("Phase One meta tag=0x%x, len=%2d, offset = 0x%x, data = ",
+		tag, len, data);
+    if (tag >> 2 != 0x101) putchar ('\n');
+    if (len) {
+      fseek (ifp, meta+data, SEEK_SET);
+      if (tag >> 2 == 0x101 && len < 256) {
+	fread (str, 256, 1, ifp);
+	puts (str);
+      } else if (tag == 0x400) {
+	for (i=0; i < len; i+=2)
+	  printf ("%5u%c", get2(), (i & 6) == 6 || i == len-2 ? '\n':' ');
+      } else if (tag == 0x401) {
+	for (i=0; i < 16; i+=2)
+	  printf ("%6u%c", get2(), (i & 14) == 14 || i == len-2 ? '\n':' ');
+	for (; i < len; i+=4)
+	  printf ("%9.6f%c", int_to_float(get4()),
+		(i & 28) == 12 || i == len-4 ? '\n':' ');
+      } else if (tag == 0x412) {
+	for (i=0; i < 38; i+=2) {
+	  printf ("%6u", j=get2());
+	  if (i ==  4) wide = j;
+	  if (i == 12) high = j*2;
+	}
+	putchar ('\n');
+	for (i=0; i < wide*high; i++)
+	  printf ("%9.6f%c", int_to_float(get4()),
+			i % wide == wide-1 ? '\n':' ');
+	for (i=0; i < wide*high; i++)
+	  printf ("%5u%c", get2(), i % wide == wide-1 ? '\n':' ');
+      } else if (tag == 0x40b || tag == 0x410 || tag == 0x416)
+	for (i=0; i < len; i+=2)
+	  printf ("%6u%c", get2(), (i & 14) == 14 || i == len-2 ? '\n':' ');
+      else
+	for (i=0; i < len; i++)
+	  printf ("%02X%c", fgetc(ifp),
+		(i & 15) == 15 || i == len-1 ? '\n':' ');
+    }
+    fseek (ifp, save, SEEK_SET);
+  }
 }
 
 char *memmem (char *haystack, size_t haystacklen,
