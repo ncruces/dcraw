@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.316 $
-   $Date: 2006/03/20 21:50:28 $
+   $Revision: 1.317 $
+   $Date: 2006/03/21 02:28:23 $
  */
 
 #define _GNU_SOURCE
@@ -6065,10 +6065,10 @@ void CLASS write_ppm16 (FILE *ofp)
   if (colors > 3)
     fprintf (ofp,
       "P7\nWIDTH %d\nHEIGHT %d\nDEPTH %d\nMAXVAL %d\nTUPLTYPE %s\nENDHDR\n",
-	xmag*width, ymag*height, colors, maximum, cdesc);
+	width, height, colors, maximum, cdesc);
   else
     fprintf (ofp, "P%d\n%d %d\n%d\n",
-	colors/2+5, xmag*width, ymag*height, maximum);
+	colors/2+5, width, height, maximum);
 
   for (row=0; row < height; row++) {
     for (col=0; col < width; col++)
@@ -6135,7 +6135,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.06"
+    "\nRaw Photo Decoder \"dcraw\" v8.07"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
