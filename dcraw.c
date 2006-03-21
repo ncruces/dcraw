@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.317 $
-   $Date: 2006/03/21 02:28:23 $
+   $Revision: 1.318 $
+   $Date: 2006/03/21 20:47:06 $
  */
 
 #define _GNU_SOURCE
@@ -239,18 +239,33 @@ int CLASS getint (int type)
   return type == 3 ? get2() : get4();
 }
 
-double CLASS getrat()
-{
-  double num = get4();
-  return num / get4();
-}
-
 float CLASS int_to_float (int i)
 {
   union { int i; float f; } u;
   u.i = i;
   return u.f;
 }
+
+double CLASS getreal (int type)
+{
+  double num;
+  switch (type) {
+    case 3: return (unsigned short) get2();
+    case 4: return (unsigned int) get4();
+    case 5:  num = (unsigned int) get4();
+      return num / (unsigned int) get4();
+    case 8: return (signed short) get2();
+    case 9: return (signed int) get4();
+    case 10: num = (signed int) get4();
+      return num / (signed int) get4();
+    case 11: return int_to_float (get4());
+    case 12:
+      fprintf (stderr, "%s: TIFF doubles not supported!\n", ifname);
+      longjmp (failure, 4);
+    default: return fgetc(ifp);
+  }
+}
+#define getrat() getreal(10)
 
 void CLASS read_shorts (ushort *pixel, int count)
 {
@@ -3906,11 +3921,11 @@ guess_cfa_pc:
       case 50715:			/* BlackLevelDeltaH */
       case 50716:			/* BlackLevelDeltaV */
 	for (dblack=i=0; i < len; i++)
-	  dblack += getrat();
+	  dblack += getreal(type);
 	black += dblack/len + 0.5;
 	break;
       case 50717:			/* WhiteLevel */
-	maximum = get2();
+	maximum = getint(type);
 	break;
       case 50718:			/* DefaultScale */
 	i  = get4();
@@ -3933,7 +3948,7 @@ guess_cfa_pc:
 	FORCC ab[c] = getrat();
 	break;
       case 50728:			/* AsShotNeutral */
-	FORCC asn[c] = type == 3 ? get2() : getrat();
+	FORCC asn[c] = getreal(type);
 	break;
       case 50729:			/* AsShotWhiteXY */
 	xyz[0] = getrat();
@@ -3949,10 +3964,10 @@ guess_cfa_pc:
 	read_shorts (cr2_slice, 3);
 	break;
       case 50829:			/* ActiveArea */
-	top_margin = get4();
-	left_margin = get4();
-	height = get4() - top_margin;
-	width = get4() - left_margin;
+	top_margin = getint(type);
+	left_margin = getint(type);
+	height = getint(type) - top_margin;
+	width = getint(type) - left_margin;
 	break;
       case 64772:			/* Kodak P-series */
 	fseek (ifp, 16, SEEK_CUR);
@@ -6135,7 +6150,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.07"
+    "\nRaw Photo Decoder \"dcraw\" v8.08"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
