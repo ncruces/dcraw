@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.318 $
-   $Date: 2006/03/21 20:47:06 $
+   $Revision: 1.319 $
+   $Date: 2006/03/24 07:03:04 $
  */
 
 #define _GNU_SOURCE
@@ -2750,7 +2750,7 @@ void CLASS bad_pixels()
   fclose (fp);
 }
 
-void CLASS pseudoinverse (const double (*in)[3], double (*out)[3], int size)
+void CLASS pseudoinverse (double (*in)[3], double (*out)[3], int size)
 {
   double work[3][6], num;
   int i, j, k;
@@ -2796,7 +2796,7 @@ void CLASS cam_xyz_coeff (double cam_xyz[4][3])
       cam_rgb[i][j] /= num;
     pre_mul[i] = 1 / num;
   }
-  pseudoinverse ((const double (*)[3]) cam_rgb, inverse, colors);
+  pseudoinverse (cam_rgb, inverse, colors);
   for (raw_color = i=0; i < 3; i++)
     for (j=0; j < colors; j++)
       rgb_cam[i][j] = inverse[j][i];
@@ -2834,34 +2834,34 @@ void CLASS colorcheck()
     { 255, 252, 1452, 1182 },
     { 257, 253, 1760, 1180 } };
 // ColorChecker Chart under 6500-kelvin illumination
-  static const double gmb_xyz[NSQ][3] = {
-    { 11.078,  9.870,  6.738 },		// Dark Skin
-    { 37.471, 35.004, 26.057 },		// Light Skin
-    { 18.187, 19.306, 35.425 },		// Blue Sky
-    { 10.825, 13.827,  7.600 },		// Foliage
-    { 24.769, 23.304, 43.943 },		// Blue Flower
-    { 31.174, 42.684, 45.277 },		// Bluish Green
-    { 36.238, 29.188,  6.222 },		// Orange
-    { 13.661, 11.845, 38.929 },		// Purplish Blue
-    { 27.999, 19.272, 14.265 },		// Moderate Red
-    {  8.398,  6.309, 14.211 },		// Purple
-    { 33.692, 44.346, 11.288 },		// Yellow Green
-    { 45.000, 42.144,  8.429 },		// Orange Yellow
-    {  8.721,  6.130, 31.181 },		// Blue
-    { 14.743, 24.049,  9.778 },		// Green
-    { 19.777, 11.530,  5.101 },		// Red
-    { 55.978, 59.599, 10.047 },		// Yellow
-    { 29.421, 19.271, 31.167 },		// Magenta
-    { 13.972, 18.952, 37.646 },		// Cyan
-    { 82.819, 87.727, 94.479 },		// White
-    { 55.950, 58.959, 64.375 },		// Neutral 8
-    { 32.877, 34.536, 38.097 },		// Neutral 6.5
-    { 18.556, 19.701, 21.487 },		// Neutral 5
-    {  8.353,  8.849,  9.812 },		// Neutral 3.5
-    {  2.841,  2.980,  3.332 } };	// Black
-  double inverse[NSQ][3], gmb_cam[NSQ][4], cam_xyz[4][3];
-  double num, error, minerr=DBL_MAX, best[4][3];
-  int b, c, i, j, k, sq, row, col, count[4];
+  static const double gmb_xyY[NSQ][3] = {
+    { 0.400, 0.350, 10.1 },		// Dark Skin
+    { 0.377, 0.345, 35.8 },		// Light Skin
+    { 0.247, 0.251, 19.3 },		// Blue Sky
+    { 0.337, 0.422, 13.3 },		// Foliage
+    { 0.265, 0.240, 24.3 },		// Blue Flower
+    { 0.261, 0.343, 43.1 },		// Bluish Green
+    { 0.506, 0.407, 30.1 },		// Orange
+    { 0.211, 0.175, 12.0 },		// Purplish Blue
+    { 0.453, 0.306, 19.8 },		// Moderate Red
+    { 0.285, 0.202, 6.6 },		// Purple
+    { 0.380, 0.489, 44.3 },		// Yellow Green
+    { 0.473, 0.438, 43.1 },		// Orange Yellow
+    { 0.187, 0.129, 6.1 },		// Blue
+    { 0.305, 0.478, 23.4 },		// Green
+    { 0.539, 0.313, 12.0 },		// Red
+    { 0.448, 0.470, 59.1 },		// Yellow
+    { 0.364, 0.233, 19.8 },		// Magenta
+    { 0.196, 0.252, 19.8 },		// Cyan
+    { 0.310, 0.316, 90.0 },		// White
+    { 0.310, 0.316, 59.1 },		// Neutral 8
+    { 0.310, 0.316, 36.2 },		// Neutral 6.5
+    { 0.310, 0.316, 19.8 },		// Neutral 5
+    { 0.310, 0.316, 9.0 },		// Neutral 3.5
+    { 0.310, 0.316, 3.1 } };		// Black
+  double gmb_cam[NSQ][4], gmb_xyz[NSQ][3];
+  double inverse[NSQ][3], cam_xyz[4][3], num;
+  int c, i, j, k, sq, row, col, count[4];
 
   memset (gmb_cam, 0, sizeof gmb_cam);
   for (sq=0; sq < NSQ; sq++) {
@@ -2873,35 +2873,23 @@ void CLASS colorcheck()
 	gmb_cam[sq][c] += BAYER(row,col);
 	count[c]++;
       }
-    FORCC gmb_cam[sq][c] /= count[c];
+    FORCC gmb_cam[sq][c] = gmb_cam[sq][c]/count[c] - black;
+    gmb_xyz[sq][0] = gmb_xyY[sq][2] * gmb_xyY[sq][0] / gmb_xyY[sq][1];
+    gmb_xyz[sq][1] = gmb_xyY[sq][2];
+    gmb_xyz[sq][2] = gmb_xyY[sq][2] *
+		(1 - gmb_xyY[sq][0] - gmb_xyY[sq][1]) / gmb_xyY[sq][1];
   }
-  for (b=0; b < 1; b++) {
-    pseudoinverse (gmb_xyz, inverse, NSQ);
-    for (i=0; i < colors; i++)
-      for (j=0; j < 3; j++)
-	for (cam_xyz[i][j] = k=0; k < NSQ; k++)
-	  cam_xyz[i][j] += gmb_cam[k][i] * inverse[k][j];
-
-    for (error=sq=0; sq < NSQ; sq++)
-      FORCC {
-	for (num=j=0; j < 3; j++)
-	  num += cam_xyz[c][j] * gmb_xyz[sq][j];
-	if (num < 0) num=0;
-	error += pow (num - gmb_cam[sq][c], 2);
-	gmb_cam[sq][c]--;		// for the next black value
-      }
-    if (error < minerr) {
-      black = b;
-      minerr = error;
-      memcpy (best, cam_xyz, sizeof best);
-    }
-  }
-  cam_xyz_coeff (best);
+  pseudoinverse (gmb_xyz, inverse, NSQ);
+  for (i=0; i < colors; i++)
+    for (j=0; j < 3; j++)
+      for (cam_xyz[i][j] = k=0; k < NSQ; k++)
+	cam_xyz[i][j] += gmb_cam[k][i] * inverse[k][j];
+  cam_xyz_coeff (cam_xyz);
   if (verbose) {
     printf ("    { \"%s %s\", %d,\n\t{", make, model, black);
-    num = 10000 / (best[1][0] + best[1][1] + best[1][2]);
+    num = 10000 / (cam_xyz[1][0] + cam_xyz[1][1] + cam_xyz[1][2]);
     FORCC for (j=0; j < 3; j++)
-      printf ("%c%d", (c | j) ? ',':' ', (int) (best[c][j] * num + 0.5));
+      printf ("%c%d", (c | j) ? ',':' ', (int) (cam_xyz[c][j] * num + 0.5));
     puts (" } },");
   }
 #undef NSQ
@@ -4626,7 +4614,7 @@ void CLASS parse_foveon()
 /*
    Thanks to Adobe for providing these excellent CAM -> XYZ matrices!
  */
-void CLASS adobe_coeff()
+void CLASS adobe_coeff (char *make, char *model)
 {
   static const struct {
     const char *prefix;
@@ -4808,6 +4796,8 @@ void CLASS adobe_coeff()
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON D200", 0,
 	{ 8367,-2248,-763,-8758,16447,2422,-1527,1550,8053 } },
+    { "NIKON E950", 0,		/* DJC */
+	{ -3746,10611,1665,9621,-1734,2114,-2389,7082,3064,3406,6116,-244 } },
     { "NIKON E995", 0,	/* copied from E5000 */
 	{ -5547,11762,2189,5814,-558,3342,-4924,9840,5949,688,9083,96 } },
     { "NIKON E2500", 0,
@@ -4896,7 +4886,7 @@ void CLASS simple_coeff (int index)
   { 2.25,0.75,-1.75,-0.25,-0.25,0.75,0.75,-0.25,-0.25,-1.75,0.75,2.25 },
   /* index 2 -- Logitech Fotoman Pixtura */
   { 1.893,-0.418,-0.476,-0.495,1.773,-0.278,-1.017,-0.655,2.672 },
-  /* index 3 -- Nikon E700, E800, and E950 */
+  /* index 3 -- Nikon E880, E900, and E990 */
   { -1.936280,  1.800443, -1.448486,  2.584324,
      1.405365, -0.524955, -0.289090,  0.408680,
     -1.204965,  1.082304,  2.941367, -1.818705 }
@@ -5289,10 +5279,7 @@ canon_cr2:
     maximum = 0x3dd;
     colors = 4;
     filters = 0x4b4b4b4b;
-    simple_coeff(3);
-    pre_mul[0] = 1.18193;
-    pre_mul[2] = 1.16452;
-    pre_mul[3] = 1.17250;
+    adobe_coeff ("NIKON","E950");
   } else if (fsize == 4771840) {
     height = 1540;
     width  = 2064;
@@ -5826,7 +5813,7 @@ konica_400z:
   if (!model[0])
     sprintf (model, "%dx%d", width, height);
   if (filters == UINT_MAX) filters = 0x94949494;
-  if (raw_color) adobe_coeff();
+  if (raw_color) adobe_coeff (make, model);
   if (thumb_offset && !thumb_height) {
     fseek (ifp, thumb_offset, SEEK_SET);
     if (ljpeg_start (&jh, 1)) {
@@ -6150,7 +6137,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.08"
+    "\nRaw Photo Decoder \"dcraw\" v8.09"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -6380,12 +6367,12 @@ next:
     bad_pixels();
     height = iheight;
     width  = iwidth;
-#ifdef COLORCHECK
-    colorcheck();
-#endif
     quality = 2 + !fuji_width;
     if (user_qual >= 0) quality = user_qual;
     if (user_black >= 0) black = user_black;
+#ifdef COLORCHECK
+    colorcheck();
+#endif
     if (is_foveon && !document_mode) foveon_interpolate();
     if (!is_foveon && document_mode < 2) scale_colors();
     if (shrink) filters = 0;
