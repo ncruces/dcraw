@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.319 $
-   $Date: 2006/03/24 07:03:04 $
+   $Revision: 1.320 $
+   $Date: 2006/03/29 02:44:05 $
  */
 
 #define _GNU_SOURCE
@@ -3864,8 +3864,11 @@ int CLASS parse_tiff_ifd (int base, int level)
       case 46275:
 	strcpy (make, "Imacon");
 	data_offset = ftell(ifp);
-	raw_width = 4090;
-	raw_height = len / raw_width / 2;
+	break;
+      case 46279:
+	fseek (ifp, 78, SEEK_CUR);
+	raw_width  = get4();
+	raw_height = get4();
 	break;
       case 50454:			/* Sinar tag */
       case 50455:
@@ -5531,12 +5534,14 @@ konica_400z:
       model[0] = 0;
     }
   } else if (!strcmp(make,"Imacon")) {
-    height = raw_height - 6;
-    width  = raw_width - 10;
-    data_offset += 6 + raw_width*12;
-    flip = height > width+10 ? 5:3;
     sprintf (model, "Ixpress %d-Mp", height*width/1000000);
-    filters = 0x61616161;
+    if (raw_width < 4096) {
+      data_offset += 6 + raw_width*12;
+      height = raw_height - 6;
+      width  = raw_width - 10;
+      filters = 0x61616161;
+      flip = height > width+10 ? 5:3;
+    }
     load_raw = unpacked_load_raw;
     maximum = 0xffff;
     pre_mul[0] = 1.963;
@@ -6137,7 +6142,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.09"
+    "\nRaw Photo Decoder \"dcraw\" v8.10"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
