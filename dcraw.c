@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.320 $
-   $Date: 2006/03/29 02:44:05 $
+   $Revision: 1.321 $
+   $Date: 2006/03/31 21:54:29 $
  */
 
 #define _GNU_SOURCE
@@ -108,6 +108,7 @@ const double xyz_rgb[3][3] = {			/* XYZ from RGB */
   { 0.412453, 0.357580, 0.180423 },
   { 0.212671, 0.715160, 0.072169 },
   { 0.019334, 0.119193, 0.950227 } };
+const float d65_white[3] = { 0.950456, 1, 1.088754 };
 #define camera_red  cam_mul[0]
 #define camera_blue cam_mul[2]
 int histogram[4][0x2000];
@@ -1347,13 +1348,13 @@ void CLASS phase_one_load_raw_c()
   phase_one_correct();
 }
 
-void CLASS leaf_load_raw()
+void CLASS hdr_load_raw()
 {
   ushort *pixel;
   int r, c, row, col;
 
   pixel = calloc (raw_width, sizeof *pixel);
-  merror (pixel, "leaf_load_raw()");
+  merror (pixel, "hdr_load_raw()");
   for (r=0; r < height-32; r+=32)
     FORC3 for (row=r; row < r+32; row++) {
       read_shorts (pixel, raw_width);
@@ -3191,7 +3192,6 @@ void CLASS cam_to_cielab (ushort cam[4], float lab[3])
 {
   int c, i, j, k;
   float r, xyz[3];
-  static const float d65[3] = { 0.950456, 1, 1.088754 };
   static float cbrt[0x10000], xyz_cam[3][4];
 
   if (cam == NULL) {
@@ -3202,7 +3202,7 @@ void CLASS cam_to_cielab (ushort cam[4], float lab[3])
     for (i=0; i < 3; i++)
       for (j=0; j < colors; j++)
 	for (xyz_cam[i][j] = k=0; k < 3; k++)
-	  xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j] / d65[i];
+	  xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j] / d65_white[i];
   } else {
     for (i=0; i < 3; i++) {
       for (xyz[i]=0.5, c=0; c < colors; c++)
@@ -3673,7 +3673,8 @@ void CLASS parse_exif (int base)
 void CLASS parse_mos (int offset)
 {
   char data[40];
-  int skip, from, i, c, neut[4];
+  int skip, from, i, c, neut[4], planes=0, frot=0;
+  static const char *mod[] = { "Aptus","Valeo","Volare" };
   static const unsigned bayer[] =
 	{ 0x94949494, 0x61616161, 0x16161616, 0x49494949 };
 
@@ -3693,22 +3694,34 @@ void CLASS parse_mos (int offset)
       profile_offset = from;
       profile_length = skip;
     }
-    if (!strcmp(data,"CaptProf_number_of_planes")) {
-      fscanf (ifp, "%d", &i);
-      if (i > 1) filters = 0;
+    if (!strcmp(data,"CaptProf_serial_number")) {
+      fread (data, 1, 40, ifp);
+      for (i=0; i < sizeof mod / sizeof *mod; i++)
+	if (data[0] == mod[i][0] && data[1] == toupper(mod[i][1]))
+	  sprintf (model, "%s %d", mod[i], atoi(data+2));
     }
-    if (!strcmp(data,"CaptProf_raw_data_rotation") && filters) {
+    if (!strcmp(data,"CaptProf_number_of_planes"))
+      fscanf (ifp, "%d", &planes);
+    if (!strcmp(data,"CaptProf_raw_data_rotation"))
+      fscanf (ifp, "%d", &flip);
+    if (!strcmp(data,"CaptProf_mosaic_pattern"))
+      FORC4 {
+	fscanf (ifp, "%d", &i);
+	if (i == 1) frot = c ^ (c >> 1);
+      }
+    if (!strcmp(data,"ImgProf_rotation_angle")) {
       fscanf (ifp, "%d", &i);
-      filters = bayer[i/90];
+      flip = i - flip;
     }
     if (!strcmp(data,"NeutObj_neutrals")) {
-      for (i=0; i < 4; i++)
-	fscanf (ifp, "%d", neut+i);
+      FORC4 fscanf (ifp, "%d", neut+c);
       FORC3 cam_mul[c] = (float) neut[0] / neut[c+1];
     }
     parse_mos (from);
     fseek (ifp, skip+from, SEEK_SET);
   }
+  if (planes)
+    filters = (planes == 1) * bayer[(flip/90 + frot) & 3];
 }
 
 int CLASS parse_tiff_ifd (int base, int level)
@@ -3837,10 +3850,13 @@ int CLASS parse_tiff_ifd (int base, int level)
 	if (cfa == 070) memcpy (cfa_pc,"\003\004\005",3);	/* CMY */
 	if (cfa == 072) memcpy (cfa_pc,"\005\003\004\001",4);	/* GMCY */
 	goto guess_cfa_pc;
-      case 33434:  shutter = getrat();		break;
-      case 33437:  aperture = getrat();		break;
-      case 37386:  focal_len = getrat();	break;
-      case 34310:
+      case 33434:			/* ExposureTime */
+	shutter = getrat();
+	break;
+      case 33437:			/* FNumber */
+	aperture = getrat();
+	break;
+      case 34310:			/* Leaf metadata */
 	parse_mos (ftell(ifp));
 	break;
       case 34665:			/* EXIF tag */
@@ -3855,13 +3871,19 @@ int CLASS parse_tiff_ifd (int base, int level)
       case 37122:			/* CompressedBitsPerPixel */
 	kodak_cbpp = get4();
 	break;
-      case 37400:
+      case 37386:			/* FocalLength */
+	focal_len = getrat();
+	break;
+      case 37393:			/* ImageNumber */
+	shot_order = getint(type);
+	break;
+      case 37400:			/* old Kodak KDC tag */
 	for (raw_color = i=0; i < 3; i++) {
 	  getrat();
 	  FORC3 rgb_cam[i][c] = getrat();
 	}
 	break;
-      case 46275:
+      case 46275:			/* Imacon tags */
 	strcpy (make, "Imacon");
 	data_offset = ftell(ifp);
 	break;
@@ -3945,6 +3967,7 @@ guess_cfa_pc:
 	xyz[0] = getrat();
 	xyz[1] = getrat();
 	xyz[2] = 1 - xyz[0] - xyz[1];
+	FORC3 xyz[c] /= d65_white[c];
 	break;
       case 50740:			/* DNGPrivateData */
 	if (dng_version) break;
@@ -4761,7 +4784,7 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 12805,-4662,-1376,-7480,15267,2360,-1626,2194,7904 } },
     { "LEICA DIGILUX 2", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
-    { "Leaf Valeo", 0,
+    { "Leaf", 0,
 	{ 8236,1746,-1314,-8251,15953,2428,-3673,5786,5771 } },
     { "Minolta DiMAGE 5", 0,
 	{ 8983,-2942,-963,-6556,14476,2237,-2426,2887,8014 } },
@@ -5560,11 +5583,11 @@ konica_400z:
     if (tiff_compress == 99)
       load_raw = lossless_jpeg_load_raw;
     maximum = 0x3fff;
-    strcpy (model, "Valeo");
     if (filters == 0) {
-      load_raw = leaf_load_raw;
-      maximum = 0xffff;
       strcpy (model, "Volare");
+      load_raw = hdr_load_raw;
+      maximum = 0xffff;
+      raw_color = 0;
     }
   } else if (!strcmp(make,"LEICA") || !strcmp(make,"Panasonic")) {
     if (width == 3880) {
@@ -6142,7 +6165,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.10"
+    "\nRaw Photo Decoder \"dcraw\" v8.11"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
