@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.57 $
-   $Date: 2006/03/20 22:45:17 $
+   $Revision: 1.58 $
+   $Date: 2006/03/31 21:38:45 $
  */
 
 #include <stdio.h>
@@ -109,6 +109,7 @@ void tiff_dump(int base, int tag, int type, int count, int level)
 	num = get4();
 	den = get4();
 	printf (" %d/%d", num, den);
+//	printf (" %lf", (double) num/den);
 	break;
     }
   if (type==2) putchar('\"');
@@ -298,7 +299,7 @@ int parse_tiff_ifd (int base, int level)
   FILE *sfp;
 
   entries = get2();
-  if (entries > 255) return 1;
+  if (entries > 1024) return 1;
   while (entries--) {
     save = ftell(ifp);
     tag  = get2();
@@ -915,10 +916,6 @@ void identify()
   fseek (ifp, 3472, SEEK_SET);
   parse_mos(0);
   parse_jpeg(0);
-  if (model[0] == 0) {
-    fprintf (stderr, "%s: unsupported file format.\n", fname);
-    return;
-  }
 }
 
 int main(int argc, char **argv)
