@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.321 $
-   $Date: 2006/03/31 21:54:29 $
+   $Revision: 1.322 $
+   $Date: 2006/04/06 18:51:37 $
  */
 
 #define _GNU_SOURCE
@@ -4784,6 +4784,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 12805,-4662,-1376,-7480,15267,2360,-1626,2194,7904 } },
     { "LEICA DIGILUX 2", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
+    { "LEICA D-LUX2", 0,
+	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
     { "Leaf", 0,
 	{ 8236,1746,-1314,-8251,15953,2428,-3673,5786,5771 } },
     { "Minolta DiMAGE 5", 0,
@@ -6165,7 +6167,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.11"
+    "\nRaw Photo Decoder \"dcraw\" v8.12"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
