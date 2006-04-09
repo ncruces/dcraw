@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.322 $
-   $Date: 2006/04/06 18:51:37 $
+   $Revision: 1.323 $
+   $Date: 2006/04/09 02:40:56 $
  */
 
 #define _GNU_SOURCE
@@ -88,7 +88,7 @@ short order;
 char *ifname, make[64], model[72], model2[64], *meta_data, cdesc[5];
 float flash_used, canon_ev, iso_speed, shutter, aperture, focal_len;
 time_t timestamp;
-unsigned shot_order, kodak_cbpp, filters;
+unsigned shot_order, kodak_cbpp, filters, unique_id;
 int profile_offset, profile_length;
 int thumb_offset, thumb_length, thumb_width, thumb_height, thumb_misc;
 int data_offset, strip_offset, curve_offset, meta_offset, meta_length;
@@ -3499,6 +3499,8 @@ void CLASS parse_makernote (int base)
       camera_red  = getrat();
       camera_blue = getrat();
     }
+    if (tag == 0x10 && type == 4)
+      unique_id = get4();
     if (tag == 0x14 && len == 2560 && type == 7) {
       fseek (ifp, 1248, SEEK_CUR);
       goto get2_256;
@@ -4254,9 +4256,6 @@ void CLASS parse_ciff (int offset, int length)
       shutter = pow (2, ((short) get2())/-32.0);
       wbi = (get2(),get2());
       if (wbi > 17) wbi = 0;
-      if (((!strcmp(model,"Canon EOS DIGITAL REBEL") ||
-	    !strcmp(model,"Canon EOS 300D DIGITAL"))) && wbi == 6)
-	wbi++;
     }
     if (type == 0x102c) {		/* Get white balance (G2) */
       if (!strcmp(model,"Canon PowerShot G1") ||
@@ -4287,8 +4286,8 @@ common:
       }
     }
     if (type == 0x10a9) {		/* Get white balance (D60) */
-      if (!strcmp(model,"Canon EOS 10D"))
-	wbi = "0134560028"[wbi]-'0';
+      if (strcmp(model,"Canon EOS D60"))
+	wbi = "0134567028"[wbi]-'0';
       fseek (ifp, aoff+2 + wbi*8, SEEK_SET);
       camera_red  = get2();
       camera_red /= get2();
@@ -4320,6 +4319,8 @@ common:
       canon_ev = int_to_float(len);
     if (type == 0x5817)
       shot_order = len;
+    if (type == 0x5834)
+      unique_id = len;
     if (type == 0x1810) {		/* Get the rotation */
       fseek (ifp, aoff+12, SEEK_SET);
       flip = get4();
@@ -4662,8 +4663,6 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 6599,-537,-891,-8071,15783,2424,-1983,2234,7462 } },
     { "Canon EOS 350D", 0,
 	{ 6018,-617,-965,-8645,15881,2975,-1530,1719,7642 } },
-    { "Canon EOS DIGITAL REBEL XT", 0,
-	{ 6018,-617,-965,-8645,15881,2975,-1530,1719,7642 } },
     { "Canon EOS-1Ds Mark II", 0,
 	{ 6517,-602,-867,-8180,15926,2378,-1618,1771,7633 } },
     { "Canon EOS-1D Mark II N", 0,
@@ -5004,7 +5003,7 @@ void CLASS identify()
   raw_height = raw_width = fuji_width = cr2_slice[0] = 0;
   maximum = height = width = top_margin = left_margin = 0;
   make[0] = model[0] = model2[0] = cdesc[0] = 0;
-  iso_speed = shutter = aperture = focal_len = 0;
+  iso_speed = shutter = aperture = focal_len = unique_id = 0;
   memset (white, 0, sizeof white);
   thumb_offset = thumb_length = thumb_width = thumb_height = 0;
   load_raw = thumb_load_raw = NULL;
@@ -5253,6 +5252,8 @@ nucore:
   } else if (is_canon && raw_width == 3516) {
     top_margin  = 14;
     left_margin = 42;
+    if (unique_id == 0x80000189)
+      adobe_coeff ("Canon","EOS 350D");
     goto canon_cr2;
   } else if (is_canon && raw_width == 3596) {
     top_margin  = 12;
@@ -6167,7 +6168,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.12"
+    "\nRaw Photo Decoder \"dcraw\" v8.13"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
