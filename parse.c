@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.58 $
-   $Date: 2006/03/31 21:38:45 $
+   $Revision: 1.59 $
+   $Date: 2006/05/04 22:09:44 $
  */
 
 #include <stdio.h>
@@ -76,6 +76,17 @@ float int_to_float (int i)
   union { int i; float f; } u;
   u.i = i;
   return u.f;
+}
+
+double get_double()
+{
+  union { char c[8]; double d; } u;
+  int i, rev;
+
+  rev = 7 * ((order == 0x4949) == (ntohs(0x1234) == 0x1234));
+  for (i=0; i < 8; i++)
+    u.c[i ^ rev] = fgetc(ifp);
+  return u.d;
 }
 
 void tiff_dump(int base, int tag, int type, int count, int level)
@@ -415,6 +426,7 @@ void parse_ciff (int offset, int length, int level)
 {
   int tboff, nrecs, i, j, type, len, dlen, roff, aoff=0, save;
   char c, name[256];
+  ushort key[2];
 
   fseek (ifp, offset+length-4, SEEK_SET);
   tboff = get4() + offset;
@@ -462,8 +474,14 @@ void parse_ciff (int offset, int length, int level)
 	putchar('\"');
 	break;
       case 0x10:			/* word values */
+	key[0] = get2();
+	fseek (ifp, -2, SEEK_CUR);
+	if (type == 0x1032 && key[0] == 1040)
+	  key[1] = 17907;
+	else key[0] = key[1] = 0;
 	for (j = 0; j < dlen; j+=2)
-	  printf ("%c%5u",(j & 31) || dlen < 16 ? ' ':'\n', get2());
+	  printf ("%c%5u",(j & 31) || dlen < 16 ? ' ':'\n',
+		get2() ^ key[(j >> 1) & 1]);
 	break;
       case 0x18:			/* dword values */
 	for (j = 0; j < dlen; j+=4)
@@ -788,8 +806,11 @@ void parse_phase_one (int base)
     len  = get4();
     data = get4();
     save = ftell(ifp);
-    printf ("Phase One tag=0x%x, type=%d, len=%2d, data = 0x%x\n",
+    printf ("Phase One tag=0x%x, type=%d, len=%2d, data = 0x%x",
 		tag, type, len, data);
+    if (type == 4 && len == 4 && data > 0xfffffff)
+      printf (" = %f", int_to_float(data));
+    putchar ('\n');
     if (tag == 0x110) meta = base+data;
     if (len > 4)
       fseek (ifp, base+data, SEEK_SET);
@@ -820,37 +841,54 @@ void parse_phase_one (int base)
     save = ftell(ifp);
     printf ("Phase One meta tag=0x%x, len=%2d, offset = 0x%x, data = ",
 		tag, len, data);
-    if (tag >> 2 != 0x101) putchar ('\n');
-    if (len) {
-      fseek (ifp, meta+data, SEEK_SET);
-      if (tag >> 2 == 0x101 && len < 256) {
-	fread (str, 256, 1, ifp);
-	puts (str);
-      } else if (tag == 0x400) {
+    if (!((0x000801f4 >> (tag-0x400)) & 1)) putchar ('\n');
+    fseek (ifp, meta+data, SEEK_SET);
+    switch (tag) {
+      case 0x400:
 	for (i=0; i < len; i+=2)
 	  printf ("%5u%c", get2(), (i & 6) == 6 || i == len-2 ? '\n':' ');
-      } else if (tag == 0x401) {
+	break;
+      case 0x401:
 	for (i=0; i < 16; i+=2)
 	  printf ("%6u%c", get2(), (i & 14) == 14 || i == len-2 ? '\n':' ');
 	for (; i < len; i+=4)
 	  printf ("%9.6f%c", int_to_float(get4()),
 		(i & 28) == 12 || i == len-4 ? '\n':' ');
-      } else if (tag == 0x412) {
-	for (i=0; i < 38; i+=2) {
-	  printf ("%6u", j=get2());
+	break;
+      case 0x402:
+	printf ("%f\n", int_to_float (data));
+	break;
+      case 0x404: case 0x405: case 0x406: case 0x407:
+	fread (str, 256, 1, ifp);
+	puts (str);
+	break;
+      case 0x408: case 0x413:
+	printf ("%lf\n", get_double());
+	break;
+      case 0x40b: case 0x410: case 0x416:
+	for (i=0; i < len; i+=2)
+	  printf ("%6u%c", get2(), (i & 14) == 14 || i == len-2 ? '\n':' ');
+	break;
+      case 0x40f: case 0x418: case 0x419: case 0x41a:
+	for (i=0; i < 4; i++)
+	  printf ("%02X%c", fgetc(ifp), i == 3 ? '\n':' ');
+	for (; i < len; i+=4)
+	  printf ("%e%c", int_to_float(get4()), i == len-4 ? '\n':' ');
+	break;
+      case 0x412:
+	for (i=0; i < 36; i+=4) {
+	  printf ("%u ", j=get4());
 	  if (i ==  4) wide = j;
 	  if (i == 12) high = j*2;
 	}
-	putchar ('\n');
+	printf ("%u\n", get2());
 	for (i=0; i < wide*high; i++)
 	  printf ("%9.6f%c", int_to_float(get4()),
 			i % wide == wide-1 ? '\n':' ');
 	for (i=0; i < wide*high; i++)
 	  printf ("%5u%c", get2(), i % wide == wide-1 ? '\n':' ');
-      } else if (tag == 0x40b || tag == 0x410 || tag == 0x416)
-	for (i=0; i < len; i+=2)
-	  printf ("%6u%c", get2(), (i & 14) == 14 || i == len-2 ? '\n':' ');
-      else
+	break;
+      default:
 	for (i=0; i < len; i++)
 	  printf ("%02X%c", fgetc(ifp),
 		(i & 15) == 15 || i == len-1 ? '\n':' ');
