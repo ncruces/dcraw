@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "February 7, 2006"
+.TH dcraw 1 "May 13, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -52,24 +52,23 @@ cannot decode JPEG files!!
 Show the raw data as a grayscale image with no interpolation.
 Good for photographing black-and-white documents.
 .TP
+.B -D
+Same as
+.BR -d ,
+but totally raw (no color scaling).
+.TP
 .B -h
 Output a half-size color image.  Twice as fast as
 .BR -q\ 0 .
 .TP
-.B -q [0-3]
-Set the interpolation quality:
-
-.B \t0
-\ \ Bilinear (very fast, low quality)
-.br
-.B \t1
-\ \ Reserved
-.br
-.B \t2
-\ \ Variable Number of Gradients (VNG)
-.br
-.B \t3
-\ \ Adaptive Homogeneity-Directed (AHD)
+.B -q 0
+Use high-speed, low-quality bilinear interpolation.
+.TP
+.B -q 2
+Use Variable Number of Gradients (VNG) interpolation.
+.TP
+.B -q 3
+Use Adaptive Homogeneity-Directed (AHD) interpolation.
 .TP
 .B -f
 Interpolate RGB as four colors.  Use this if the output shows
@@ -85,6 +84,26 @@ Try
 .B -B\ 2\ 4
 to start.
 .TP
+.B -b brightness
+By default,
+.B dcraw
+writes 8-bit PGM/PPM/PAM with a BT.709 gamma curve and a
+99th-percentile white point.  If the result is too light or
+too dark,
+.B -b
+lets you adjust it.  Default is 1.0.
+.TP
+.B -4
+Write 16-bit linear pseudo-PGM/PPM/PAM with no gamma curve,
+no white point, and no
+.B -b
+option.
+.TP
+.B -3
+Same output as
+.BR -4 ,
+written in Adobe PhotoShop format.
+.TP
 .B -k black
 Set the black point.  Default depends on the camera.
 .TP
@@ -96,25 +115,29 @@ color balance based on a white card photographed in sunlight.
 Use the color balance specified by the camera.
 If this can't be found, print a warning and revert to the default.
 .TP
-.B -r red_mul -l blue_mul
-Customize the color balance by multiplying the red and blue
-output channels by these values.  Both default to 1.0.
-.TP
-.B -b brightness
-Multiply all output channels by this value.  Default is 1.0.
+.B -r mul0 mul1 mul2 mul3
+Specify your own raw color balance.
+These multipliers can be cut and pasted from the output of
+.BR dcraw\ -v .
 .TP
 .B -n
-By default,
-.B dcraw
-clips all colors to prevent pink highlights.  Use
-.B -n -b 0.25
-to leave the image data completely unclipped.
+Same as
+.BR -H\ 1 .
+.TP
+.B -H 0
+Clip all highlights to solid white (default).
+.TP
+.B -H 1
+Leave highlights unclipped in various shades of pink.
+.TP
+.B -H 2
+Attempt to intelligently reconstruct highlights.
 .TP
 .B -m
 Same as
 .BR -o\ 0 .
 .TP
-.B -o [0-4]
+.B -o [0-5]
 Select the output colorspace when the
 .B -p
 option is not used:
@@ -140,8 +163,16 @@ option is not used:
 .BR -p\ camera.icm \ [\  -o\ output.icm \ ]
 Use ICC profiles to define the camera's raw colorspace and the
 desired output colorspace (sRGB by default).
+.TP
 .B -p embed
-uses the ICC profile embedded in the raw photo.
+Use the ICC profile embedded in the raw photo.
+.TP
+.B -t [0-7,90,180,270]
+Flip the output image.  By default,
+.B dcraw
+applies the flip specified by the camera.
+.B -t 0
+disables all flipping.
 .TP
 .B -j
 For Fuji\ Super\ CCD cameras, show the image tilted 45 degrees,
@@ -158,27 +189,6 @@ For all other cameras,
 and
 .B -s
 are silently ignored.
-.TP
-.B -t [0-7,90,180,270]
-Flip the output image.  By default,
-.B dcraw
-applies the flip specified by the camera.
-.B -t 0
-disables all flipping.
-.TP
-.B -2
-Write 8-bit PGM/PPM/PAM with a 99th-percentile white point and
-the BT.709 gamma curve.  Double one dimension if needed to
-correct the aspect ratio.  This is the default.
-.TP
-.B -4
-Write 16-bit linear pseudo-PGM/PPM/PAM.  No white point, no gamma,
-raw aspect ratio.
-.TP
-.B -3
-Same image as
-.BR -4 ,
-written in Adobe PhotoShop format.
 .SH "SEE ALSO"
 .BR pgm (5),
 .BR ppm (5),
