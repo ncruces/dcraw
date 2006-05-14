@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.324 $
-   $Date: 2006/05/04 22:45:45 $
+   $Revision: 1.325 $
+   $Date: 2006/05/14 05:08:10 $
  */
 
 #define _GNU_SOURCE
@@ -95,12 +95,12 @@ int data_offset, strip_offset, curve_offset, meta_offset, meta_length;
 int tiff_nifds, tiff_flip, tiff_bps, tiff_compress;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, tiff_samples;
-int black, maximum, clip_max, raw_color, use_gamma;
+int black, maximum, raw_color, use_gamma;
 int iheight, iwidth, shrink, flip, xmag, ymag;
 int zero_after_ff, is_raw, dng_version, is_foveon;
 ushort (*image)[4], white[8][8], curve[0x1000], cr2_slice[3];
-float bright=1, red_scale=1, blue_scale=1, sigma_d=0, sigma_r=0;
-int four_color_rgb=0, document_mode=0, clip_color=1;
+float bright=1, user_mul[4]={0,0,0,0}, sigma_d=0, sigma_r=0;
+int four_color_rgb=0, document_mode=0, highlight=0;
 int verbose=0, use_auto_wb=0, use_camera_wb=0, output_color=1;
 int fuji_layout, fuji_secondary, use_secondary=0;
 float cam_mul[4], pre_mul[4], rgb_cam[3][4];	/* RGB from camera color */
@@ -141,7 +141,7 @@ struct {
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define LIM(x,min,max) MAX(min,MIN(x,max))
 #define ULIM(x,y,z) ((y) < (z) ? LIM(x,y,z) : LIM(x,z,y))
-#define CLIP(x) LIM(x,0,clip_max)
+#define CLIP(x) LIM(x,0,65535)
 #define SWAP(a,b) { a ^= b; a ^= (b ^= a); }
 
 /*
@@ -1465,9 +1465,11 @@ void CLASS phase_one_load_raw_c()
 	pixel[col] = pred[col & 1] += ph1_bits(i) + 1 - (1 << (i - 1));
     }
     if ((unsigned) (row-top_margin) < height)
-      for (col=0; col < width; col++)
-	BAYER(row-top_margin,col) = (pixel[col+left_margin] << 2)
-	    - ph1.black + black[row][col >= ph1.split_col];
+      for (col=0; col < width; col++) {
+	i = (pixel[col+left_margin] << 2)
+		- ph1.black + black[row][col >= ph1.split_col];
+	if (i > 0) BAYER(row-top_margin,col) = i;
+      }
   }
   free (pixel);
   phase_one_correct();
@@ -2306,7 +2308,6 @@ void CLASS foveon_load_raw()
     for (i=0; i < height*width*4; i++)
       if ((short) image[0][i] < 0) image[0][i] = 0;
   foveon_load_camf();
-  clip_max = 0xffff;
 }
 
 char * CLASS foveon_camf_param (char *block, char *param)
@@ -3033,20 +3034,21 @@ void CLASS colorcheck()
 
 void CLASS scale_colors()
 {
-  int row, col, x, y, c, val, shift=0;
+  int row, col, x, y, c, val;
   int min[4], max[4], sum[8];
-  double dsum[8], dmin;
+  double dsum[8], dmin, dmax;
+  float scale_mul[4];
 
   maximum -= black;
   if (use_auto_wb || (use_camera_wb && cam_mul[0] == -1)) {
     FORC4 min[c] = INT_MAX;
     FORC4 max[c] = 0;
     memset (dsum, 0, sizeof dsum);
-    for (row=0; row < height-7; row++)
-      for (col=0; col < width-7; col++) {
+    for (row=0; row < height-7; row += 8)
+      for (col=0; col < width-7; col += 8) {
 	memset (sum, 0, sizeof sum);
-	for (y=row; y < row+7; y++)
-	  for (x=col; x < col+7; x++)
+	for (y=row; y < row+8; y++)
+	  for (x=col; x < col+8; x++)
 	    FORC4 {
 	      val = image[y*width+x][c];
 	      if (!val) continue;
@@ -3080,39 +3082,29 @@ skip_block:
     else
       fprintf (stderr, "%s: Cannot use camera white balance.\n", ifname);
   }
-  if (raw_color || !output_color) {
-    pre_mul[0] *= red_scale;
-    pre_mul[2] *= blue_scale;
-  }
+  if (user_mul[0])
+    memcpy (pre_mul, user_mul, sizeof pre_mul);
   if (pre_mul[3] == 0) pre_mul[3] = colors < 4 ? pre_mul[1] : 1;
-  dmin = DBL_MAX;
-  FORC4 if (dmin > pre_mul[c])
-	    dmin = pre_mul[c];
-  FORC4 pre_mul[c] /= dmin;
-
-  while (maximum << shift < 0x8000) shift++;
-  FORC4 pre_mul[c] *= 1 << shift;
-  maximum <<= shift;
-
-  if (write_fun != write_ppm || bright < 1) {
-    maximum *= bright;
-    if (maximum > 0xffff)
-	maximum = 0xffff;
-    FORC4 pre_mul[c] *= bright;
+  for (dmin=DBL_MAX, dmax=c=0; c < 4; c++) {
+    if (dmin > pre_mul[c])
+	dmin = pre_mul[c];
+    if (dmax < pre_mul[c])
+	dmax = pre_mul[c];
   }
+  if (!highlight) dmax = dmin;
+  FORC4 scale_mul[c] = (pre_mul[c] /= dmax) * 65535.0 / maximum;
   if (verbose) {
     fprintf (stderr, "Scaling with black=%d, pre_mul[] =", black);
     FORC4 fprintf (stderr, " %f", pre_mul[c]);
     fputc ('\n', stderr);
   }
-  clip_max = clip_color ? maximum : 0xffff;
   for (row=0; row < height; row++)
     for (col=0; col < width; col++)
       FORC4 {
 	val = image[row*width+col][c];
 	if (!val) continue;
 	val -= black;
-	val *= pre_mul[c];
+	val *= scale_mul[c];
 	image[row*width+col][c] = CLIP(val);
       }
   if (filters && colors == 3) {
@@ -3518,6 +3510,46 @@ void CLASS bilateral_filter()
   }
   free (window);
 }
+
+#define SIGMA 3
+#define FS 13
+void CLASS recover_highlights()
+{
+  float base[FS][FS], (*filt)[FS];
+  int c, y, x, s, ns, row, col, val, sat[4];
+  double sum, wgt;
+  ushort *cent, *test;
+
+  if (verbose) fprintf (stderr, "Highlight recovery...\n");
+
+  filt = (float (*)[FS]) &base[FS/2][FS/2];
+  for (y=-FS/2; y <= FS/2; y++)
+    for (x=-FS/2; x <= FS/2; x++)
+      filt[y][x] = exp(-(x*x+y*y)/(2*SIGMA*SIGMA));
+  for (ns=0, c=1; c < colors; c++)
+    if (pre_mul[ns] < pre_mul[c]) ns = c;
+  FORCC sat[c] = 62000 * pre_mul[c];
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++) {
+      cent = image[row*width+col];
+      for (s=0; s < colors; s++) {
+	if (s == ns || cent[s] < sat[s]) continue;
+	sum = wgt = 4;
+	for (y = MAX(-FS/2,-row); y <= MIN(FS/2,height-row-1); y++)
+	  for (x = MAX(-FS/2,-col); x <= MIN(FS/2,width-col-1); x++) {
+	    test = image[(row+y)*width+col+x];
+	    if (2*test[s]/sat[s] == 1 && test[ns]/32700 == 1) {
+	      sum += filt[y][x] * test[s] / test[ns];
+	      wgt += filt[y][x];
+	    }
+	  }
+	if (cent[s] < (val = sum*cent[ns]/wgt))
+	  cent[s] = CLIP(val);
+      }
+    }
+}
+#undef SIGMA
+#undef FS
 
 void CLASS tiff_get (unsigned base,
 	unsigned *tag, unsigned *type, unsigned *len, unsigned *save)
@@ -4934,6 +4966,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "LEICA D-LUX2", 0,
 	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
+    { "Leaf Valeo 6", 0,
+	{ 3952,2189,449,-6701,14585,2275,-4536,7349,6536 } },
     { "Leaf", 0,
 	{ 8236,1746,-1314,-8251,15953,2428,-3673,5786,5771 } },
     { "Minolta DiMAGE 5", 0,
@@ -6084,17 +6118,12 @@ void CLASS convert_to_rgb()
 
   memcpy (out_cam, rgb_cam, sizeof out_cam);
   raw_color |= colors == 1 || output_color < 1 || output_color > 5;
-  if (!raw_color) {
+  if (!raw_color)
     if (output_color > 1)
       for (i=0; i < 3; i++)
 	for (j=0; j < colors; j++)
 	  for (out_cam[i][j] = k=0; k < 3; k++)
 	    out_cam[i][j] += out_rgb[output_color-2][i][k] * rgb_cam[k][j];
-    FORCC {
-      out_cam[0][c] *= red_scale;
-      out_cam[2][c] *= blue_scale;
-    }
-  }
   if (verbose)
     fprintf (stderr, raw_color ? "Building histograms...\n" :
 	"Converting to %s colorspace...\n", name[output_color-1]);
@@ -6242,14 +6271,13 @@ void CLASS write_ppm16 (FILE *ofp)
 
   ppm = calloc (width, 2*colors);
   merror (ppm, "write_ppm16()");
-  if (maximum < 256) maximum = 256;
   if (colors > 3)
     fprintf (ofp,
       "P7\nWIDTH %d\nHEIGHT %d\nDEPTH %d\nMAXVAL %d\nTUPLTYPE %s\nENDHDR\n",
-	width, height, colors, maximum, cdesc);
+	width, height, colors, 65535, cdesc);
   else
     fprintf (ofp, "P%d\n%d %d\n%d\n",
-	colors/2+5, width, height, maximum);
+	colors/2+5, width, height, 65535);
 
   for (row=0; row < height; row++) {
     for (col=0; col < width; col++)
@@ -6302,7 +6330,7 @@ int CLASS main (int argc, char **argv)
   int arg, status=0, user_flip=-1, user_black=-1, user_qual=-1;
   int timestamp_only=0, thumbnail_only=0, identify_only=0, write_to_stdout=0;
   int half_size=0, use_fuji_rotate=1, quality, i, c;
-  char opt, *write_ext, *ofname, *cp;
+  char opt, *write_ext, *ofname, *sp, *cp;
   struct utimbuf ut;
   FILE *ofp = stdout;
   void (*write_image)(FILE *) = write_ppm;
@@ -6316,7 +6344,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.15"
+    "\nRaw Photo Decoder \"dcraw\" v8.17"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -6327,11 +6355,11 @@ int CLASS main (int argc, char **argv)
     "\n-z        Change file dates to camera timestamp"
     "\n-a        Use automatic white balance"
     "\n-w        Use camera white balance, if possible"
-    "\n-r <num>  Set red  multiplier (default = 1.0)"
-    "\n-l <num>  Set blue multiplier (default = 1.0)"
-    "\n-b <num>  Set brightness      (default = 1.0)"
+    "\n-r <nums> Set raw white balance (four values required)"
+    "\n-b <num>  Adjust brightness (default = 1.0)"
     "\n-k <num>  Set black point"
-    "\n-n        Don't clip colors"
+    "\n-H [0-2]  Highlight mode (0=clip, 1=no clip, 2=recover)"
+    "\n-t [0-7]  Flip image (0=none, 3=180, 5=90CCW, 6=90CW)"
     "\n-o [0-5]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"
 #ifndef NO_LCMS
     "\n-o <file> Apply output ICC profile from file"
@@ -6345,7 +6373,6 @@ int CLASS main (int argc, char **argv)
     "\n-B <domain> <range>  Apply bilateral filter to reduce noise"
     "\n-j        Show Fuji Super CCD images tilted 45 degrees"
     "\n-s        Use secondary pixels (Fuji Super CCD SR only)"
-    "\n-t [0-7]  Flip image (0 = none, 3 = 180, 5 = 90CCW, 6 = 90CW)"
     "\n-2        Write 8-bit non-linear PPM (default)"
     "\n-4        Write 16-bit linear PPM"
     "\n-3        Write 16-bit linear PSD (Adobe Photoshop)"
@@ -6356,21 +6383,23 @@ int CLASS main (int argc, char **argv)
   argv[argc] = "";
   for (arg=1; argv[arg][0] == '-'; ) {
     opt = argv[arg++][1];
-    if ((strchr("Bbrlktq", opt) && !isdigit(argv[arg][0])) ||
-		   (opt == 'B' && !isdigit(argv[arg+1][0]))) {
-      fprintf (stderr, "Non-numeric argument to \"-%c\"\n", opt);
-      return 1;
-    }
+    if ((cp = strchr (sp="BbrktqH", opt)))
+      for (i=0; i < "2141111"[cp-sp]-'0'; i++)
+	if (!isdigit(argv[arg+i][0])) {
+	  fprintf (stderr, "Non-numeric argument to \"-%c\"\n", opt);
+	  return 1;
+	}
     switch (opt)
     {
       case 'B':  sigma_d     = atof(argv[arg++]);
 		 sigma_r     = atof(argv[arg++]);  break;
       case 'b':  bright      = atof(argv[arg++]);  break;
-      case 'r':  red_scale   = atof(argv[arg++]);  break;
-      case 'l':  blue_scale  = atof(argv[arg++]);  break;
+      case 'r':
+	   FORC4 user_mul[c] = atof(argv[arg++]);  break;
       case 'k':  user_black  = atoi(argv[arg++]);  break;
       case 't':  user_flip   = atoi(argv[arg++]);  break;
       case 'q':  user_qual   = atoi(argv[arg++]);  break;
+      case 'H':  highlight   = atoi(argv[arg++]);  break;
       case 'o':
 	if (isdigit(argv[arg][0]) && !argv[arg][1])
 	  output_color = atoi(argv[arg++]);
@@ -6393,7 +6422,7 @@ int CLASS main (int argc, char **argv)
       case 'w':  use_camera_wb     = 1;  break;
       case 'j':  use_fuji_rotate   = 0;  break;
       case 's':  use_secondary     = 1;  break;
-      case 'n':  clip_color        = 0;  break;
+      case 'n':  highlight         = 1;  break;
       case 'm':  output_color      = 0;  break;
 
       case '2':  write_image = write_ppm;   break;
@@ -6564,6 +6593,7 @@ next:
       else ahd_interpolate();
     }
     if (sigma_d > 0 && sigma_r > 0) bilateral_filter();
+    if (!is_foveon && highlight > 1) recover_highlights();
     if (use_fuji_rotate) fuji_rotate();
 #ifndef NO_LCMS
     if (cam_profile) apply_profile (cam_profile, out_profile);
