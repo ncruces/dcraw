@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.325 $
-   $Date: 2006/05/14 05:08:10 $
+   $Revision: 1.326 $
+   $Date: 2006/05/18 06:34:26 $
  */
 
 #define _GNU_SOURCE
@@ -3511,45 +3511,82 @@ void CLASS bilateral_filter()
   free (window);
 }
 
-#define SIGMA 3
-#define FS 13
+#define SCALE (8 >> shrink)
 void CLASS recover_highlights()
 {
-  float base[FS][FS], (*filt)[FS];
-  int c, y, x, s, ns, row, col, val, sat[4];
-  double sum, wgt;
-  ushort *cent, *test;
+  float *map, sum, wgt;
+  int hsat[4], count, spread, change, val, i;
+  unsigned high, wide, mrow, mcol, row, col, kc, c, d, y, x;
+  ushort *pixel;
+  static const signed char dir[8][2] =
+    { {-1,-1}, {-1,0}, {-1,1}, {0,1}, {1,1}, {1,0}, {1,-1}, {0,-1} };
 
   if (verbose) fprintf (stderr, "Highlight recovery...\n");
 
-  filt = (float (*)[FS]) &base[FS/2][FS/2];
-  for (y=-FS/2; y <= FS/2; y++)
-    for (x=-FS/2; x <= FS/2; x++)
-      filt[y][x] = exp(-(x*x+y*y)/(2*SIGMA*SIGMA));
-  for (ns=0, c=1; c < colors; c++)
-    if (pre_mul[ns] < pre_mul[c]) ns = c;
-  FORCC sat[c] = 62000 * pre_mul[c];
-  for (row=0; row < height; row++)
-    for (col=0; col < width; col++) {
-      cent = image[row*width+col];
-      for (s=0; s < colors; s++) {
-	if (s == ns || cent[s] < sat[s]) continue;
-	sum = wgt = 4;
-	for (y = MAX(-FS/2,-row); y <= MIN(FS/2,height-row-1); y++)
-	  for (x = MAX(-FS/2,-col); x <= MIN(FS/2,width-col-1); x++) {
-	    test = image[(row+y)*width+col+x];
-	    if (2*test[s]/sat[s] == 1 && test[ns]/32700 == 1) {
-	      sum += filt[y][x] * test[s] / test[ns];
-	      wgt += filt[y][x];
+  FORCC hsat[c] = 31000 * pre_mul[c];
+  for (kc=0, c=1; c < colors; c++)
+    if (pre_mul[kc] < pre_mul[c]) kc = c;
+  high = height / SCALE;
+  wide =  width / SCALE;
+  map = calloc (high*wide, sizeof *map);
+  merror (map, "recover_highlights()");
+  FORCC if (c != kc) {
+    memset (map, 0, high*wide*sizeof *map);
+    for (mrow=0; mrow < high; mrow++)
+      for (mcol=0; mcol < wide; mcol++) {
+	sum = wgt = count = 0;
+	for (row = mrow*SCALE; row < (mrow+1)*SCALE; row++)
+	  for (col = mcol*SCALE; col < (mcol+1)*SCALE; col++) {
+	    pixel = image[row*width+col];
+	    if (pixel[c] / hsat[c] == 1 && pixel[kc] > 24000) {
+	      sum += pixel[c];
+	      wgt += pixel[kc];
+	      count++;
 	    }
 	  }
-	if (cent[s] < (val = sum*cent[ns]/wgt))
-	  cent[s] = CLIP(val);
+	if (count == SCALE*SCALE)
+	  map[mrow*wide+mcol] = sum / wgt;
       }
+    for (spread = 100; spread--; ) {
+      for (mrow=0; mrow < high; mrow++)
+	for (mcol=0; mcol < wide; mcol++) {
+	  if (map[mrow*wide+mcol]) continue;
+	  sum = count = 0;
+	  for (d=0; d < 8; d++) {
+	    y = mrow + dir[d][0];
+	    x = mcol + dir[d][1];
+	    if (y < high && x < wide && map[y*wide+x] > 0) {
+	      sum  += (1 + (d & 1)) * map[y*wide+x];
+	      count += 1 + (d & 1);
+	    }
+	  }
+	  if (count > 3)
+	    map[mrow*wide+mcol] = -sum / count * (15/16.0) - (1/16.0);
+	}
+      for (change=i=0; i < high*wide; i++)
+	if (map[i] < 0) {
+	  map[i] = -map[i];
+	  change = 1;
+	}
+      if (!change) break;
     }
+    for (i=0; i < high*wide; i++)
+      if (map[i] == 0) map[i] = 1;
+    for (mrow=0; mrow < high; mrow++)
+      for (mcol=0; mcol < wide; mcol++) {
+	for (row = mrow*SCALE; row < (mrow+1)*SCALE; row++)
+	  for (col = mcol*SCALE; col < (mcol+1)*SCALE; col++) {
+	    pixel = image[row*width+col];
+	    if (pixel[c] / hsat[c] > 1) {
+	      val = pixel[kc] * map[mrow*wide+mcol];
+	      if (pixel[c] < val) pixel[c] = CLIP(val);
+	    }
+	  }
+      }
+  }
+  free (map);
 }
-#undef SIGMA
-#undef FS
+#undef SCALE
 
 void CLASS tiff_get (unsigned base,
 	unsigned *tag, unsigned *type, unsigned *len, unsigned *save)
@@ -6344,7 +6381,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.17"
+    "\nRaw Photo Decoder \"dcraw\" v8.18"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
