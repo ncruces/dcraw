@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.326 $
-   $Date: 2006/05/18 06:34:26 $
+   $Revision: 1.327 $
+   $Date: 2006/05/21 19:44:03 $
  */
 
 #define _GNU_SOURCE
@@ -645,7 +645,7 @@ void CLASS canon_compressed_load_raw()
   uchar c;
 
   crw_init_tables (tiff_compress);
-  pixel = calloc (raw_width*8, sizeof *pixel);
+  pixel = (ushort *) calloc (raw_width*8, sizeof *pixel);
   merror (pixel, "canon_compressed_load_raw()");
   lowbits = canon_has_lowbits();
   if (!lowbits) maximum = 0x3ff;
@@ -756,7 +756,7 @@ int CLASS ljpeg_start (struct jhead *jh, int info_only)
     }
   } while (tag != 0xffda);
   if (info_only) return 1;
-  jh->row = calloc (jh->wide*jh->clrs, 2);
+  jh->row = (ushort *) calloc (jh->wide*jh->clrs, 2);
   merror (jh->row, "ljpeg_start()");
   return zero_after_ff = 1;
 }
@@ -898,7 +898,7 @@ void CLASS adobe_dng_load_raw_nc()
   ushort *pixel, *rp;
   int row, col;
 
-  pixel = calloc (raw_width * tiff_samples, sizeof *pixel);
+  pixel = (ushort *) calloc (raw_width * tiff_samples, sizeof *pixel);
   merror (pixel, "adobe_dng_load_raw_nc()");
   for (row=0; row < raw_height; row++) {
     if (tiff_bps == 16)
@@ -929,7 +929,7 @@ void CLASS nikon_compressed_load_raw()
   fseek (ifp, curve_offset, SEEK_SET);
   read_shorts (vpred, 4);
   csize = get2();
-  curve = calloc (csize, sizeof *curve);
+  curve = (ushort *) calloc (csize, sizeof *curve);
   merror (curve, "nikon_compressed_load_raw()");
   read_shorts (curve, csize);
 
@@ -1121,7 +1121,7 @@ void CLASS fuji_load_raw()
   ushort *pixel;
   int row, col, r, c;
 
-  pixel = calloc (raw_width, sizeof *pixel);
+  pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "fuji_load_raw()");
   for (row=0; row < raw_height; row++) {
     read_shorts (pixel, raw_width);
@@ -1141,7 +1141,7 @@ void CLASS fuji_load_raw()
 
 void CLASS jpeg_thumb (FILE *tfp)
 {
-  char *thumb = malloc (thumb_length);
+  char *thumb = (char *) malloc (thumb_length);
   merror (thumb, "jpeg_thumb()");
   fread  (thumb, 1, thumb_length, ifp);
   thumb[0] = 0xff;
@@ -1151,7 +1151,7 @@ void CLASS jpeg_thumb (FILE *tfp)
 
 void CLASS ppm_thumb (FILE *tfp)
 {
-  char *thumb = malloc (thumb_length);
+  char *thumb = (char *) malloc (thumb_length);
   merror (thumb, "ppm_thumb()");
   fprintf (tfp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
   fread  (thumb, 1, thumb_length, ifp);
@@ -1164,7 +1164,7 @@ void CLASS layer_thumb (FILE *tfp)
   int i, c;
   char *thumb;
   colors = thumb_misc >> 5;
-  thumb = malloc (thumb_length*colors);
+  thumb = (char *) malloc (thumb_length*colors);
   merror (thumb, "layer_thumb()");
   fprintf (tfp, "P%d\n%d %d\n255\n",
 	5 + (thumb_misc >> 6), thumb_width, thumb_height);
@@ -1177,7 +1177,7 @@ void CLASS layer_thumb (FILE *tfp)
 void CLASS rollei_thumb (FILE *tfp)
 {
   int i, size = thumb_width * thumb_height;
-  ushort *thumb = calloc (size, 2);
+  ushort *thumb = (ushort *) calloc (size, 2);
   merror (thumb, "rollei_thumb()");
   fprintf (tfp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
   read_shorts (thumb, size);
@@ -1228,7 +1228,7 @@ void CLASS phase_one_flat_field (int is_float, int nc)
 
   read_shorts (head, 8);
   wide = head[2] / head[4];
-  mrow = calloc (nc*wide, sizeof *mrow);
+  mrow = (float *) calloc (nc*wide, sizeof *mrow);
   merror (mrow, "phase_one_flat_field()");
   for (y=0; y < head[3] / head[5]; y++) {
     for (x=0; x < wide; x++)
@@ -1356,7 +1356,7 @@ void CLASS phase_one_correct()
   if (off_412) {
     fseek (ifp, off_412, SEEK_SET);
     for (i=0; i < 9; i++) head[i] = get4();
-    yval[0] = calloc (head[1]*head[3] + head[2]*head[4], 6);
+    yval[0] = (float *) calloc (head[1]*head[3] + head[2]*head[4], 6);
     merror (yval[0], "phase_one_correct()");
     yval[1] = (float  *) (yval[0] + head[1]*head[3]);
     xval[0] = (ushort *) (yval[1] + head[2]*head[4]);
@@ -1398,7 +1398,7 @@ void CLASS phase_one_load_raw()
   bkey = get2();
   mask = ph1.format == 1 ? 0x5555:0x1354;
   fseek (ifp, data_offset + top_margin*raw_width*2, SEEK_SET);
-  pixel = calloc (raw_width, sizeof *pixel);
+  pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "phase_one_load_raw()");
   for (row=0; row < height; row++) {
     read_shorts (pixel, raw_width);
@@ -1437,7 +1437,7 @@ void CLASS phase_one_load_raw_c()
   ushort *pixel;
   short (*black)[2];
 
-  pixel = calloc (raw_width + raw_height*4, 2);
+  pixel = (ushort *) calloc (raw_width + raw_height*4, 2);
   merror (pixel, "phase_one_load_raw_c()");
   offset = (int *) (pixel + raw_width);
   fseek (ifp, strip_offset, SEEK_SET);
@@ -1480,7 +1480,7 @@ void CLASS leaf_full_load_raw()
   ushort *pixel;
   int r, c, row, col;
 
-  pixel = calloc (raw_width, sizeof *pixel);
+  pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "leaf_full_load_raw()");
   for (r=0; r < height-32; r+=32)
     FORC3 for (row=r; row < r+32; row++) {
@@ -1519,7 +1519,7 @@ void CLASS unpacked_load_raw()
   ushort *pixel;
   int row, col;
 
-  pixel = calloc (raw_width, sizeof *pixel);
+  pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "unpacked_load_raw()");
   for (row=0; row < height; row++) {
     read_shorts (pixel, raw_width);
@@ -1538,7 +1538,7 @@ void CLASS olympus_e300_load_raw()
   if (raw_width == 3360) bls += 4;
   if (raw_width == 3280) ble = bls + 8;
   dwide = raw_width * 16 / 10;
-  data = malloc (dwide + raw_width*2);
+  data = (uchar *) malloc (dwide + raw_width*2);
   merror (data, "olympus_e300_load_raw()");
   pixel = (ushort *) (data + dwide);
   for (row=0; row < height; row++) {
@@ -1605,7 +1605,7 @@ void CLASS eight_bit_load_raw()
   uchar *pixel;
   int row, col;
 
-  pixel = calloc (raw_width, sizeof *pixel);
+  pixel = (uchar *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "eight_bit_load_raw()");
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
@@ -1641,7 +1641,7 @@ void CLASS nucore_load_raw()
   ushort *pixel;
   int irow, row, col;
 
-  pixel = calloc (width, 2);
+  pixel = (ushort *) calloc (width, 2);
   merror (pixel, "nucore_load_raw()");
   for (irow=0; irow < height; irow++) {
     read_shorts (pixel, width);
@@ -1826,7 +1826,7 @@ void CLASS kodak_jpeg_load_raw()
   while (cinfo.output_scanline < cinfo.output_height) {
     row = cinfo.output_scanline * 2;
     jpeg_read_scanlines (&cinfo, buf, 1);
-    pixel = (void *) buf[0];
+    pixel = (JSAMPLE (*)[3]) buf[0];
     for (col=0; col < width; col+=2) {
       BAYER(row+0,col+0) = pixel[col+0][1] << 1;
       BAYER(row+1,col+1) = pixel[col+1][1] << 1;
@@ -1863,7 +1863,7 @@ void CLASS kodak_easy_load_raw()
 
   if (raw_width > width)
     black = 0;
-  pixel = calloc (raw_width, sizeof *pixel);
+  pixel = (uchar *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "kodak_easy_load_raw()");
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
@@ -2026,15 +2026,15 @@ void CLASS sony_load_raw()
   key = get4();
   fseek (ifp, 164600, SEEK_SET);
   fread (head, 1, 40, ifp);
-  sony_decrypt ((void *) head, 10, 1, key);
+  sony_decrypt ((unsigned *) head, 10, 1, key);
   for (i=26; i-- > 22; )
     key = key << 8 | head[i];
   fseek (ifp, data_offset, SEEK_SET);
-  pixel = calloc (raw_width, sizeof *pixel);
+  pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "sony_load_raw()");
   for (row=0; row < height; row++) {
     fread (pixel, 2, raw_width, ifp);
-    sony_decrypt ((void *) pixel, raw_width/2, !row, key);
+    sony_decrypt ((unsigned *) pixel, raw_width/2, !row, key);
     for (col=9; col < left_margin; col++)
       black += ntohs(pixel[col]);
     for (col=0; col < width; col++)
@@ -2231,7 +2231,7 @@ void CLASS foveon_thumb (FILE *tfp)
   bwide = get4();
   fprintf (tfp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
   if (bwide > 0) {
-    buf = malloc (bwide);
+    buf = (char *) malloc (bwide);
     merror (buf, "foveon_thumb()");
     for (row=0; row < thumb_height; row++) {
       fread  (buf, 1, bwide, ifp);
@@ -2310,7 +2310,7 @@ void CLASS foveon_load_raw()
   foveon_load_camf();
 }
 
-char * CLASS foveon_camf_param (char *block, char *param)
+const char * CLASS foveon_camf_param (const char *block, const char *param)
 {
   unsigned idx, num;
   char *pos, *cp, *dp;
@@ -2332,7 +2332,7 @@ char * CLASS foveon_camf_param (char *block, char *param)
   return NULL;
 }
 
-void * CLASS foveon_camf_matrix (int dim[3], char *name)
+void * CLASS foveon_camf_matrix (int dim[3], const char *name)
 {
   unsigned i, idx, type, ndim, size, *mat;
   char *pos, *cp, *dp;
@@ -2352,7 +2352,7 @@ void * CLASS foveon_camf_matrix (int dim[3], char *name)
       dim[i] = sget4(cp);
     }
     if ((size = dim[0]*dim[1]*dim[2]) > meta_length/4) break;
-    mat = malloc (size * 4);
+    mat = (unsigned *) malloc (size * 4);
     merror (mat, "foveon_camf_matrix()");
     for (i=0; i < size; i++)
       if (type && type != 6)
@@ -2365,7 +2365,7 @@ void * CLASS foveon_camf_matrix (int dim[3], char *name)
   return NULL;
 }
 
-int CLASS foveon_fixed (void *ptr, int size, char *name)
+int CLASS foveon_fixed (void *ptr, int size, const char *name)
 {
   void *dp;
   int dim[3];
@@ -2398,7 +2398,7 @@ short * CLASS foveon_make_curve (double max, double mul, double filt)
 
   if (!filt) filt = 0.8;
   size = 4*M_PI*max / filt;
-  curve = calloc (size+1, sizeof *curve);
+  curve = (short *) calloc (size+1, sizeof *curve);
   merror (curve, "foveon_make_curve()");
   curve[0] = size;
   for (i=0; i < size; i++) {
@@ -2442,7 +2442,8 @@ void CLASS foveon_interpolate()
   int satlev[3], keep[4], active[4];
   unsigned *badpix;
   double dsum=0, trsum[3];
-  char str[128], *cp;
+  char str[128];
+  const char* cp;
 
   if (verbose)
     fprintf (stderr, "Foveon interpolation...\n");
@@ -2515,12 +2516,12 @@ void CLASS foveon_interpolate()
   curve[6] = foveon_make_curve (dsum, dsum, cfilt);
   curve[7] = foveon_make_curve (dsum*2, dsum*2, cfilt);
 
-  sgain = foveon_camf_matrix (dim, "SpatialGain");
+  sgain = (float (*)[3]) foveon_camf_matrix (dim, "SpatialGain");
   if (!sgain) return;
-  sgrow = calloc (dim[1], sizeof *sgrow);
+  sgrow = (float (*)[3]) calloc (dim[1], sizeof *sgrow);
   sgx = (width + dim[1]-2) / (dim[1]-1);
 
-  black = calloc (height, sizeof *black);
+  black = (float (*)[3]) calloc (height, sizeof *black);
   for (row=0; row < height; row++) {
     for (i=0; i < 6; i++)
       ddft[0][0][i] = ddft[1][0][i] +
@@ -2609,7 +2610,7 @@ void CLASS foveon_interpolate()
   free (sgrow);
   free (sgain);
 
-  if ((badpix = foveon_camf_matrix (dim, "BadPixels"))) {
+  if ((badpix = (unsigned *) foveon_camf_matrix (dim, "BadPixels"))) {
     for (i=0; i < dim[0]; i++) {
       col = (badpix[i] >> 8 & 0xfff) - keep[0];
       row = (badpix[i] >> 20       ) - keep[1];
@@ -2628,7 +2629,7 @@ void CLASS foveon_interpolate()
   }
 
   /* Array for 5x5 Gaussian averaging of red values */
-  smrow[6] = calloc (width*5, sizeof **smrow);
+  smrow[6] = (int (*)[3]) calloc (width*5, sizeof **smrow);
   merror (smrow[6], "foveon_interpolate()");
   for (i=0; i < 5; i++)
     smrow[i] = smrow[6] + i*width;
@@ -2751,7 +2752,7 @@ void CLASS foveon_interpolate()
   }
 
   /* Smooth the image bottom-to-top and save at 1/4 scale */
-  shrink = calloc ((width/4) * (height/4), sizeof *shrink);
+  shrink = (short (*)[3]) calloc ((width/4) * (height/4), sizeof *shrink);
   merror (shrink, "foveon_interpolate()");
   for (row = height/4; row--; )
     for (col=0; col < width/4; col++) {
@@ -2839,7 +2840,7 @@ void CLASS bad_pixels()
 
   if (!filters) return;
   for (len=32 ; ; len *= 2) {
-    fname = malloc (len);
+    fname = (char *) malloc (len);
     if (!fname) return;
     if (getcwd (fname, len-16)) break;
     free (fname);
@@ -3256,7 +3257,7 @@ void CLASS vng_interpolate()
       }
     }
   }
-  brow[4] = calloc (width*3, sizeof **brow);
+  brow[4] = (ushort (*)[4]) calloc (width*3, sizeof **brow);
   merror (brow[4], "vng_interpolate()");
   for (row=0; row < 3; row++)
     brow[row] = brow[4] + row*width;
@@ -3361,11 +3362,11 @@ void CLASS ahd_interpolate()
   if (verbose) fprintf (stderr, "AHD interpolation...\n");
 
   border_interpolate(3);
-  buffer = malloc (26*TS*TS);			/* 1664 kB */
+  buffer = (char *) malloc (26*TS*TS);		/* 1664 kB */
   merror (buffer, "ahd_interpolate()");
-  rgb  = (void *) buffer;
-  lab  = (void *) (buffer + 12*TS*TS);
-  homo = (void *) (buffer + 24*TS*TS);
+  rgb  = (ushort(*)[TS][TS][3]) buffer;
+  lab  = (short (*)[TS][TS][3])(buffer + 12*TS*TS);
+  homo = (char  (*)[TS][TS])   (buffer + 24*TS*TS);
 
   for (top=0; top < height; top += TS-6)
     for (left=0; left < width; left += TS-6) {
@@ -3467,8 +3468,8 @@ void CLASS bilateral_filter()
 
   wr = ceil(sigma_d*2);		/* window radius */
   ws = 2*wr + 1;		/* window size */
-  window = calloc ((ws+1)*sizeof  *window +
-		 ws*width*sizeof **window + ws*sizeof *kernel, 1);
+  window = (float (**)[7]) calloc ((ws+1)*sizeof *window +
+		ws*width*sizeof **window + ws*sizeof *kernel, 1);
   merror (window, "bilateral_filter()");
   for (i=0; i <= ws; i++)
     window[i] = (float (*)[7]) (window+ws+1) + i*width;
@@ -3528,7 +3529,7 @@ void CLASS recover_highlights()
     if (pre_mul[kc] < pre_mul[c]) kc = c;
   high = height / SCALE;
   wide =  width / SCALE;
-  map = calloc (high*wide, sizeof *map);
+  map = (float *) calloc (high*wide, sizeof *map);
   merror (map, "recover_highlights()");
   FORCC if (c != kc) {
     memset (map, 0, high*wide*sizeof *map);
@@ -4129,7 +4130,7 @@ int CLASS parse_tiff_ifd (int base, int level)
 	break;
       case 50454:			/* Sinar tag */
       case 50455:
-	if (!(cbuf = malloc(len))) break;
+	if (!(cbuf = (char *) malloc(len))) break;
 	fread (cbuf, 1, len, ifp);
 	for (cp = cbuf-1; cp && cp < cbuf+len; cp = strchr(cp,'\n'))
 	  if (!strncmp (++cp,"Neutral ",8))
@@ -4227,7 +4228,7 @@ guess_cfa_pc:
     }
     fseek (ifp, save, SEEK_SET);
   }
-  if (sony_length && (buf = malloc(sony_length))) {
+  if (sony_length && (buf = (unsigned *) malloc(sony_length))) {
     fseek (ifp, sony_offset, SEEK_SET);
     fread (buf, sony_length, 1, ifp);
     sony_decrypt (buf, sony_length/4, 1, sony_key);
@@ -4394,7 +4395,7 @@ void CLASS parse_external_jpeg()
   if (!file) file = ifname-1;
   file++;
   if (!ext || strlen(ext) != 4 || ext-file != 8) return;
-  jname = malloc (strlen(ifname) + 1);
+  jname = (char *) malloc (strlen(ifname) + 1);
   merror (jname, "parse_external()");
   strcpy (jname, ifname);
   jfile = file - ifname + jname;
@@ -6105,7 +6106,7 @@ void CLASS apply_profile (char *input, char *output)
   if (strcmp (input, "embed"))
     hInProfile = cmsOpenProfileFromFile (input, "r");
   else if (profile_length) {
-    prof = malloc (profile_length);
+    prof = (char *) malloc (profile_length);
     merror (prof, "apply_profile()");
     fseek (ifp, profile_offset, SEEK_SET);
     fread (prof, 1, profile_length, ifp);
@@ -6200,7 +6201,7 @@ void CLASS fuji_rotate()
   step = sqrt(0.5);
   wide = fuji_width / step;
   high = (height - fuji_width) / step;
-  img = calloc (wide*high, sizeof *img);
+  img = (ushort (*)[4]) calloc (wide*high, sizeof *img);
   merror (img, "fuji_rotate()");
 
   for (row=0; row < high; row++)
@@ -6240,7 +6241,7 @@ void CLASS flip_image()
     fprintf (stderr, "Flipping image %c:%c:%c...\n",
 	flip & 1 ? 'H':'0', flip & 2 ? 'V':'0', flip & 4 ? 'T':'0');
   src = (INT64 *) image;
-  dest = calloc (height * width, sizeof *dest);
+  dest = (INT64 *) calloc (height * width, sizeof *dest);
   merror (dest, "flip_image()");
   doff  = flip_index (0, 0);
   cstep = flip_index (0, 1) - doff;
@@ -6262,7 +6263,7 @@ void CLASS write_ppm (FILE *ofp)
   int perc, c, val, total, i, row, col;
   float white=0, r;
 
-  ppm = calloc (width, colors*xmag);
+  ppm = (uchar *) calloc (width, colors*xmag);
   merror (ppm, "write_ppm()");
 
   if (colors > 3)
@@ -6306,7 +6307,7 @@ void CLASS write_ppm16 (FILE *ofp)
   int row, col, c;
   ushort *ppm;
 
-  ppm = calloc (width, 2*colors);
+  ppm = (ushort *) calloc (width, 2*colors);
   merror (ppm, "write_ppm16()");
   if (colors > 3)
     fprintf (ofp,
@@ -6349,7 +6350,7 @@ void CLASS write_psd (FILE *ofp)
   fwrite (head, 40, 1, ofp);
 
   psize = height*width;
-  buffer = calloc (colors, psize*2);
+  buffer = (ushort *) calloc (colors, psize*2);
   merror (buffer, "write_psd()");
   pred = buffer;
 
@@ -6367,7 +6368,8 @@ int CLASS main (int argc, char **argv)
   int arg, status=0, user_flip=-1, user_black=-1, user_qual=-1;
   int timestamp_only=0, thumbnail_only=0, identify_only=0, write_to_stdout=0;
   int half_size=0, use_fuji_rotate=1, quality, i, c;
-  char opt, *write_ext, *ofname, *sp, *cp;
+  char opt, *ofname, *sp, *cp;
+  const char *write_ext;
   struct utimbuf ut;
   FILE *ofp = stdout;
   void (*write_image)(FILE *) = write_ppm;
@@ -6601,7 +6603,8 @@ next:
       fclose(ifp);
       continue;
     }
-    image = calloc (iheight*iwidth*sizeof *image + meta_length, 1);
+    image = (ushort (*)[4])
+	calloc (iheight*iwidth*sizeof *image + meta_length, 1);
     merror (image, "main()");
     meta_data = (char *) (image + iheight*iwidth);
     if (verbose)
@@ -6644,7 +6647,7 @@ thumbnail:
       write_ext = ".psd";
     else
       write_ext = ".pgm\0.ppm\0.ppm\0.pam" + colors*5-5;
-    ofname = malloc (strlen(ifname) + 16);
+    ofname = (char *) malloc (strlen(ifname) + 16);
     merror (ofname, "main()");
     if (write_to_stdout)
       strcpy (ofname, "standard output");
