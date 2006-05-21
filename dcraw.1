@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "May 13, 2006"
+.TH dcraw 1 "May 21, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -130,8 +130,15 @@ Clip all highlights to solid white (default).
 .B -H 1
 Leave highlights unclipped in various shades of pink.
 .TP
-.B -H 2
-Attempt to intelligently reconstruct highlights.
+.B -H 2-9
+Reconstruct highlights.  Low numbers favor whites; high numbers
+favor colors.  Try
+.B -H 5
+as a compromise.  If that's not good enough, do
+.BR -H\ 9 ,
+cut out the non-white highlights, and paste them into an image
+generated with
+.BR -H\ 3 .
 .TP
 .B -m
 Same as

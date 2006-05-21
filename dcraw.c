@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.327 $
-   $Date: 2006/05/21 19:44:03 $
+   $Revision: 1.328 $
+   $Date: 2006/05/21 20:04:39 $
  */
 
 #define _GNU_SOURCE
@@ -3512,10 +3512,10 @@ void CLASS bilateral_filter()
   free (window);
 }
 
-#define SCALE (8 >> shrink)
+#define SCALE (4 >> shrink)
 void CLASS recover_highlights()
 {
-  float *map, sum, wgt;
+  float *map, sum, wgt, grow;
   int hsat[4], count, spread, change, val, i;
   unsigned high, wide, mrow, mcol, row, col, kc, c, d, y, x;
   ushort *pixel;
@@ -3524,7 +3524,8 @@ void CLASS recover_highlights()
 
   if (verbose) fprintf (stderr, "Highlight recovery...\n");
 
-  FORCC hsat[c] = 31000 * pre_mul[c];
+  grow = pow (2, 4-highlight);
+  FORCC hsat[c] = 32000 * pre_mul[c];
   for (kc=0, c=1; c < colors; c++)
     if (pre_mul[kc] < pre_mul[c]) kc = c;
   high = height / SCALE;
@@ -3548,7 +3549,7 @@ void CLASS recover_highlights()
 	if (count == SCALE*SCALE)
 	  map[mrow*wide+mcol] = sum / wgt;
       }
-    for (spread = 100; spread--; ) {
+    for (spread = 32/grow; spread--; ) {
       for (mrow=0; mrow < high; mrow++)
 	for (mcol=0; mcol < wide; mcol++) {
 	  if (map[mrow*wide+mcol]) continue;
@@ -3562,7 +3563,7 @@ void CLASS recover_highlights()
 	    }
 	  }
 	  if (count > 3)
-	    map[mrow*wide+mcol] = -sum / count * (15/16.0) - (1/16.0);
+	    map[mrow*wide+mcol] = - (sum+grow) / (count+grow);
 	}
       for (change=i=0; i < high*wide; i++)
 	if (map[i] < 0) {
@@ -6275,6 +6276,7 @@ void CLASS write_ppm (FILE *ofp)
 
   perc = width * height * 0.01;		/* 99th percentile white point */
   if (fuji_width) perc /= 2;
+  if (highlight) perc = 0;
   FORCC {
     for (val=0x2000, total=0; --val > 32; )
       if ((total += histogram[c][val]) > perc) break;
@@ -6383,7 +6385,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.18"
+    "\nRaw Photo Decoder \"dcraw\" v8.19"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
@@ -6397,7 +6399,7 @@ int CLASS main (int argc, char **argv)
     "\n-r <nums> Set raw white balance (four values required)"
     "\n-b <num>  Adjust brightness (default = 1.0)"
     "\n-k <num>  Set black point"
-    "\n-H [0-2]  Highlight mode (0=clip, 1=no clip, 2=recover)"
+    "\n-H [0-9]  Highlight mode (0=clip, 1=no clip, 2+=recover)"
     "\n-t [0-7]  Flip image (0=none, 3=180, 5=90CCW, 6=90CW)"
     "\n-o [0-5]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"
 #ifndef NO_LCMS
