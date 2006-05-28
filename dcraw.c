@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.328 $
-   $Date: 2006/05/21 20:04:39 $
+   $Revision: 1.329 $
+   $Date: 2006/05/28 05:07:49 $
  */
 
 #define _GNU_SOURCE
@@ -3323,7 +3323,7 @@ void CLASS cam_to_cielab (ushort cam[4], float lab[3])
 
   if (cam == NULL) {
     for (i=0; i < 0x10000; i++) {
-      r = (float) i / maximum;
+      r = i / 65535.0;
       cbrt[i] = r > 0.008856 ? pow(r,1/3.0) : 7.787*r + 16/116.0;
     }
     for (i=0; i < 3; i++)
@@ -3950,6 +3950,16 @@ void CLASS parse_mos (int offset)
 	(uchar) "\x94\x61\x16\x49"[(flip/90 + frot) & 3];
 }
 
+void CLASS linear_table (unsigned len)
+{
+  int i;
+  if (len > 0x1000) len = 0x1000;
+  read_shorts (curve, len);
+  for (i=len; i < 0x1000; i++)
+    curve[i] = curve[i-1];
+  maximum = curve[0xfff];
+}
+
 int CLASS parse_tiff_ifd (int base, int level)
 {
   unsigned entries, tag, type, len, plen=16, save;
@@ -4158,14 +4168,8 @@ guess_cfa_pc:
 	}
 	break;
       case 291:
-      case 2317:
       case 50712:			/* LinearizationTable */
-	if (len > 0x1000)
-	    len = 0x1000;
-	read_shorts (curve, len);
-	for (i=len; i < 0x1000; i++)
-	  curve[i] = curve[i-1];
-	maximum = curve[0xfff];
+	linear_table (len);
 	break;
       case 50714:			/* BlackLevel */
       case 50715:			/* BlackLevelDeltaH */
@@ -4258,6 +4262,45 @@ guess_cfa_pc:
   return 0;
 }
 
+void CLASS parse_kodak_ifd (int base)
+{
+  unsigned entries, tag, type, len, save;
+  int i, c, wbi=-2, wbtemp;
+  char line[128];
+  static const char *wbs[] =
+  { "Auto","Daylight","Tungsten","Fluorescent","Flash" };
+  float mul[3], num;
+
+  entries = get2();
+  if (entries > 1024) return;
+  while (entries--) {
+    tiff_get (base, &tag, &type, &len, &save);
+    if (tag == 1009)
+      while ((int) len > 0) {
+	fgets (line, 128, ifp);
+	len -= strlen(line) + 1;
+	if (!strncmp (line, "White bal", 9)) {
+	  wbtemp = atoi (line + strlen(line) - 5);
+	  if (wbtemp < 1000) wbtemp = 6500;
+	  for (i=0; i < 5; i++)
+	    if (strstr (line, wbs[i])) wbi = i-1;
+	}
+      }
+    if (tag == 2130 + wbi)
+      FORC3 mul[c] = getreal(type);
+    if (tag == 2140 + wbi && wbi >= 0)
+      FORC3 {
+	for (num=i=0; i < 4; i++)
+	  num += getreal(type) * pow (wbtemp/100.0, i);
+	cam_mul[c] = 2048 / (num * mul[c]);
+      }
+    if (tag == 2317) linear_table (len);
+    if (tag == 6020) iso_speed = getint(type);
+    fseek (ifp, save, SEEK_SET);
+  }
+  if (wbi == -1) cam_mul[0] = -1;
+}
+
 void CLASS parse_tiff (int base)
 {
   int doff, max_samp=0, raw=-1, thm=-1, i;
@@ -4275,7 +4318,7 @@ void CLASS parse_tiff (int base)
   }
   if (!dng_version && !strncmp(make,"Kodak",5)) {
     fseek (ifp, 12+base, SEEK_SET);
-    parse_tiff_ifd (base, 2);
+    parse_kodak_ifd (base);
   }
   thumb_misc = 16;
   if (thumb_offset) {
@@ -5194,6 +5237,9 @@ void CLASS identify()
     {  5067304, "AVT",      "F-510C"          ,0 },
     { 10134608, "AVT",      "F-510C"          ,0 },
     { 16157136, "AVT",      "F-810C"          ,0 },
+    {  1409024, "Sony",     "XCD-SX910CR"     ,0 },
+    {  2818048, "Sony",     "XCD-SX910CR"     ,0 },
+    {  3884928, "Micron",   "2010"            ,0 },
     {  6624000, "Pixelink", "A782"            ,0 },
     { 13248000, "Pixelink", "A782"            ,0 },
     {  6291456, "RoverShot","3320AF"          ,0 },
@@ -5762,6 +5808,20 @@ konica_400z:
     width  = 3272;
     load_raw = unpacked_load_raw;
     maximum = 0xfff0;
+  } else if (!strcmp(model,"XCD-SX910CR")) {
+    height = 1024;
+    width  = 1375;
+    raw_width = 1376;
+    filters = 0x49494949;
+    maximum = 0x3ff;
+    load_raw = (fsize < 2000000) ? eight_bit_load_raw : unpacked_load_raw;
+  } else if (!strcmp(model,"2010")) {
+    height = 1207;
+    width  = 1608;
+    order = 0x4949;
+    data_offset = 3212;
+    maximum = 0x3ff;
+    load_raw = unpacked_load_raw;
   } else if (!strcmp(model,"A782")) {
     height = 3000;
     width  = 2208;
@@ -6124,7 +6184,6 @@ void CLASS apply_profile (char *input, char *output)
   hTransform = cmsCreateTransform (hInProfile, TYPE_RGBA_16,
 	hOutProfile, TYPE_RGBA_16, INTENT_PERCEPTUAL, 0);
   cmsDoTransform (hTransform, image, image, width*height);
-  maximum = 0xffff;
   raw_color = 1;		/* Don't use rgb_cam with a profile */
   cmsDeleteTransform (hTransform);
   cmsCloseProfile (hOutProfile);
@@ -6385,7 +6444,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.19"
+    "\nRaw Photo Decoder \"dcraw\" v8.20"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
