@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.329 $
-   $Date: 2006/05/28 05:07:49 $
+   $Revision: 1.330 $
+   $Date: 2006/05/29 18:54:35 $
  */
 
 #define _GNU_SOURCE
@@ -5052,6 +5052,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 3952,2189,449,-6701,14585,2275,-4536,7349,6536 } },
     { "Leaf", 0,
 	{ 8236,1746,-1314,-8251,15953,2428,-3673,5786,5771 } },
+    { "Micron 2010", 110,	/* DJC */
+	{ 16695,-3761,-2151,155,9682,163,3433,951,4904 } },
     { "Minolta DiMAGE 5", 0,
 	{ 8983,-2942,-963,-6556,14476,2237,-2426,2887,8014 } },
     { "Minolta DiMAGE 7Hi", 0,
@@ -5819,6 +5821,7 @@ konica_400z:
     height = 1207;
     width  = 1608;
     order = 0x4949;
+    filters = 0x16161616;
     data_offset = 3212;
     maximum = 0x3ff;
     load_raw = unpacked_load_raw;
@@ -6444,7 +6447,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.20"
+    "\nRaw Photo Decoder \"dcraw\" v8.21"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
