@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.26 $
-   $Date: 2005/11/14 19:22:50 $
+   $Revision: 1.27 $
+   $Date: 2006/06/09 05:18:58 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -43,7 +43,7 @@
 #include <libintl.h>
 #define _(String) gettext(String)
 
-#define PLUG_IN_VERSION  "1.1.14 - 14 November 2005"
+#define PLUG_IN_VERSION  "1.1.15 - 9 June 2006"
 
 static void query(void);
 static void run(RAWPHOTO_CONST gchar *name,
@@ -65,10 +65,10 @@ GimpPlugInInfo PLUG_IN_INFO =
 
 static struct {
   gboolean check_val[6];
-  gfloat    spin_val[3];
+  gfloat    spin_val[2];
 } cfg = {
   { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE },
-  { 1, 1, 1 }
+  { 1, 0 }
 };
 
 MAIN ()
@@ -95,7 +95,7 @@ static void query (void)
 			  "Loads raw digital camera files",
 			  "This plug-in loads raw digital camera files.",
 			  "Dave Coffin at cybercom dot net, user dcoffin",
-			  "Copyright 2003-2005 by Dave Coffin",
+			  "Copyright 2003-2006 by Dave Coffin",
 			  PLUG_IN_VERSION,
 			  "<Load>/rawphoto",
 			  NULL,
@@ -106,7 +106,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-    "bay,bmq,cr2,crw,cs1,dc2,dcr,dng,erf,fff,hdr,jpg,k25,kdc,mdc,mos,mrw,nef,orf,pef,pxn,raf,raw,rdc,sr2,srf,sti,tif,x3f", "");
+    "arw,bay,bmq,cr2,crw,cs1,dc2,dcr,dng,erf,fff,hdr,jpg,k25,kdc,mdc,mos,mrw,nef,orf,pef,pxn,raf,raw,rdc,sr2,srf,sti,tif,x3f", "");
 }
 
 static void run (RAWPHOTO_CONST gchar *name,
@@ -175,7 +175,7 @@ done:
 
 static gint32 load_image (gchar *filename)
 {
-  int		tile_height, width, height, row, nrows;
+  int		tile_height, depth, width, height, row, nrows;
   FILE		*pfp;
   gint32	image, layer;
   GimpDrawable	*drawable;
@@ -187,14 +187,14 @@ static gint32 load_image (gchar *filename)
   command = g_malloc (strlen(filename)+100);
   if (!command) return -1;
   sprintf (command,
-	"dcraw -c%s%s%s%s%s%s -b %0.2f -r %0.2f -l %0.2f '%s'\n",
+	"dcraw -c%s%s%s%s%s%s -b %0.2f -H %d '%s'\n",
 	cfg.check_val[0] ? " -q 0":"",
 	cfg.check_val[1] ? " -h":"",
 	cfg.check_val[2] ? " -f":"",
 	cfg.check_val[3] ? " -d":"",
 	cfg.check_val[4] ? " -a":"",
 	cfg.check_val[5] ? " -w":"",
-	cfg.spin_val[0], cfg.spin_val[1], cfg.spin_val[2],
+	cfg.spin_val[0], (int) cfg.spin_val[1],
 	filename );
   fputs (command, stderr);
   pfp = popen (command, "r");
@@ -204,13 +204,15 @@ static gint32 load_image (gchar *filename)
     return -1;
   }
 
-  if (fscanf (pfp, "P6 %d %d 255%c", &width, &height, &nl) != 3) {
+  if (fscanf (pfp, "P%d %d %d 255%c", &depth, &width, &height, &nl) != 4
+	|| (depth-5)/2 ) {
     pclose (pfp);
     g_message ("Not a raw digital camera image.\n");
     return -1;
   }
 
-  image = gimp_image_new (width, height, GIMP_RGB);
+  depth = depth*2 - 9;
+  image = gimp_image_new (width, height, depth == 3 ? GIMP_RGB : GIMP_GRAY);
   if (image == -1) {
     pclose (pfp);
     g_message ("Can't allocate new image.\n");
@@ -221,7 +223,8 @@ static gint32 load_image (gchar *filename)
 
   /* Create the "background" layer to hold the image... */
   layer = gimp_layer_new (image, "Background", width, height,
-			  GIMP_RGB_IMAGE, 100, GIMP_NORMAL_MODE);
+			depth == 3 ? GIMP_RGB_IMAGE : GIMP_GRAY_IMAGE,
+			100, GIMP_NORMAL_MODE);
   gimp_image_add_layer (image, layer, 0);
 
   /* Get the drawable and set the pixel region for our load... */
@@ -231,14 +234,14 @@ static gint32 load_image (gchar *filename)
 
   /* Temporary buffers... */
   tile_height = gimp_tile_height();
-  pixel = g_new (guchar, tile_height * width * 3);
+  pixel = g_new (guchar, tile_height * width * depth);
 
   /* Load the image... */
   for (row = 0; row < height; row += tile_height) {
     nrows = height - row;
     if (nrows > tile_height)
 	nrows = tile_height;
-    fread (pixel, width * 3, nrows, pfp);
+    fread (pixel, width * depth, nrows, pfp);
     gimp_pixel_rgn_set_rect (&pixel_region, pixel, 0, row, width, nrows);
   }
 
@@ -275,7 +278,7 @@ gint load_dialog (gchar * name)
   { "Quick interpolation", "Half-size interpolation",
     "Four color interpolation", "Grayscale document",
     "Automatic white balance", "Camera white balance",
-    "Brightness", "Red Multiplier", "Blue Multiplier" };
+    "Brightness", "Highlight mode" };
 
   gimp_ui_init ("rawphoto", TRUE);
 
@@ -316,14 +319,18 @@ gint load_dialog (gchar * name)
     gtk_widget_show (widget);
   }
 
-  for (i=NCHECK; i < NCHECK+3; i++) {
+  for (i=NCHECK; i < NCHECK+2; i++) {
     widget = gtk_label_new (_(label[i]));
     gtk_misc_set_alignment (GTK_MISC (widget), 1.0, 0.5);
     gtk_misc_set_padding   (GTK_MISC (widget), 10, 0);
     gtk_table_attach
 	(GTK_TABLE(table), widget, 0, 1, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
     gtk_widget_show (widget);
-    widget = gimp_spin_button_new
+    if (i == NCHECK+1)
+      widget = gimp_spin_button_new
+	(&adj, cfg.spin_val[i-NCHECK], 0, 9, 1, 9, 1, 1, 0);
+    else
+      widget = gimp_spin_button_new
 	(&adj, cfg.spin_val[i-NCHECK], 0.01, 4.0, 0.01, 0.1, 0.1, 0.1, 2);
     gtk_table_attach
 	(GTK_TABLE(table), widget, 1, 2, i, i+1, GTK_FILL, GTK_FILL, 0, 0);
