@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.331 $
-   $Date: 2006/06/21 20:00:07 $
+   $Revision: 1.332 $
+   $Date: 2006/06/23 07:36:10 $
  */
 
 #define _GNU_SOURCE
@@ -1863,7 +1863,7 @@ void CLASS kodak_dc120_load_raw()
 void CLASS kodak_easy_load_raw()
 {
   uchar *pixel;
-  unsigned row, col, icol;
+  unsigned row, col, val;
 
   if (raw_width > width)
     black = 0;
@@ -1872,11 +1872,10 @@ void CLASS kodak_easy_load_raw()
   for (row=0; row < height; row++) {
     fread (pixel, 1, raw_width, ifp);
     for (col=0; col < raw_width; col++) {
-      icol = col - left_margin;
-      if (icol < width)
-	BAYER(row,icol) = (ushort) curve[pixel[col]];
-      else
-	black += curve[pixel[col]];
+      val = curve[pixel[col]];
+      if ((unsigned) (col-left_margin) < width)
+	BAYER(row,col-left_margin) = val;
+      else black += val;
     }
   }
   free (pixel);
@@ -1885,6 +1884,54 @@ void CLASS kodak_easy_load_raw()
   if (!strncmp(model,"DC2",3))
     black = 0;
   maximum = curve[0xff];
+}
+
+void CLASS kodak_262_load_raw()
+{
+  static const uchar kodak_tree[2][26] =
+  { { 0,1,5,1,1,2,0,0,0,0,0,0,0,0,0,0, 0,1,2,3,4,5,6,7,8,9 },
+    { 0,3,1,1,1,1,1,2,0,0,0,0,0,0,0,0, 0,1,2,3,4,5,6,7,8,9 } };
+  struct decode *decode[2];
+  uchar *pixel;
+  int *strip, ns, i, row, col, chess, pi=0, pi1, pi2, pred, val;
+
+  init_decoder();
+  for (i=0; i < 2; i++) {
+    decode[i] = free_decode;
+    make_decoder (kodak_tree[i], 0);
+  }
+  ns = (raw_height+63) >> 5;
+  pixel = (uchar *) malloc (raw_width*32 + ns*4);
+  merror (pixel, "kodak_262_load_raw()");
+  strip = (int *) (pixel + raw_width*32);
+  order = 0x4d4d;
+  for (i=0; i < ns; i++)
+    strip[i] = get4();
+  for (row=0; row < raw_height; row++) {
+    if ((row & 31) == 0) {
+      fseek (ifp, strip[row >> 5], SEEK_SET);
+      getbits(-1);
+      pi = 0;
+    }
+    for (col=0; col < raw_width; col++) {
+      chess = (row + col) & 1;
+      pi1 = chess ? pi-2           : pi-raw_width-1;
+      pi2 = chess ? pi-2*raw_width : pi-raw_width+1;
+      if (col <= chess) pi1 = -1;
+      if (pi1 < 0) pi1 = pi2;
+      if (pi2 < 0) pi2 = pi1;
+      if (pi1 < 0 && col > 1) pi1 = pi2 = pi-2;
+      pred = (pi1 < 0) ? 0 : (pixel[pi1] + pixel[pi2]) >> 1;
+      pixel[pi] = pred + ljpeg_diff (decode[chess]);
+      val = curve[pixel[pi++]];
+      if ((unsigned) (col-left_margin) < width)
+	BAYER(row,col-left_margin) = val;
+      else black += val;
+    }
+  }
+  free (pixel);
+  if (raw_width > width)
+    black /= (raw_width - width) * height;
 }
 
 int CLASS kodak_65000_decode (short *out, int bsize)
@@ -4382,20 +4429,24 @@ void CLASS parse_tiff (int base)
   }
   fuji_width *= (raw_width+1)/2;
   if (tiff_ifd[0].flip) tiff_flip = tiff_ifd[0].flip;
-  if (raw >= 0) {
-    if (tiff_compress < 2)
-      load_raw = tiff_bps > 8 ? unpacked_load_raw : eight_bit_load_raw;
-    if (tiff_compress/2 == 3)
-      load_raw = lossless_jpeg_load_raw;
-    if (tiff_compress == 32773)
-      load_raw = packed_12_load_raw;
-    if (tiff_compress == 65000)
-      switch (tiff_ifd[raw].phint) {
-	case     2: load_raw = kodak_rgb_load_raw;   filters = 0;  break;
-	case     6: load_raw = kodak_ycbcr_load_raw; filters = 0;  break;
-	case 32803: load_raw = kodak_65000_load_raw;
-      }
-  }
+  if (raw >= 0)
+    switch (tiff_compress) {
+      case 0:  case 1:
+	load_raw = tiff_bps > 8 ?
+	      unpacked_load_raw : eight_bit_load_raw;	break;
+      case 6:  case 7:
+	load_raw = lossless_jpeg_load_raw;		break;
+      case 262:
+	load_raw = kodak_262_load_raw;			break;
+      case 32773:
+	load_raw = packed_12_load_raw;			break;
+      case 65000:
+	switch (tiff_ifd[raw].phint) {
+	  case     2: load_raw = kodak_rgb_load_raw;   filters = 0;  break;
+	  case     6: load_raw = kodak_ycbcr_load_raw; filters = 0;  break;
+	  case 32803: load_raw = kodak_65000_load_raw;
+	}
+    }
   if (tiff_samples == 3 && tiff_bps == 8)
     if (!dng_version) is_raw = 0;
   for (i=0; i < tiff_nifds; i++)
@@ -6490,7 +6541,7 @@ int CLASS main (int argc, char **argv)
   if (argc == 1)
   {
     fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v8.22"
+    "\nRaw Photo Decoder \"dcraw\" v8.23"
     "\nby Dave Coffin, dcoffin a cybercom o net"
     "\n\nUsage:  %s [options] file1 file2 ...\n"
     "\nValid options:"
