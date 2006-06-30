@@ -6,7 +6,7 @@ typedef unsigned char uchar;
 typedef unsigned short ushort;
 
 short order;
-int width, height, data_offset;
+int width, height, bps, data_offset;
 FILE *ifp;
 
 ushort sget2 (uchar *s)
@@ -41,7 +41,7 @@ int get4()
 
 void parse_tiff_ifd()
 {
-  unsigned entries, tag, type, len, val, save;
+  unsigned entries, tag, type, len, save;
 
   entries = get2();
   if (entries > 512) return;
@@ -49,18 +49,19 @@ void parse_tiff_ifd()
     tag  = get2();
     type = get2();
     len  = get4();
-    val  = get4();
-    save = ftell(ifp);
+    save = ftell(ifp) + 4;
+    if (len * ("1112481124848"[type < 13 ? type:0]-'0') > 4)
+      fseek (ifp, get4(), SEEK_SET);
     switch (tag) {
-      case 0x100:  width       = val;  break;
-      case 0x101:  height      = val;  break;
-      case 0x111:  data_offset = val;  break;
-      case 0x14a:
-	save = ftell(ifp);
-	fseek (ifp, val, SEEK_SET);
+      case 256:  width       = get4();  break;
+      case 257:  height      = get4();  break;
+      case 258:  bps         = get2();  break;
+      case 273:  data_offset = get4();  break;
+      case 330:
+	fseek (ifp, get4(), SEEK_SET);
 	parse_tiff_ifd();
-	fseek (ifp, save, SEEK_SET);
     }
+    fseek (ifp, save, SEEK_SET);
   }
 }
 
@@ -80,7 +81,7 @@ void parse_tiff()
 int main (int argc, char **argv)
 {
   char buf[4096];
-  int size;
+  int size, red;
 
   if (argc == 1) {
     fprintf (stderr, "Usage:  %s [options] file.nef\n", argv[0]);
@@ -90,17 +91,20 @@ int main (int argc, char **argv)
     perror (argv[1]);
     return 1;
   }
-  width = height = 0;
+  width = height = bps = 0;
   parse_tiff();
   if (!height) {
     fprintf (stderr, "TIFF decode failed.\n");
     return 1;
   }
-  printf ("P6 %d %d 255\n", width, height);
-  size = width*height*3;
+  printf ("P6 %d %d %d\n", width, height, (1 << bps)-1);
+  size = width*height*3*bps/8;
   fseek (ifp, data_offset, SEEK_SET);
   while (size > 0) {
-    fwrite (buf, 1, fread(buf,1,MIN(size,4096),ifp), stdout);
+    red = fread (buf, 1, MIN(size,4096), ifp);
+    if (bps > 8 && order == 0x4949)
+      swab (buf, buf, red);
+    fwrite (buf, 1, red, stdout);
     size -= 4096;
   }
   fclose (ifp);
