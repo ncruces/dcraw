@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "May 21, 2006"
+.TH dcraw 1 "July 18, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -99,10 +99,8 @@ no white point, and no
 .B -b
 option.
 .TP
-.B -3
-Same output as
-.BR -4 ,
-written in Adobe PhotoShop format.
+.B -T
+Write TIFF output (with metadata) instead of PGM/PPM/PAM.
 .TP
 .B -k black
 Set the black point.  Default depends on the camera.
@@ -119,10 +117,6 @@ If this can't be found, print a warning and revert to the default.
 Specify your own raw color balance.
 These multipliers can be cut and pasted from the output of
 .BR dcraw\ -v .
-.TP
-.B -n
-Same as
-.BR -H\ 1 .
 .TP
 .B -H 0
 Clip all highlights to solid white (default).
@@ -156,13 +150,13 @@ option is not used:
 \ \ sRGB D65 (default)
 .br
 .B \t2
-\ \ Adobe 1998 D65
+\ \ Adobe RGB (1998) D65
 .br
 .B \t3
-\ \ Wide Gamut D65
+\ \ Wide Gamut RGB D65
 .br
 .B \t4
-\ \ Kodak ProPhoto D65
+\ \ Kodak ProPhoto RGB D65
 .br
 .B \t5
 \ \ XYZ
@@ -206,14 +200,5 @@ are silently ignored.
 .BR gphoto2 (1),
 .BR cjpeg (1),
 .BR djpeg (1)
-.SH BUGS
-The author stubbornly refuses to add more output formats.
-.P
-Don't expect
-.B dcraw
-to produce the same images as software provided by the camera
-vendor.  Often
-.B dcraw
-yields better results!
 .SH AUTHOR
 Written by David Coffin, dcoffin a cybercom o net
