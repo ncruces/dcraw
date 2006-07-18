@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.59 $
-   $Date: 2006/05/04 22:09:44 $
+   $Revision: 1.60 $
+   $Date: 2006/07/18 06:29:29 $
  */
 
 #include <stdio.h>
@@ -100,6 +100,7 @@ void tiff_dump(int base, int tag, int type, int count, int level)
   save = ftell(ifp);
   printf("%*stag=0x%x %d, type=%d, count=%d, offset=%06x, data=",
 	level*2, "", tag, tag, type, count, save);
+  if (tag == 34310) goto quit;
   if (type==2) putchar('\"');
   for (j = 0; j < count && j < DLEN; j++)
     switch (type) {
@@ -124,6 +125,7 @@ void tiff_dump(int base, int tag, int type, int count, int level)
 	break;
     }
   if (type==2) putchar('\"');
+quit:
   putchar('\n');
   fseek (ifp, save, SEEK_SET);
 }
@@ -341,6 +343,11 @@ int parse_tiff_ifd (int base, int level)
       case 29184: sony_offset = get4();  break;
       case 29185: sony_length = get4();  break;
       case 29217: sony_key    = get4();  break;
+      case 33424:
+	puts("Kodak private data:");
+	fseek (ifp, get4()+base, SEEK_SET);
+	parse_tiff_ifd (base, level+1);
+	break;
       case 34310:
 	parse_mos(0);
 	break;
@@ -392,11 +399,6 @@ void parse_tiff (int base)
     fseek (ifp, doff+base, SEEK_SET);
     printf ("IFD #%d:\n", ifd++);
     if (parse_tiff_ifd (base, 0)) break;
-  }
-  if (!strncmp(make,"Kodak",5) && !is_dng) {
-    fseek (ifp, 12+base, SEEK_SET);
-    puts ("\nSpecial Kodak image directory:");
-    parse_tiff_ifd (base, 0);
   }
 }
 
@@ -557,13 +559,16 @@ void parse_mos(int level)
 
   save = ftell(ifp);
   while (1) {
-    fread (data, 1, 8, ifp);
-    if (strcmp(data,"PKTS")) break;
-    strcpy (model, "Valeo");
-    printf ("%*s%s ", level, "", data);
+    if (get4() != 0x504b5453) break;
+    get4();
+    printf ("%*sPKTS ", level, "");
     fread (data, 1, 40, ifp);
     skip = get4();
     printf ("%s %d bytes: ", data, skip);
+    if (!strcmp(data,"pattern_ratation_angle")) {
+      printf ("%d\n", get2());
+      continue;
+    }
     if (!strcmp(data,"icc_camera_to_tone_matrix")) {
       for (i=0; i < skip/4; i++)
 	printf ("%f ", int_to_float(get4()));
@@ -949,10 +954,6 @@ void identify()
     parse_rollei();
   else if (!memcmp (head,"FOVb",4))
     parse_foveon();
-  fseek (ifp, 8, SEEK_SET);
-  parse_mos(0);
-  fseek (ifp, 3472, SEEK_SET);
-  parse_mos(0);
   parse_jpeg(0);
 }
 
