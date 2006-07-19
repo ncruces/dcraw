@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.60 $
-   $Date: 2006/07/18 06:29:29 $
+   $Revision: 1.61 $
+   $Date: 2006/07/19 06:14:53 $
  */
 
 #include <stdio.h>
@@ -938,6 +938,8 @@ void identify()
       fseek (ifp, hlen, SEEK_SET);
     } else
       parse_tiff (0);
+  } else if (!memcmp (head,"NDF0",4)) {
+    parse_tiff (12);
   } else if (!memcmp (head,"\0MRM",4)) {
     parse_minolta();
   } else if (!memcmp (head,"FUJIFILM",8)) {
