@@ -19,8 +19,8 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.333 $
-   $Date: 2006/07/18 06:30:03 $
+   $Revision: 1.334 $
+   $Date: 2006/07/21 14:48:23 $
  */
 
 #define VERSION "8.25"
@@ -6619,7 +6619,7 @@ void CLASS tiff_set (ushort *ntag,
 void CLASS write_ppm_tiff (FILE *ofp)
 {
   struct tiff_hdr th;
-  struct tm t;
+  struct tm *t;
   uchar *ppm, lut[0x10000];
   ushort *ppm2;
   int i, c, row, col, psize=0;
@@ -6662,9 +6662,9 @@ void CLASS write_ppm_tiff (FILE *ofp)
   strncpy (th.make, make, 64);
   strncpy (th.model, model, 72);
   strcpy (th.soft, "dcraw v"VERSION);
-  gmtime_r (&timestamp, &t);
+  t = gmtime (&timestamp);
   sprintf (th.date, "%04d:%02d:%02d %02d:%02d:%02d",
-	t.tm_year+1900,t.tm_mon+1,t.tm_mday,t.tm_hour,t.tm_min,t.tm_sec);
+      t->tm_year+1900,t->tm_mon+1,t->tm_mday,t->tm_hour,t->tm_min,t->tm_sec);
 
   if (output_tiff) {
     fwrite (&th, sizeof th, 1, ofp);
