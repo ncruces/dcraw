@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.335 $
-   $Date: 2006/07/26 18:02:50 $
+   $Revision: 1.336 $
+   $Date: 2006/07/27 20:04:06 $
  */
 
-#define VERSION "8.25"
+#define VERSION "8.26"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -151,15 +151,11 @@ struct {
    assumption that all filter patterns can be described
    by a repeating pattern of eight rows and two columns
 
+   Do not use the FC or BAYER macros with the Leaf CatchLight,
+   because its pattern is 16x16, not 2x8.
+
    Return values are either 0/1/2/3 = G/M/C/Y or 0/1/2/3 = R/G1/B/G2
- */
-#define FC(row,col) \
-	(filters >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
 
-#define BAYER(row,col) \
-	image[((row) >> shrink)*iwidth + ((col) >> shrink)][FC(row,col)]
-
-/*
 	PowerShot 600	PowerShot A50	PowerShot Pro70	Pro90 & G1
 	0xe1e4e1e4:	0x1b4e4b1e:	0x1e4b4e1b:	0xb4b4b4b4:
 
@@ -188,6 +184,39 @@ struct {
 	2 B G B G B G	2 G R G R G R	2 G B G B G B	2 R G R G R G
 	3 G R G R G R	3 B G B G B G	3 R G R G R G	3 G B G B G B
  */
+
+#define FC(row,col) \
+	(filters >> ((((row) << 1 & 14) + ((col) & 1)) << 1) & 3)
+
+#define BAYER(row,col) \
+	image[((row) >> shrink)*iwidth + ((col) >> shrink)][FC(row,col)]
+
+#define BAYER2(row,col) \
+	image[((row) >> shrink)*iwidth + ((col) >> shrink)][fc(row,col)]
+
+int CLASS fc (int row, int col)
+{
+  static const char filter[16][16] =
+  { { 2,1,1,3,2,3,2,0,3,2,3,0,1,2,1,0 },
+    { 0,3,0,2,0,1,3,1,0,1,1,2,0,3,3,2 },
+    { 2,3,3,2,3,1,1,3,3,1,2,1,2,0,0,3 },
+    { 0,1,0,1,0,2,0,2,2,0,3,0,1,3,2,1 },
+    { 3,1,1,2,0,1,0,2,1,3,1,3,0,1,3,0 },
+    { 2,0,0,3,3,2,3,1,2,0,2,0,3,2,2,1 },
+    { 2,3,3,1,2,1,2,1,2,1,1,2,3,0,0,1 },
+    { 1,0,0,2,3,0,0,3,0,3,0,3,2,1,2,3 },
+    { 2,3,3,1,1,2,1,0,3,2,3,0,2,3,1,3 },
+    { 1,0,2,0,3,0,3,2,0,1,1,2,0,1,0,2 },
+    { 0,1,1,3,3,2,2,1,1,3,3,0,2,1,3,2 },
+    { 2,3,2,0,0,1,3,0,2,0,1,2,3,0,1,0 },
+    { 1,3,1,2,3,2,3,2,0,2,0,1,1,0,3,0 },
+    { 0,2,0,3,1,0,0,1,1,3,3,2,3,2,2,1 },
+    { 2,1,3,2,3,1,2,1,0,3,0,2,0,2,0,2 },
+    { 0,3,1,0,0,2,0,3,2,1,3,1,1,3,1,3 } };
+
+  if (filters != 1) return FC(row,col);
+  return filter[(row+top_margin) & 15][(col+left_margin) & 15];
+}
 
 #ifndef __GLIBC__
 char *my_memmem (char *haystack, size_t haystacklen,
@@ -1548,7 +1577,7 @@ void CLASS unpacked_load_raw()
   for (row=0; row < height; row++) {
     read_shorts (pixel, raw_width);
     for (col=0; col < width; col++)
-      BAYER(row,col) = pixel[col];
+      BAYER2(row,col) = pixel[col];
   }
   free (pixel);
 }
@@ -2963,11 +2992,11 @@ void CLASS bad_pixels()
       for (r = row-rad; r <= row+rad; r++)
 	for (c = col-rad; c <= col+rad; c++)
 	  if ((unsigned) r < height && (unsigned) c < width &&
-		(r != row || c != col) && FC(r,c) == FC(row,col)) {
-	    tot += BAYER(r,c);
+		(r != row || c != col) && fc(r,c) == fc(row,col)) {
+	    tot += BAYER2(r,c);
 	    n++;
 	  }
-    BAYER(row,col) = tot/n;
+    BAYER2(row,col) = tot/n;
     if (verbose) {
       if (!fixed++)
 	fprintf (stderr, "Fixed bad pixels at:");
@@ -3214,7 +3243,7 @@ skip_block:
 
 void CLASS border_interpolate (int border)
 {
-  unsigned row, col, y, x, c, sum[8];
+  unsigned row, col, y, x, f, c, sum[8];
 
   for (row=0; row < height; row++)
     for (col=0; col < width; col++) {
@@ -3224,39 +3253,41 @@ void CLASS border_interpolate (int border)
       for (y=row-1; y != row+2; y++)
 	for (x=col-1; x != col+2; x++)
 	  if (y < height && x < width) {
-	    sum[FC(y,x)] += BAYER(y,x);
-	    sum[FC(y,x)+4]++;
+	    f = fc(y,x);
+	    sum[f] += image[y*width+x][f];
+	    sum[f+4]++;
 	  }
-      FORCC if (c != FC(row,col))
+      f = fc(row,col);
+      FORCC if (c != f && sum[c+4])
 	image[row*width+col][c] = sum[c] / sum[c+4];
     }
 }
 
 void CLASS lin_interpolate()
 {
-  int code[8][2][32], *ip, sum[4];
+  int code[16][16][32], *ip, sum[4];
   int c, i, x, y, row, col, shift, color;
   ushort *pix;
 
   if (verbose) fprintf (stderr, "Bilinear interpolation...\n");
 
   border_interpolate(1);
-  for (row=0; row < 8; row++)
-    for (col=0; col < 2; col++) {
+  for (row=0; row < 16; row++)
+    for (col=0; col < 16; col++) {
       ip = code[row][col];
       memset (sum, 0, sizeof sum);
       for (y=-1; y <= 1; y++)
 	for (x=-1; x <= 1; x++) {
 	  shift = (y==0) + (x==0);
 	  if (shift == 2) continue;
-	  color = FC(row+y,col+x);
+	  color = fc(row+y,col+x);
 	  *ip++ = (width*y + x)*4 + color;
 	  *ip++ = shift;
 	  *ip++ = color;
 	  sum[color] += 1 << shift;
 	}
       FORCC
-	if (c != FC(row,col)) {
+	if (c != fc(row,col)) {
 	  *ip++ = c;
 	  *ip++ = sum[c];
 	}
@@ -3264,7 +3295,7 @@ void CLASS lin_interpolate()
   for (row=1; row < height-1; row++)
     for (col=1; col < width-1; col++) {
       pix = image[row*width+col];
-      ip = code[row & 7][col & 1];
+      ip = code[row & 15][col & 15];
       memset (sum, 0, sizeof sum);
       for (i=8; i--; ip+=3)
 	sum[ip[2]] += pix[ip[0]] << ip[1];
@@ -3310,24 +3341,27 @@ void CLASS vng_interpolate()
     +1,+0,+2,+1,0,0x10
   }, chood[] = { -1,-1, -1,0, -1,+1, 0,+1, +1,+1, +1,0, +1,-1, 0,-1 };
   ushort (*brow[5])[4], *pix;
-  int code[8][2][320], *ip, gval[8], gmin, gmax, sum[4];
+  int prow=7, pcol=1, *ip, *code[16][16], gval[8], gmin, gmax, sum[4];
   int row, col, x, y, x1, x2, y1, y2, t, weight, grads, color, diag;
   int g, diff, thold, num, c;
 
   lin_interpolate();
   if (verbose) fprintf (stderr, "VNG interpolation...\n");
 
-  for (row=0; row < 8; row++) {		/* Precalculate for VNG */
-    for (col=0; col < 2; col++) {
-      ip = code[row][col];
+  if (filters == 1) prow = pcol = 15;
+  ip = (int *) calloc ((prow+1)*(pcol+1), 1280);
+  merror (ip, "vng_interpolate()");
+  for (row=0; row <= prow; row++)		/* Precalculate for VNG */
+    for (col=0; col <= pcol; col++) {
+      code[row][col] = ip;
       for (cp=terms, t=0; t < 64; t++) {
 	y1 = *cp++;  x1 = *cp++;
 	y2 = *cp++;  x2 = *cp++;
 	weight = *cp++;
 	grads = *cp++;
-	color = FC(row+y1,col+x1);
-	if (FC(row+y2,col+x2) != color) continue;
-	diag = (FC(row,col+1) == color && FC(row+1,col) == color) ? 2:1;
+	color = fc(row+y1,col+x1);
+	if (fc(row+y2,col+x2) != color) continue;
+	diag = (fc(row,col+1) == color && fc(row+1,col) == color) ? 2:1;
 	if (abs(y1-y2) == diag && abs(x1-x2) == diag) continue;
 	*ip++ = (y1*width + x1)*4 + color;
 	*ip++ = (y2*width + x2)*4 + color;
@@ -3340,14 +3374,13 @@ void CLASS vng_interpolate()
       for (cp=chood, g=0; g < 8; g++) {
 	y = *cp++;  x = *cp++;
 	*ip++ = (y*width + x) * 4;
-	color = FC(row,col);
-	if (FC(row+y,col+x) != color && FC(row+y*2,col+x*2) == color)
+	color = fc(row,col);
+	if (fc(row+y,col+x) != color && fc(row+y*2,col+x*2) == color)
 	  *ip++ = (y*width + x) * 8 + color;
 	else
 	  *ip++ = 0;
       }
     }
-  }
   brow[4] = (ushort (*)[4]) calloc (width*3, sizeof **brow);
   merror (brow[4], "vng_interpolate()");
   for (row=0; row < 3; row++)
@@ -3355,7 +3388,7 @@ void CLASS vng_interpolate()
   for (row=2; row < height-2; row++) {		/* Do VNG interpolation */
     for (col=2; col < width-2; col++) {
       pix = image[row*width+col];
-      ip = code[row & 7][col & 1];
+      ip = code[row & prow][col & pcol];
       memset (gval, 0, sizeof gval);
       while ((g = ip[0]) != INT_MAX) {		/* Calculate gradients */
 	diff = ABS(pix[g] - pix[ip[1]]) << ip[2];
@@ -3378,7 +3411,7 @@ void CLASS vng_interpolate()
       }
       thold = gmin + (gmax >> 1);
       memset (sum, 0, sizeof sum);
-      color = FC(row,col);
+      color = fc(row,col);
       for (num=g=0; g < 8; g++,ip+=2) {		/* Average the neighbors */
 	if (gval[g] <= thold) {
 	  FORCC
@@ -3404,6 +3437,7 @@ void CLASS vng_interpolate()
   memcpy (image[(row-2)*width+2], brow[0]+2, (width-4)*sizeof *image);
   memcpy (image[(row-1)*width+2], brow[1]+2, (width-4)*sizeof *image);
   free (brow[4]);
+  free (code[0][0]);
 }
 
 void CLASS cam_to_cielab (ushort cam[4], float lab[3])
@@ -4109,7 +4143,7 @@ int CLASS parse_tiff_ifd (int base, int level)
   int ifd, use_cm=0, cfa, i, j, c, ima_len=0;
   char software[64], *cbuf, *cp;
   uchar cfa_pat[16], cfa_pc[] = { 0,1,2,3 }, tab[256];
-  double dblack, cc[4][4], cm[4][3], cam_xyz[4][3];
+  double dblack, cc[4][4], cm[4][3], cam_xyz[4][3], num;
   double ab[]={ 1,1,1,1 }, asn[] = { 0,0,0,0 }, xyz[] = { 1,1,1 };
   unsigned *buf, sony_offset=0, sony_length=0, sony_key=0;
   struct jhead jh;
@@ -4249,6 +4283,18 @@ int CLASS parse_tiff_ifd (int base, int level)
 	break;
       case 34306:			/* Leaf white balance */
 	FORC4 cam_mul[c ^ 1] = 4096.0 / get2();
+	break;
+      case 34307:			/* Leaf CatchLight color matrix */
+	fread (software, 1, 7, ifp);
+	if (strncmp(software,"MATRIX",6)) break;
+	colors = 4;
+	for (raw_color = i=0; i < 3; i++) {
+	  FORC4 fscanf (ifp, "%f", &rgb_cam[i][c^1]);
+	  if (!use_camera_wb) continue;
+	  num = 0;
+	  FORC4 num += rgb_cam[i][c];
+	  FORC4 rgb_cam[i][c] /= num;
+	}
 	break;
       case 34310:			/* Leaf metadata */
 	parse_mos (ftell(ifp));
@@ -5293,6 +5339,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "Panasonic DMC-LX1", 0,
 	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
+    { "SAMSUNG GX-1S", 0,
+	{ 10504,-2438,-1189,-8603,16207,2531,-1022,863,12242 } },
     { "Sinar", 0,		/* DJC */
 	{ 16442,-2956,-2422,-2877,12128,750,-1136,6066,4559 } },
     { "SONY DSC-F828", 491,
@@ -5418,7 +5466,8 @@ void CLASS identify()
     { 44390468, "Sinar",    ""                ,0 } };
   static const char *corp[] =
     { "Canon", "NIKON", "EPSON", "KODAK", "Kodak", "OLYMPUS", "PENTAX",
-      "MINOLTA", "Minolta", "Konica", "CASIO", "Sinar", "Phase One" };
+      "MINOLTA", "Minolta", "Konica", "CASIO", "Sinar", "Phase One",
+      "SAMSUNG" };
 
   tiff_flip = flip = filters = -1;	/* 0 is valid, so -1 is unknown */
   raw_height = raw_width = fuji_width = cr2_slice[0] = 0;
@@ -6007,10 +6056,10 @@ konica_400z:
       load_raw = &CLASS leaf_hdr_load_raw;
     if ((width | height) == 2048) {
       if (tiff_samples == 1) {
-	colors = 1;
-	filters = 0;
+	filters = 1;
+	strcpy (cdesc, "RBTG");
 	strcpy (model, "CatchLight");
-	top_margin =  7; left_margin = 18; height = 2033; width = 2016;
+	top_margin =  8; left_margin = 18; height = 2032; width = 2016;
       } else {
 	strcpy (model, "DCB2");
 	top_margin = 10; left_margin = 16; height = 2028; width = 2022;
@@ -6428,7 +6477,7 @@ void CLASS convert_to_rgb()
     if (output_color == 5) oprof[4] = oprof[5];
     oprof[0] = 132 + 12*pbody[0];
     for (i=0; i < pbody[0]; i++) {
-      oprof[oprof[0]/4] = i < 2 ? pbody[i*3+1] : 0x58595a20;
+      oprof[oprof[0]/4] = i ? (i > 1 ? 0x58595a20 : 0x64657363) : 0x74657874;
       pbody[i*3+2] = oprof[0];
       oprof[0] += (pbody[i*3+3] + 3) & -4;
     }
@@ -6915,8 +6964,8 @@ int CLASS main (int argc, char **argv)
 	if (filters) {
 	  printf ("\nFilter pattern: ");
 	  if (!cdesc[3]) cdesc[3] = 'G';
-	  for (i=0; i < 32; i+=2)
-	    putchar (cdesc[filters >> i & 3]);
+	  for (i=0; i < 16; i++)
+	    putchar (cdesc[fc(i >> 1,i & 1)]);
 	}
 	printf ("\nDaylight multipliers:");
 	FORCC printf (" %f", pre_mul[c]);
