@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.336 $
-   $Date: 2006/07/27 20:04:06 $
+   $Revision: 1.337 $
+   $Date: 2006/07/30 19:52:37 $
  */
 
-#define VERSION "8.26"
+#define VERSION "8.27"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -6575,35 +6575,10 @@ void CLASS fuji_rotate()
 
 int CLASS flip_index (int row, int col)
 {
-  if (flip & 1) col = width - 1 - col;
-  if (flip & 2) row = height - 1 - row;
-  return (flip & 4) ? col * height + row
-		    : row * width + col;
-}
-
-void CLASS flip_image()
-{
-  int row, col, soff=0, doff, rstep, cstep;
-  INT64 *src, *dest;
-
-  if (verbose)
-    fprintf (stderr, "Flipping image %c:%c:%c...\n",
-	flip & 1 ? 'H':'0', flip & 2 ? 'V':'0', flip & 4 ? 'T':'0');
-  src = (INT64 *) image;
-  dest = (INT64 *) calloc (height * width, sizeof *dest);
-  merror (dest, "flip_image()");
-  doff  = flip_index (0, 0);
-  cstep = flip_index (0, 1) - doff;
-  rstep = flip_index (1, 0) - flip_index (0, width);
-  for (row=0; row < height; row++, doff += rstep)
-    for (col=0; col < width; col++, doff += cstep)
-      dest[doff] = src[soff++];
-  image = (ushort (*)[4]) dest;
-  free (src);
-  if (flip & 4) {
-    SWAP(height,width);
-    SWAP(ymag,xmag);
-  }
+  if (flip & 4) SWAP(row,col);
+  if (flip & 2) row = iheight - 1 - row;
+  if (flip & 1) col = iwidth  - 1 - col;
+  return row * iwidth + col;
 }
 
 void CLASS gamma_lut (uchar lut[0x10000])
@@ -6674,8 +6649,12 @@ void CLASS write_ppm_tiff (FILE *ofp)
   struct tm *t;
   uchar *ppm, lut[0x10000];
   ushort *ppm2;
-  int i, c, row, col, psize=0;
+  int i, c, row, col, psize=0, soff, rstep, cstep;
 
+  if (flip & 4) {
+    SWAP(height,width);
+    SWAP(ymag,xmag);
+  }
   ppm = (uchar *) calloc (width, colors*xmag*output_bps/8);
   ppm2 = (ushort *) ppm;
   merror (ppm, "write_ppm_tiff()");
@@ -6732,12 +6711,15 @@ void CLASS write_ppm_tiff (FILE *ofp)
 
   if (output_bps == 8)
     gamma_lut (lut);
-  for (row=0; row < height; row++) {
-    for (col=0; col < width; col++)
+  soff  = flip_index (0, 0);
+  cstep = flip_index (0, 1) - soff;
+  rstep = flip_index (1, 0) - flip_index (0, width);
+  for (row=0; row < height; row++, soff += rstep) {
+    for (col=0; col < width; col++, soff += cstep)
       FORCC for (i=0; i < xmag; i++)
 	if (output_bps == 8)
-	     ppm [(col*xmag+i)*colors+c] = lut[image[row*width+col][c]];
-	else ppm2[(col*xmag+i)*colors+c] =     image[row*width+col][c];
+	     ppm [(col*xmag+i)*colors+c] = lut[image[soff][c]];
+	else ppm2[(col*xmag+i)*colors+c] =     image[soff][c];
     if (output_bps == 16 && !output_tiff && th.order == 0x4949)
       swab (ppm2, ppm2, xmag*width*colors*2);
     for (i=0; i < ymag; i++)
@@ -7016,7 +6998,6 @@ next:
     if (cam_profile) apply_profile (cam_profile, out_profile);
 #endif
     convert_to_rgb();
-    if (flip) flip_image();
 thumbnail:
     if (write_fun == &CLASS jpeg_thumb)
       write_ext = ".jpg";
