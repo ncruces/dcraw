@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.337 $
-   $Date: 2006/07/30 19:52:37 $
+   $Revision: 1.338 $
+   $Date: 2006/07/31 21:34:50 $
  */
 
-#define VERSION "8.27"
+#define VERSION "8.28"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -6651,6 +6651,8 @@ void CLASS write_ppm_tiff (FILE *ofp)
   ushort *ppm2;
   int i, c, row, col, psize=0, soff, rstep, cstep;
 
+  iheight = height;
+  iwidth  = width;
   if (flip & 4) {
     SWAP(height,width);
     SWAP(ymag,xmag);
