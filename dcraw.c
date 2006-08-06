@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.338 $
-   $Date: 2006/07/31 21:34:50 $
+   $Revision: 1.339 $
+   $Date: 2006/08/06 20:28:43 $
  */
 
-#define VERSION "8.28"
+#define VERSION "8.29"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -1608,6 +1608,7 @@ void CLASS olympus_e300_load_raw()
   }
   if (ble > bls) black /= (ble - bls) * height;
   free (data);
+  maximum = 0xfff;
 }
 
 void CLASS olympus_cseries_load_raw()
@@ -4519,7 +4520,10 @@ void CLASS parse_tiff (int base)
     switch (tiff_compress) {
       case 0:  case 1:
 	load_raw = tiff_bps > 8 ?
-	&CLASS unpacked_load_raw : &CLASS eight_bit_load_raw;	break;
+	  &CLASS unpacked_load_raw : &CLASS eight_bit_load_raw;
+	if (tiff_ifd[raw].bytes*5 == raw_width*raw_height*8)
+	  load_raw = &CLASS olympus_e300_load_raw;
+	break;
       case 6:  case 7:  case 99:
 	load_raw = &CLASS lossless_jpeg_load_raw;		break;
       case 262:
@@ -6109,13 +6113,8 @@ konica_400z:
 	     !strcmp(model,"E-500")) {
     width -= 20;
     maximum = 0xfc30;
-    if (fsize <= 15728640) {
-      maximum = 0xfff;
-      load_raw = &CLASS olympus_e300_load_raw;
-    }
   } else if (!strcmp(model,"E-330")) {
     width -= 30;
-    load_raw = &CLASS olympus_e300_load_raw;
   } else if (!strcmp(model,"C770UZ")) {
     height = 1718;
     width  = 2304;
