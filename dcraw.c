@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.340 $
-   $Date: 2006/08/08 15:06:13 $
+   $Revision: 1.341 $
+   $Date: 2006/08/18 02:52:47 $
  */
 
-#define VERSION "8.29"
+#define VERSION "8.30"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -3731,15 +3731,15 @@ void CLASS tiff_get (unsigned base,
     fseek (ifp, get4()+base, SEEK_SET);
 }
 
-void CLASS parse_olympus_note (int base)
+void CLASS parse_thumb_note (int base, unsigned toff, unsigned tlen)
 {
   unsigned entries, tag, type, len, save;
 
   entries = get2();
   while (entries--) {
     tiff_get (base, &tag, &type, &len, &save);
-    if (tag == 257) thumb_offset = get4();
-    if (tag == 258) thumb_length = get4();
+    if (tag == toff) thumb_offset = get4();
+    if (tag == tlen) thumb_length = get4();
     fseek (ifp, save, SEEK_SET);
   }
 }
@@ -3956,7 +3956,11 @@ get2_256:
       cam_mul[2] = get2() / 256.0;
     }
     if (tag == 0x2020)
-      parse_olympus_note (base);
+      parse_thumb_note (base, 257, 258);
+    if (tag == 0xb028) {
+      fseek (ifp, get4(), SEEK_SET);
+      parse_thumb_note (base, 136, 137);
+    }
     if (tag == 0x4001) {
       i = len == 582 ? 50 : len == 653 ? 68 : len == 796 ? 126 : 0;
       fseek (ifp, i, SEEK_CUR);
