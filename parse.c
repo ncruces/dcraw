@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.61 $
-   $Date: 2006/07/19 06:14:53 $
+   $Revision: 1.62 $
+   $Date: 2006/08/18 02:51:53 $
  */
 
 #include <stdio.h>
@@ -257,6 +257,10 @@ void parse_makernote (base)
       parse_tiff_ifd (base, 3);
     if (tag == 0xe01)
       parse_nikon_capture_note (count);
+    if (tag == 0xb028) {
+      fseek (ifp, get4(), SEEK_SET);
+      parse_tiff_ifd (base, 3);
+    }
     fseek (ifp, save+12, SEEK_SET);
   }
   nikon_decrypt (serial, key, 0x91, 4, sizeof buf91, buf91);
