@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.341 $
-   $Date: 2006/08/18 02:52:47 $
+   $Revision: 1.342 $
+   $Date: 2006/08/20 05:14:23 $
  */
 
-#define VERSION "8.30"
+#define VERSION "8.31"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -4149,7 +4149,7 @@ int CLASS parse_tiff_ifd (int base, int level)
   int ifd, use_cm=0, cfa, i, j, c, ima_len=0;
   char software[64], *cbuf, *cp;
   uchar cfa_pat[16], cfa_pc[] = { 0,1,2,3 }, tab[256];
-  double dblack, cc[4][4], cm[4][3], cam_xyz[4][3], num;
+  double dblack, cc[4][4], cm[4][3], cam_xyz[4][3], num, sx, sy;
   double ab[]={ 1,1,1,1 }, asn[] = { 0,0,0,0 }, xyz[] = { 1,1,1 };
   unsigned *buf, sony_offset=0, sony_length=0, sony_key=0;
   struct jhead jh;
@@ -4396,11 +4396,10 @@ guess_cfa_pc:
 	maximum = getint(type);
 	break;
       case 50718:			/* DefaultScale */
-	i  = get4();
-	j  = get4() * get4();
-	i *= get4();
-	if (i > j) xmag = i / j;
-	else	   ymag = j / i;
+	sx = getrat();
+	sy = getrat();
+	if (sx > sy) xmag = sx / sy;
+	else	     ymag = sy / sx;
 	break;
       case 50721:			/* ColorMatrix1 */
       case 50722:			/* ColorMatrix2 */
@@ -5344,6 +5343,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D", 0,
 	{ 9651,-2059,-1189,-8881,16512,2487,-1460,1345,10687 } },
+    { "PENTAX K100D", 0,
+	{ 20129,-6819,-1857,-12757,32020,5793,-1219,1356,17788 } },
     { "Panasonic DMC-FZ30", 0,
 	{ 10976,-4029,-1141,-7918,15491,2600,-1670,2071,8246 } },
     { "Panasonic DMC-LC1", 0,
