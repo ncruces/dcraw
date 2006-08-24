@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.342 $
-   $Date: 2006/08/20 05:14:23 $
+   $Revision: 1.343 $
+   $Date: 2006/08/24 20:24:51 $
  */
 
-#define VERSION "8.31"
+#define VERSION "8.32"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -4685,7 +4685,7 @@ void CLASS ciff_block_1030()
  */
 void CLASS parse_ciff (int offset, int length)
 {
-  int tboff, nrecs, i, c, type, len, save, wbi=-1;
+  int tboff, nrecs, c, type, len, save, wbi=-1;
   ushort key[] = { 0x410, 0x45f3 };
 
   fseek (ifp, offset+length-4, SEEK_SET);
@@ -4693,7 +4693,7 @@ void CLASS parse_ciff (int offset, int length)
   fseek (ifp, tboff, SEEK_SET);
   nrecs = get2();
   if (nrecs > 100) return;
-  for (i=0; i < nrecs; i++) {
+  while (nrecs--) {
     type = get2();
     len  = get4();
     save = ftell(ifp) + 4;
@@ -4722,10 +4722,12 @@ void CLASS parse_ciff (int offset, int length)
     }
     if (type == 0x102a) {
       iso_speed = pow (2, (get4(),get2())/32.0 - 4) * 50;
-      aperture  = pow (2, (get2(),get2())/64.0);
+      aperture  = pow (2, (get2(),(short)get2())/64.0);
       shutter   = pow (2,-((short)get2())/32.0);
       wbi = (get2(),get2());
       if (wbi > 17) wbi = 0;
+      fseek (ifp, 32, SEEK_CUR);
+      if (shutter > 1e6) shutter = get2()/10.0;
     }
     if (type == 0x102c) {
       if (get2() > 512) {		/* Pro90, G1 */
