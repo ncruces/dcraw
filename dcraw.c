@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.343 $
-   $Date: 2006/08/24 20:24:51 $
+   $Revision: 1.344 $
+   $Date: 2006/08/31 18:43:44 $
  */
 
-#define VERSION "8.32"
+#define VERSION "8.33"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -5770,6 +5770,11 @@ canon_cr2:
     if (tiff_compress == 34713 && load_raw == &CLASS nikon_load_raw)
       raw_width = (width += 3) + 3;
     maximum = 0xf44;
+  } else if (!strcmp(model,"D200")) {
+    left_margin = 1;
+    width -= 4;
+    maximum = 0xfbc;
+    filters = 0x94949494;
   } else if (!strncmp(model,"D2H",3)) {
     left_margin = 6;
     width -= 14;
