@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.344 $
-   $Date: 2006/08/31 18:43:44 $
+   $Revision: 1.345 $
+   $Date: 2006/09/02 14:56:28 $
  */
 
-#define VERSION "8.33"
+#define VERSION "8.34"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -5722,6 +5722,8 @@ nucore:
     width  = 3088;
     top_margin  = 12;
     left_margin = 64;
+    if (unique_id == 0x80000170)
+      adobe_coeff ("Canon","EOS 300D");
     maximum = 0xfa0;
   } else if (is_canon && raw_width == 3160) {
     height = 2328;
@@ -5746,6 +5748,13 @@ nucore:
     top_margin  = 12;
     left_margin = 74;
     goto canon_cr2;
+  } else if (is_canon && raw_width == 3948) {
+    top_margin  = 18;
+    left_margin = 42;
+    height -= 2;
+    if (unique_id == 0x80000236)
+      adobe_coeff ("Canon","EOS 400D");
+    goto canon_cr2;
   } else if (is_canon && raw_width == 4476) {
     top_margin  = 34;
     left_margin = 90;
@@ -5755,8 +5764,8 @@ nucore:
     left_margin = 98;
     maximum = 0xe80;
 canon_cr2:
-    height = raw_height - top_margin;
-    width  = raw_width - left_margin;
+    height -= top_margin;
+    width  -= left_margin;
   } else if (!strcmp(model,"D1")) {
     cam_mul[0] *= 256/527.0;
     cam_mul[2] *= 256/317.0;
