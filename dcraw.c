@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.345 $
-   $Date: 2006/09/02 14:56:28 $
+   $Revision: 1.346 $
+   $Date: 2006/09/03 16:37:49 $
  */
 
-#define VERSION "8.34"
+#define VERSION "8.35"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -5233,10 +5233,6 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 10511,-3836,-1102,-6946,14587,2558,-1481,1792,6246 } },
     { "KODAK P880", 0,
 	{ 12805,-4662,-1376,-7480,15267,2360,-1626,2194,7904 } },
-    { "LEICA DIGILUX 2", 0,
-	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
-    { "LEICA D-LUX2", 0,
-	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
     { "Leaf CMost", 0,
 	{ 3952,2189,449,-6701,14585,2275,-4536,7349,6536 } },
     { "Leaf Valeo 6", 0,
@@ -5352,6 +5348,8 @@ void CLASS adobe_coeff (char *make, char *model)
     { "Panasonic DMC-LC1", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "Panasonic DMC-LX1", 0,
+	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
+    { "Panasonic DMC-LX2", 0,	/* copied from above */
 	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
     { "SAMSUNG GX-1S", 0,
 	{ 10504,-2438,-1189,-8603,16207,2531,-1022,863,12242 } },
@@ -6114,14 +6112,26 @@ konica_400z:
       filters = 0x16161616;
     }
   } else if (!strcmp(make,"LEICA") || !strcmp(make,"Panasonic")) {
-    if (width == 3880) {
-      left_margin = 6;
-      maximum = 0xf7f0;
-      width -= 22;
+    maximum = 0xfff0;
+    if (width == 2568) {
+      adobe_coeff ("Panasonic","DMC-LC1");
     } else if (width == 3304) {
       maximum = 0xf94c;
       width -= 16;
-    } else maximum = 0xfff0;
+      adobe_coeff ("Panasonic","DMC-FZ30");
+    } else if (width == 3880) {
+      maximum = 0xf7f0;
+      left_margin = 6;
+      width -= 22;
+      adobe_coeff ("Panasonic","DMC-LX1");
+    } else if (width == 4330) {
+      height = 2400;
+      width  = 4248;
+      top_margin  = 15;
+      left_margin = 17;
+      filters = 0x16161616;
+      adobe_coeff ("Panasonic","DMC-LX2");
+    }
     load_raw = &CLASS unpacked_load_raw;
   } else if (!strcmp(model,"E-1")) {
     filters = 0x61616161;
