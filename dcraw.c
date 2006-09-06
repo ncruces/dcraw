@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.346 $
-   $Date: 2006/09/03 16:37:49 $
+   $Revision: 1.347 $
+   $Date: 2006/09/06 18:44:58 $
  */
 
-#define VERSION "8.35"
+#define VERSION "8.36"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -5279,6 +5279,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON D70", 0,
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
+    { "NIKON D80", 0,	/* copied from above */
+	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON D200", 0,
 	{ 8367,-2248,-763,-8758,16447,2422,-1527,1550,8053 } },
     { "NIKON E950", 0,		/* DJC */
@@ -5773,6 +5775,9 @@ canon_cr2:
   } else if (!strncmp(model,"D50",3) || !strncmp(model,"D70",3)) {
     width--;
     maximum = 0xf53;
+  } else if (!strcmp(model,"D80")) {
+    height -= 3;
+    width  -= 4;
   } else if (!strcmp(model,"D100")) {
     if (tiff_compress == 34713 && load_raw == &CLASS nikon_load_raw)
       raw_width = (width += 3) + 3;
