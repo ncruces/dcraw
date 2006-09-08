@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.347 $
-   $Date: 2006/09/06 18:44:58 $
+   $Revision: 1.348 $
+   $Date: 2006/09/08 14:52:39 $
  */
 
-#define VERSION "8.36"
+#define VERSION "8.37"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -5347,6 +5347,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 20129,-6819,-1857,-12757,32020,5793,-1219,1356,17788 } },
     { "Panasonic DMC-FZ30", 0,
 	{ 10976,-4029,-1141,-7918,15491,2600,-1670,2071,8246 } },
+    { "Panasonic DMC-FZ50", 0,	/* copied from above */
+	{ 10976,-4029,-1141,-7918,15491,2600,-1670,2071,8246 } },
     { "Panasonic DMC-LC1", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "Panasonic DMC-LX1", 0,
@@ -6124,6 +6126,13 @@ konica_400z:
       maximum = 0xf94c;
       width -= 16;
       adobe_coeff ("Panasonic","DMC-FZ30");
+    } else if (width == 3690) {
+      maximum = 0xf7f0;
+      height -= 3;
+      width = 3672;
+      left_margin = 3;
+      filters = 0x49494949;
+      adobe_coeff ("Panasonic","DMC-FZ50");
     } else if (width == 3880) {
       maximum = 0xf7f0;
       left_margin = 6;
