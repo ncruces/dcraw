@@ -1,5 +1,5 @@
---- tiff-3.8.0/libtiff/tif_dirinfo.c	2005-12-29 16:46:38.000000000 -0500
-+++ tiff-3.8.0/libtiff/tif_dirinfo.c	2006-02-17 12:48:02.000000000 -0500
+--- tiff-3.8.2/libtiff/tif_dirinfo.c	2006-02-07 08:51:03.000000000 -0500
++++ tiff-3.8.2/libtiff/tif_dirinfo.c	2006-10-26 11:09:51.000000000 -0400
 @@ -252,6 +252,10 @@
        FIELD_CUSTOM,	1,	0,	"MatrixWorldToScreen" },
      { TIFFTAG_PIXAR_MATRIX_WORLDTOCAMERA,	16,16,	TIFF_FLOAT,
@@ -26,8 +26,8 @@
      { TIFFTAG_DEFAULTSCALE,	2, 2,	TIFF_RATIONAL,	FIELD_CUSTOM, 
        0,	0,	"DefaultScale" },
      { TIFFTAG_BESTQUALITYSCALE,	1, 1,	TIFF_RATIONAL,	FIELD_CUSTOM, 
---- tiff-3.8.0/libtiff/tiff.h	2005-12-24 09:13:26.000000000 -0500
-+++ tiff-3.8.0/libtiff/tiff.h	2006-02-16 21:18:54.000000000 -0500
+--- tiff-3.8.2/libtiff/tiff.h	2005-12-27 06:28:23.000000000 -0500
++++ tiff-3.8.2/libtiff/tiff.h	2006-10-26 11:09:51.000000000 -0400
 @@ -207,6 +207,7 @@
  #define	    PHOTOMETRIC_CIELAB		8	/* !1976 CIE L*a*b* */
  #define	    PHOTOMETRIC_ICCLAB		9	/* ICC L*a*b* [Adobe TIFF Technote 4] */
