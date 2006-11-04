@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "July 18, 2006"
+.TH dcraw 1 "November 4, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -175,20 +175,20 @@ applies the flip specified by the camera.
 .B -t 0
 disables all flipping.
 .TP
+.B -s [0-99]
+Select which raw image to decode if the file contains more than one.
+For example, Fuji\ Super\ CCD\ SR cameras generate a second image
+underexposed four stops to show detail in the highlights.
+.TP
 .B -j
 For Fuji\ Super\ CCD cameras, show the image tilted 45 degrees,
 so that each output pixel corresponds to one raw pixel.
 .TP
-.B -s
-For Fuji\ Super\ CCD\ SR cameras, use the secondary sensors, in
-effect underexposing the image by four stops to reveal detail
-in the highlights.
-.TP
 .B ""
-For all other cameras,
-.B -j
-and
+For most cameras,
 .B -s
+and
+.B -j
 are silently ignored.
 .SH "SEE ALSO"
 .BR pgm (5),
