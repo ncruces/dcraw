@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.355 $
-   $Date: 2006/11/04 15:55:41 $
+   $Revision: 1.356 $
+   $Date: 2006/11/21 16:32:10 $
  */
 
-#define VERSION "8.42"
+#define VERSION "8.43"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -1192,7 +1192,9 @@ void CLASS jpeg_thumb (FILE *tfp)
 
 void CLASS ppm_thumb (FILE *tfp)
 {
-  char *thumb = (char *) malloc (thumb_length);
+  char *thumb;
+  thumb_length = thumb_width*thumb_height*3;
+  thumb = (char *) malloc (thumb_length);
   merror (thumb, "ppm_thumb()");
   fprintf (tfp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
   fread  (thumb, 1, thumb_length, ifp);
@@ -1615,10 +1617,8 @@ void CLASS olympus_e300_load_raw()
 {
   uchar  *data,  *dp;
   ushort *pixel, *pix;
-  int dwide, row, col, bls=width, ble=raw_width;
+  int dwide, row, col;
 
-  if (raw_width == 3360) bls += 4;
-  if (raw_width == 3280) ble = bls + 8;
   dwide = raw_width * 16 / 10;
   data = (uchar *) malloc (dwide + raw_width*2);
   merror (data, "olympus_e300_load_raw()");
@@ -1632,12 +1632,10 @@ void CLASS olympus_e300_load_raw()
     }
     for (col=0; col < width; col++)
       BAYER(row,col) = (pixel[col] & 0xfff);
-    for (col=bls; col < ble; col++)
-      black += pixel[col] & 0xfff;
   }
-  if (ble > bls) black /= (ble - bls) * height;
   free (data);
   maximum = 0xfff;
+  black >>= 4;
 }
 
 void CLASS olympus_cseries_load_raw()
@@ -1653,6 +1651,7 @@ void CLASS olympus_cseries_load_raw()
     for (col=0; col < width; col++)
       BAYER(row,col) = getbits(12);
   }
+  black >>= 4;
 }
 
 void CLASS minolta_rd175_load_raw()
@@ -3185,15 +3184,12 @@ void CLASS colorcheck()
 
 void CLASS scale_colors()
 {
-  int row, col, x, y, c, val;
-  int min[4], max[4], sum[8];
+  int row, col, x, y, c, val, sum[8];
   double dsum[8], dmin, dmax;
   float scale_mul[4];
 
   maximum -= black;
   if (use_auto_wb || (use_camera_wb && cam_mul[0] == -1)) {
-    FORC4 min[c] = INT_MAX;
-    FORC4 max[c] = 0;
     memset (dsum, 0, sizeof dsum);
     for (row=0; row < height-7; row += 8)
       for (col=0; col < width-7; col += 8) {
@@ -3203,8 +3199,6 @@ void CLASS scale_colors()
 	    FORC4 {
 	      val = image[y*width+x][c];
 	      if (!val) continue;
-	      if (min[c] > val) min[c] = val;
-	      if (max[c] < val) max[c] = val;
 	      val -= black;
 	      if (val > maximum-25) goto skip_block;
 	      if (val < 0) val = 0;
@@ -3974,6 +3968,9 @@ void CLASS parse_makernote (int base)
 	FORC3 rgb_cam[i][c] = ((short) get2()) / 256.0;
       raw_color = rgb_cam[0][0] < 1;
     }
+    if (tag == 0x1012 && len == 4)
+      for (black = i=0; i < 4; i++)
+	black += get2() << 2;
     if (tag == 0x1017)
       cam_mul[0] = get2() / 256.0;
     if (tag == 0x1018)
@@ -6208,26 +6205,21 @@ konica_400z:
       adobe_coeff ("Panasonic","DMC-LX2");
     }
     load_raw = &CLASS unpacked_load_raw;
-  } else if (!strcmp(model,"E-1")) {
+  } else if (!strcmp(model,"E-1") ||
+	     !strcmp(model,"E-400")) {
     filters = 0x61616161;
     maximum = 0xfff0;
-    black = 1024;
-  } else if (!strcmp(model,"E-10")) {
-    maximum = 0xfff0;
-    black = 2048;
-  } else if (!strncmp(model,"E-20",4)) {
+  } else if (!strcmp(model,"E-10") ||
+	    !strncmp(model,"E-20",4)) {
     maximum = 0xffc0;
-    black = 2560;
+    black <<= 2;
   } else if (!strcmp(model,"E-300") ||
 	     !strcmp(model,"E-500")) {
     width -= 20;
     maximum = 0xfc30;
+    if (load_raw == &CLASS unpacked_load_raw) black = 0;
   } else if (!strcmp(model,"E-330")) {
     width -= 30;
-  } else if (!strcmp(model,"E-400")) {
-    filters = 0x61616161;
-    maximum = 0xfff0;
-    black = 1552;
   } else if (!strcmp(model,"C770UZ")) {
     height = 1718;
     width  = 2304;
