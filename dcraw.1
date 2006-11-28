@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "November 4, 2006"
+.TH dcraw 1 "November 27, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -104,6 +104,11 @@ Write TIFF output (with metadata) instead of PGM/PPM/PAM.
 .TP
 .B -k black
 Set the black point.  Default depends on the camera.
+.TP
+.B -K darkframe.pgm
+Subtract a dark frame from the raw data.  To generate a
+dark frame, shoot a raw photo with no light and do
+.BR dcraw\ -D\ -4\ -t\ 0 .
 .TP
 .B -a
 Automatic color balance.  The default is to use a fixed
