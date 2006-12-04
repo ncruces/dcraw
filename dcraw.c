@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.357 $
-   $Date: 2006/11/28 04:18:50 $
+   $Revision: 1.358 $
+   $Date: 2006/12/04 03:10:46 $
  */
 
-#define VERSION "8.44"
+#define VERSION "8.45"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -438,11 +438,9 @@ void CLASS canon_600_load_raw()
   static const short mul[4][2] =
   { { 1141,1145 }, { 1128,1109 }, { 1178,1149 }, { 1128,1109 } };
 
-  for (irow=row=0; irow < height; irow++)
-  {
+  for (irow=row=0; irow < height; irow++) {
     fread (data, raw_width * 10 / 8, 1, ifp);
-    for (dp=data, pix=pixel; dp < data+1120; dp+=10, pix+=8)
-    {
+    for (dp=data, pix=pixel; dp < data+1120; dp+=10, pix+=8) {
       pix[0] = (dp[0] << 2) + (dp[1] >> 6    );
       pix[1] = (dp[2] << 2) + (dp[1] >> 4 & 3);
       pix[2] = (dp[3] << 2) + (dp[1] >> 2 & 3);
@@ -959,13 +957,37 @@ void CLASS adobe_dng_load_raw_nc()
   free (pixel);
 }
 
+void CLASS pentax_k10_load_raw()
+{
+  static const uchar pentax_tree[] =
+  { 0,2,3,1,1,1,1,1,1,2,0,0,0,0,0,0,
+    3,4,2,5,1,6,0,7,8,9,10,11,12 };
+  int row, col, diff, i;
+  ushort vpred[4] = {0,0,0,0}, hpred[2];
+
+  init_decoder();
+  make_decoder (pentax_tree, 0);
+  getbits(-1);
+  for (row=0; row < height; row++)
+    for (col=0; col < raw_width; col++) {
+      diff = ljpeg_diff (first_decode);
+      if (col < 2) {
+	i = 2*(row & 1) + (col & 1);
+	vpred[i] += diff;
+	hpred[col] = vpred[i];
+      } else
+	hpred[col & 1] += diff;
+      if (col < width)
+	BAYER(row,col) = hpred[col & 1];
+    }
+}
+
 void CLASS nikon_compressed_load_raw()
 {
-  static const uchar nikon_tree[] = {
-    0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
-    5,4,3,6,2,7,1,0,8,9,11,10,12
-  };
-  int csize, row, col, i, diff;
+  static const uchar nikon_tree[] =
+  { 0,1,5,1,1,1,1,1,1,2,0,0,0,0,0,0,
+    5,4,3,6,2,7,1,0,8,9,11,10,12 };
+  int csize, row, col, diff, i;
   ushort vpred[4], hpred[2], *curve;
 
   init_decoder();
@@ -980,10 +1002,8 @@ void CLASS nikon_compressed_load_raw()
 
   fseek (ifp, data_offset, SEEK_SET);
   getbits(-1);
-
   for (row=0; row < height; row++)
-    for (col=0; col < raw_width; col++)
-    {
+    for (col=0; col < raw_width; col++) {
       diff = ljpeg_diff (first_decode);
       if (col < 2) {
 	i = 2*(row & 1) + (col & 1);
@@ -3083,6 +3103,7 @@ void CLASS subtract (char *fname)
       BAYER(row,col) = MAX (BAYER(row,col) - ntohs(pixel[col]), 0);
   }
   free (pixel);
+  black = 0;
 }
 
 void CLASS pseudoinverse (double (*in)[3], double (*out)[3], int size)
@@ -4614,6 +4635,8 @@ void CLASS parse_tiff (int base)
 	load_raw = &CLASS kodak_262_load_raw;			break;
       case 32773:
 	load_raw = &CLASS packed_12_load_raw;			break;
+      case 65535:
+	load_raw = &CLASS pentax_k10_load_raw;			break;
       case 65000:
 	switch (tiff_ifd[raw].phint) {
 	  case 2: load_raw = &CLASS kodak_rgb_load_raw;   filters = 0;  break;
@@ -5441,6 +5464,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 10371,-2333,-1206,-8688,16231,2602,-1230,1116,11282 } },
     { "PENTAX *ist D", 0,
 	{ 9651,-2059,-1189,-8881,16512,2487,-1460,1345,10687 } },
+    { "PENTAX K10D", 0,
+	{ 28402,-6651,-983,-14699,32553,6467,-1746,1571,25283 } },
     { "PENTAX K1", 0,
 	{ 11095,-3157,-1324,-8377,15834,2720,-1108,947,11688 } },
     { "Panasonic DMC-FZ30", 0,
@@ -5727,6 +5752,10 @@ nucore:
     width = height + fuji_width;
     height = width - 1;
     xmag = ymag = 1;
+  }
+  if (!strcmp(model,"K10D")) {		/* Camera DNGs are not cropped! */
+    height = 2616;
+    width  = 3896;
   }
   if (dng_version) {
     strcat (model," DNG");
@@ -6910,8 +6939,7 @@ int CLASS main (int argc, char **argv)
 #ifndef LOCALTIME
   putenv ("TZ=UTC");
 #endif
-  if (argc == 1)
-  {
+  if (argc == 1) {
     fprintf (stderr,
     "\nRaw Photo Decoder \"dcraw\" v"VERSION
     "\nby Dave Coffin, dcoffin a cybercom o net"
@@ -6958,8 +6986,7 @@ int CLASS main (int argc, char **argv)
 	  fprintf (stderr, "Non-numeric argument to \"-%c\"\n", opt);
 	  return 1;
 	}
-    switch (opt)
-    {
+    switch (opt) {
       case 'B':  sigma_d     = atof(argv[arg++]);
 		 sigma_r     = atof(argv[arg++]);  break;
       case 'b':  bright      = atof(argv[arg++]);  break;
