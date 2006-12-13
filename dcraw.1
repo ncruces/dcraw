@@ -1,5 +1,5 @@
 .\"
-.\" Man page for dcraw (Raw Photo Decoder)
+.\" Man page for dcraw
 .\"
 .\" Copyright (c) 2006 by David Coffin
 .\"
@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "November 28, 2006"
+.TH dcraw 1 "December 13, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -195,6 +195,22 @@ For most cameras,
 and
 .B -j
 are silently ignored.
+.SH FILES
+.TP
+\:./.badpixels, ../.badpixels, ../../.badpixels, ...
+List of your camera's dead pixels, so that
+.B dcraw
+can interpolate around them.  Each line specifies the column,
+row, and UNIX time of death for one pixel.  For example:
+.sp 1
+.nf
+ 962   91 1028350000  # died between August 1 and 4, 2002
+1285 1067 0           # don't know when this pixel died
+.fi
+.sp 1
+These coordinates are before any cropping or rotation, so use
+.B dcraw -j -t 0
+to locate dead pixels.
 .SH "SEE ALSO"
 .BR pgm (5),
 .BR ppm (5),
