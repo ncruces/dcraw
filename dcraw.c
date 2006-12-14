@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.358 $
-   $Date: 2006/12/04 03:10:46 $
+   $Revision: 1.359 $
+   $Date: 2006/12/14 15:40:47 $
  */
 
-#define VERSION "8.45"
+#define VERSION "8.46"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -490,7 +490,7 @@ void CLASS remove_zeroes()
 
 void CLASS canon_a5_load_raw()
 {
-  ushort data[1670], *dp, pixel;
+  ushort data[1970], *dp, pixel;
   int vbits=0, buf=0, row, col, bc=0;
 
   order = 0x4949;
@@ -1235,15 +1235,17 @@ void CLASS ppm_thumb (FILE *tfp)
 void CLASS layer_thumb (FILE *tfp)
 {
   int i, c;
-  char *thumb;
-  colors = thumb_misc >> 5;
+  char *thumb, map[][4] = { "012","102" };
+
+  colors = thumb_misc >> 5 & 7;
+  thumb_length = thumb_width*thumb_height;
   thumb = (char *) malloc (thumb_length*colors);
   merror (thumb, "layer_thumb()");
   fprintf (tfp, "P%d\n%d %d\n255\n",
-	5 + (thumb_misc >> 6), thumb_width, thumb_height);
+	5 + (colors >> 1), thumb_width, thumb_height);
   fread (thumb, thumb_length, colors, ifp);
   for (i=0; i < thumb_length; i++)
-    FORCC putc (thumb[i+thumb_length*c], tfp);
+    FORCC putc (thumb[i+thumb_length*(map[thumb_misc >> 8][c]-'0')], tfp);
   free (thumb);
 }
 
@@ -5268,6 +5270,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 9976,-3810,-832,-7115,14463,2906,-901,989,7889 } },
     { "Canon PowerShot A610", 0, /* copied from the S60 */
 	{ 8795,-2482,-797,-7804,15403,2573,-1422,1996,7082 } },
+    { "Canon PowerShot A620", 0, /* DJC */
+	{ 15265,-6193,-1558,-4125,12116,2010,-888,1639,5220 } },
     { "Contax N Digital", 0,
 	{ 7777,1285,-1053,-9280,16543,2916,-3677,5679,7060 } },
     { "EPSON R-D1", 0,
@@ -5557,10 +5561,11 @@ void CLASS identify()
   struct jhead jh;
   static const struct {
     int fsize;
-    char make[12], model[15], withjpeg;
+    char make[12], model[19], withjpeg;
   } table[] = {
     {    62464, "Kodak",    "DC20"            ,0 },
     {   124928, "Kodak",    "DC20"            ,0 },
+    {  1652736, "Kodak",    "DCS200"          ,0 },
     {   311696, "ST Micro", "STV680 VGA"      ,0 },  /* SPYz */
     {   614400, "Kodak",    "KAI-0340"        ,0 },
     {   787456, "Creative", "PC-CAM 600"      ,0 },
@@ -5578,6 +5583,8 @@ void CLASS identify()
     { 13248000, "Pixelink", "A782"            ,0 },
     {  6291456, "RoverShot","3320AF"          ,0 },
     {  6573120, "Canon",    "PowerShot A610"  ,0 },
+    {  9219600, "Canon",    "PowerShot A620"  ,0 },
+    {  7710960, "Canon",    "PowerShot S3 IS" ,0 },
     {  5939200, "OLYMPUS",  "C770UZ"          ,0 },
     {  1581060, "NIKON",    "E900"            ,1 },  /* or E900s,E910 */
     {  2465792, "NIKON",    "E950"            ,1 },  /* or E800,E700 */
@@ -5827,6 +5834,22 @@ nucore:
     top_margin  = 8;
     left_margin = 12;
     load_raw = &CLASS canon_a5_load_raw;
+  } else if (!strcmp(model,"PowerShot A620")) {
+    height = 2328;
+    width  = 3112;
+    raw_height = 2340;
+    raw_width  = 3152;
+    top_margin  = 12;
+    left_margin = 36;
+    load_raw = &CLASS canon_a5_load_raw;
+  } else if (!strcmp(model,"PowerShot S3 IS")) {
+    height = 2128;
+    width  = 2840;
+    raw_height = 2136;
+    raw_width  = 2888;
+    top_margin  = 8;
+    left_margin = 44;
+    load_raw = &CLASS canon_a5_load_raw;
   } else if (!strcmp(model,"PowerShot Pro90 IS")) {
     width  = 1896;
     colors = 4;
@@ -6032,6 +6055,8 @@ cp_e2500:
       flip = 6;
     } else
       maximum = 0x3e00;
+    if (fuji_secondary && shot_select)
+      maximum = 0x2f00;
     top_margin = (raw_height - height)/2;
     left_margin = (raw_width - width )/2;
     if (fuji_secondary)
@@ -6420,6 +6445,17 @@ konica_400z:
       width  = 848;
       load_raw = tiff_compress == 7 ?
 	&CLASS kodak_jpeg_load_raw : &CLASS kodak_dc120_load_raw;
+    } else if (!strcmp(model,"DCS200")) {
+      thumb_height = 128;
+      thumb_width  = 192;
+      thumb_offset = 6144;
+      thumb_misc   = 360;
+      write_thumb = &CLASS layer_thumb;
+      height = 1024;
+      width  = 1536;
+      data_offset = 79872;
+      load_raw = &CLASS eight_bit_load_raw;
+      black = 17;
     }
   } else if (!strcmp(model,"Fotoman Pixtura")) {
     height = 512;
