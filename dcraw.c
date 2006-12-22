@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.359 $
-   $Date: 2006/12/14 15:40:47 $
+   $Revision: 1.360 $
+   $Date: 2006/12/22 03:56:43 $
  */
 
-#define VERSION "8.46"
+#define VERSION "8.48"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -47,6 +47,12 @@
 #endif
 #ifndef NO_LCMS
 #include <lcms.h>
+#endif
+#ifdef LOCALEDIR
+#include <libintl.h>
+#define _(String) gettext(String)
+#else
+#define _(String) (String)
 #endif
 
 #ifdef __CYGWIN__
@@ -87,7 +93,7 @@ typedef unsigned short ushort;
  */
 FILE *ifp;
 short order;
-char *ifname, make[64], model[72], model2[64], *meta_data, cdesc[5];
+char *ifname, make[64], model[64], model2[64], *meta_data, cdesc[5];
 float flash_used, canon_ev, iso_speed, shutter, aperture, focal_len;
 time_t timestamp;
 unsigned shot_order, kodak_cbpp, filters, unique_id, *oprof;
@@ -98,7 +104,8 @@ int tiff_nifds, tiff_flip, tiff_bps, tiff_compress, tile_length;
 int raw_height, raw_width, top_margin, left_margin;
 int height, width, fuji_width, colors, tiff_samples;
 int black, maximum, raw_color, use_gamma;
-int iheight, iwidth, shrink, flip, xmag, ymag;
+int iheight, iwidth, shrink, flip;
+double pixel_aspect;
 int zero_after_ff, is_raw, dng_version, is_foveon;
 ushort (*image)[4], white[8][8], curve[0x1000], cr2_slice[3];
 float bright=1, user_mul[4]={0,0,0,0}, sigma_d=0, sigma_r=0;
@@ -235,7 +242,7 @@ char *my_memmem (char *haystack, size_t haystacklen,
 void CLASS merror (void *ptr, char *where)
 {
   if (ptr) return;
-  fprintf (stderr, "%s: Out of memory in %s\n", ifname, where);
+  fprintf (stderr,_("%s: Out of memory in %s\n"), ifname, where);
   longjmp (failure, 1);
 }
 
@@ -574,7 +581,7 @@ uchar * CLASS make_decoder (const uchar *source, int level)
   if (level==0) leaf=0;
   cur = free_decode++;
   if (free_decode > first_decode+2048) {
-    fprintf (stderr, "%s: decoder table overflow\n", ifname);
+    fprintf (stderr,_("%s: decoder table overflow\n"), ifname);
     longjmp (failure, 2);
   }
   for (i=next=0; i <= leaf && next < 16; )
@@ -1351,7 +1358,7 @@ void CLASS phase_one_correct()
   ushort curve[0x10000], *xval[2];
 
   if (shrink || !meta_length) return;
-  if (verbose) fprintf (stderr, "Phase One correction...\n");
+  if (verbose) fprintf (stderr,_("Phase One correction...\n"));
   fseek (ifp, meta_offset, SEEK_SET);
   order = get2();
   fseek (ifp, 6, SEEK_CUR);
@@ -1583,11 +1590,21 @@ void CLASS leaf_hdr_load_raw()
   }
 }
 
+void CLASS unpacked_load_raw();
+
 void CLASS sinar_4shot_load_raw()
 {
   ushort *pixel;
   unsigned shot, row, col, r, c;
 
+  if ((shot = shot_select) || shrink) {
+    if (shot) shot--;
+    if (shot > 3) shot = 3;
+    fseek (ifp, data_offset + shot*4, SEEK_SET);
+    fseek (ifp, get4(), SEEK_SET);
+    unpacked_load_raw();
+    return;
+  }
   pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "sinar_4shot_load_raw()");
   for (shot=0; shot < 4; shot++) {
@@ -1930,7 +1947,7 @@ void CLASS kodak_jpeg_load_raw()
   if ((cinfo.output_width      != width  ) ||
       (cinfo.output_height*2   != height ) ||
       (cinfo.output_components != 3      )) {
-    fprintf (stderr, "%s: incorrect JPEG dimensions\n", ifname);
+    fprintf (stderr,_("%s: incorrect JPEG dimensions\n"), ifname);
     jpeg_destroy_decompress (&cinfo);
     longjmp (failure, 3);
   }
@@ -2383,7 +2400,7 @@ void CLASS foveon_decoder (unsigned size, unsigned code)
   }
   cur = free_decode++;
   if (free_decode > first_decode+2048) {
-    fprintf (stderr, "%s: decoder table overflow\n", ifname);
+    fprintf (stderr,_("%s: decoder table overflow\n"), ifname);
     longjmp (failure, 2);
   }
   if (code)
@@ -2542,7 +2559,7 @@ void * CLASS foveon_camf_matrix (int dim[3], const char *name)
 	mat[i] = sget4(dp + i*2) & 0xffff;
     return mat;
   }
-  fprintf (stderr, "%s: \"%s\" matrix not found!\n", ifname, name);
+  fprintf (stderr,_("%s: \"%s\" matrix not found!\n"), ifname, name);
   return NULL;
 }
 
@@ -2627,7 +2644,7 @@ void CLASS foveon_interpolate()
   const char* cp;
 
   if (verbose)
-    fprintf (stderr, "Foveon interpolation...\n");
+    fprintf (stderr,_("Foveon interpolation...\n"));
 
   foveon_fixed (dscr, 4, "DarkShieldColRange");
   foveon_fixed (ppm[0][0], 27, "PostPolyMatrix");
@@ -2653,7 +2670,7 @@ void CLASS foveon_interpolate()
     }
 
   if (!(cp = foveon_camf_param ("WhiteBalanceIlluminants", model2)))
-  { fprintf (stderr, "%s: Invalid white balance \"%s\"\n", ifname, model2);
+  { fprintf (stderr,_("%s: Invalid white balance \"%s\"\n"), ifname, model2);
     return; }
   foveon_fixed (cam_xyz, 9, cp);
   foveon_fixed (correct, 9,
@@ -3060,7 +3077,7 @@ void CLASS bad_pixels()
     BAYER2(row,col) = tot/n;
     if (verbose) {
       if (!fixed++)
-	fprintf (stderr, "Fixed bad pixels at:");
+	fprintf (stderr,_("Fixed bad pixels at:"));
       fprintf (stderr, " %d,%d", col, row);
     }
   }
@@ -3091,10 +3108,10 @@ void CLASS subtract (char *fname)
     }
   }
   if (error || nd < 3) {
-    fprintf (stderr, "%s is not a valid PGM file!\n", fname);
+    fprintf (stderr,_("%s is not a valid PGM file!\n"), fname);
     fclose (fp);  return;
   } else if (dim[0] != width || dim[1] != height || dim[2] != 65535) {
-    fprintf (stderr, "%s has the wrong dimensions!\n", fname);
+    fprintf (stderr,_("%s has the wrong dimensions!\n"), fname);
     fclose (fp);  return;
   }
   pixel = (ushort *) calloc (width, sizeof *pixel);
@@ -3297,7 +3314,7 @@ skip_block:
     else if (cam_mul[0] && cam_mul[2])
       memcpy (pre_mul, cam_mul, sizeof pre_mul);
     else
-      fprintf (stderr, "%s: Cannot use camera white balance.\n", ifname);
+      fprintf (stderr,_("%s: Cannot use camera white balance.\n"), ifname);
   }
   if (user_mul[0])
     memcpy (pre_mul, user_mul, sizeof pre_mul);
@@ -3311,7 +3328,7 @@ skip_block:
   if (!highlight) dmax = dmin;
   FORC4 scale_mul[c] = (pre_mul[c] /= dmax) * 65535.0 / maximum;
   if (verbose) {
-    fprintf (stderr, "Scaling with black=%d, pre_mul[] =", black);
+    fprintf (stderr,_("Scaling with black %d, multipliers"), black);
     FORC4 fprintf (stderr, " %f", pre_mul[c]);
     fputc ('\n', stderr);
   }
@@ -3365,7 +3382,7 @@ void CLASS lin_interpolate()
   int c, i, x, y, row, col, shift, color;
   ushort *pix;
 
-  if (verbose) fprintf (stderr, "Bilinear interpolation...\n");
+  if (verbose) fprintf (stderr,_("Bilinear interpolation...\n"));
 
   border_interpolate(1);
   for (row=0; row < 16; row++)
@@ -3442,7 +3459,7 @@ void CLASS vng_interpolate()
   int g, diff, thold, num, c;
 
   lin_interpolate();
-  if (verbose) fprintf (stderr, "VNG interpolation...\n");
+  if (verbose) fprintf (stderr,_("VNG interpolation...\n"));
 
   if (filters == 1) prow = pcol = 15;
   ip = (int *) calloc ((prow+1)*(pcol+1), 1280);
@@ -3584,7 +3601,7 @@ void CLASS ahd_interpolate()
    short (*lab)[TS][TS][3];
    char (*homo)[TS][TS], *buffer;
 
-  if (verbose) fprintf (stderr, "AHD interpolation...\n");
+  if (verbose) fprintf (stderr,_("AHD interpolation...\n"));
 
   border_interpolate(3);
   buffer = (char *) malloc (26*TS*TS);		/* 1664 kB */
@@ -3689,7 +3706,7 @@ void CLASS bilateral_filter()
   int c, i, wr, ws, wlast, row, col, y, x;
   unsigned sep;
 
-  if (verbose) fprintf (stderr, "Bilateral filtering...\n");
+  if (verbose) fprintf (stderr,_("Bilateral filtering...\n"));
 
   wr = ceil(sigma_d*2);		/* window radius */
   ws = 2*wr + 1;		/* window size */
@@ -3747,7 +3764,7 @@ void CLASS recover_highlights()
   static const signed char dir[8][2] =
     { {-1,-1}, {-1,0}, {-1,1}, {0,1}, {1,1}, {1,0}, {1,-1}, {0,-1} };
 
-  if (verbose) fprintf (stderr, "Highlight recovery...\n");
+  if (verbose) fprintf (stderr,_("Highlight recovery...\n"));
 
   grow = pow (2, 4-highlight);
   FORCC hsat[c] = 32000 * pre_mul[c];
@@ -4247,7 +4264,7 @@ int CLASS parse_tiff_ifd (int base, int level)
   int ifd, use_cm=0, cfa, i, j, c, ima_len=0;
   char software[64], *cbuf, *cp;
   uchar cfa_pat[16], cfa_pc[] = { 0,1,2,3 }, tab[256];
-  double dblack, cc[4][4], cm[4][3], cam_xyz[4][3], num, sx, sy;
+  double dblack, cc[4][4], cm[4][3], cam_xyz[4][3], num;
   double ab[]={ 1,1,1,1 }, asn[] = { 0,0,0,0 }, xyz[] = { 1,1,1 };
   unsigned *buf, sony_offset=0, sony_length=0, sony_key=0;
   struct jhead jh;
@@ -4499,10 +4516,8 @@ guess_cfa_pc:
 	maximum = getint(type);
 	break;
       case 50718:			/* DefaultScale */
-	sx = getrat();
-	sy = getrat();
-	if (sx > sy) xmag = sx / sy;
-	else	     ymag = sy / sx;
+	pixel_aspect  = getrat();
+	pixel_aspect /= getrat();
 	break;
       case 50721:			/* ColorMatrix1 */
       case 50722:			/* ColorMatrix2 */
@@ -4747,7 +4762,7 @@ void CLASS parse_external_jpeg()
   if (strcmp (jname, ifname)) {
     if ((ifp = fopen (jname, "rb"))) {
       if (verbose)
-	fprintf (stderr, "Reading metadata from %s...\n", jname);
+	fprintf (stderr,_("Reading metadata from %s ...\n"), jname);
       parse_tiff (12);
       thumb_offset = 0;
       is_raw = 1;
@@ -4755,7 +4770,7 @@ void CLASS parse_external_jpeg()
     }
   }
   if (!timestamp)
-    fprintf (stderr, "Failed to read metadata from %s\n", jname);
+    fprintf (stderr,_("Failed to read metadata from %s\n"), jname);
   free (jname);
   ifp = save;
 }
@@ -5628,7 +5643,7 @@ void CLASS identify()
   data_offset = meta_length = tiff_bps = tiff_compress = 0;
   kodak_cbpp = zero_after_ff = dng_version = fuji_secondary = 0;
   timestamp = shot_order = tiff_samples = black = is_foveon = 0;
-  is_raw = raw_color = use_gamma = xmag = ymag = 1;
+  pixel_aspect = is_raw = raw_color = use_gamma = 1;
   tile_length = INT_MAX;
   for (i=0; i < 4; i++) {
     cam_mul[i] = i == 1;
@@ -5758,14 +5773,13 @@ nucore:
   if (fuji_width) {
     width = height + fuji_width;
     height = width - 1;
-    xmag = ymag = 1;
+    pixel_aspect = 1;
   }
   if (!strcmp(model,"K10D")) {		/* Camera DNGs are not cropped! */
     height = 2616;
     width  = 3896;
   }
   if (dng_version) {
-    strcat (model," DNG");
     if (filters == UINT_MAX) filters = 0;
     if (!filters)
       colors = tiff_samples;
@@ -5793,8 +5807,8 @@ nucore:
 /* Set parameters based on camera name (for non-DNG files). */
 
   if (is_foveon) {
-    if (height*2 < width) ymag = 2;
-    if (height   > width) xmag = 2;
+    if (height*2 < width) pixel_aspect = 0.5;
+    if (height   > width) pixel_aspect = 2;
     filters = 0;
     load_raw = &CLASS foveon_load_raw;
     simple_coeff(0);
@@ -5802,6 +5816,7 @@ nucore:
     height = 613;
     width  = 854;
     raw_width = 896;
+    pixel_aspect = 607/628.0;
     colors = 4;
     filters = 0xe1e4e1e4;
     load_raw = &CLASS canon_600_load_raw;
@@ -5810,6 +5825,7 @@ nucore:
     height = 773;
     width  = 960;
     raw_width = 992;
+    pixel_aspect = 256/235.0;
     colors = 4;
     filters = 0x1e4e1e4e;
     load_raw = &CLASS canon_a5_load_raw;
@@ -5933,7 +5949,9 @@ canon_cr2:
     cam_mul[2] *= 256/317.0;
   } else if (!strcmp(model,"D1X")) {
     width -= 4;
-    ymag = 2;
+    pixel_aspect = 0.5;
+  } else if (!strncmp(model,"D40",3)) {
+    width--;
   } else if (!strncmp(model,"D50",3) || !strncmp(model,"D70",3)) {
     width--;
     maximum = 0xf53;
@@ -6443,6 +6461,7 @@ konica_400z:
       strcpy (model, "DC120");
       height = 976;
       width  = 848;
+      pixel_aspect = height/0.75/width;
       load_raw = tiff_compress == 7 ?
 	&CLASS kodak_jpeg_load_raw : &CLASS kodak_dc120_load_raw;
     } else if (!strcmp(model,"DCS200")) {
@@ -6581,7 +6600,7 @@ dng_skip:
   if (!load_raw || !height) is_raw = 0;
 #ifdef NO_JPEG
   if (load_raw == &CLASS kodak_jpeg_load_raw) {
-    fprintf (stderr, "%s: You must link dcraw.c with libjpeg!!\n", ifname);
+    fprintf (stderr,_("%s: You must link dcraw with libjpeg!!\n"), ifname);
     is_raw = 0;
   }
 #endif
@@ -6620,7 +6639,7 @@ void CLASS apply_profile (char *input, char *output)
     hInProfile = cmsOpenProfileFromMem (prof, profile_length);
     free (prof);
   } else
-    fprintf (stderr, "%s has no embedded profile.\n", ifname);
+    fprintf (stderr,_("%s has no embedded profile.\n"), ifname);
   if (!hInProfile) return;
   if (!output)
     hOutProfile = cmsCreate_sRGBProfile();
@@ -6636,10 +6655,10 @@ void CLASS apply_profile (char *input, char *output)
       oprof = NULL;
     }
   } else
-    fprintf (stderr, "Cannot open %s!\n", output);
+    fprintf (stderr,_("Cannot open file %s!\n"), output);
   if (!hOutProfile) goto quit;
   if (verbose)
-    fprintf (stderr, "Applying color profile...\n");
+    fprintf (stderr,_("Applying color profile...\n"));
   hTransform = cmsCreateTransform (hInProfile, TYPE_RGBA_16,
 	hOutProfile, TYPE_RGBA_16, INTENT_PERCEPTUAL, 0);
   cmsDoTransform (hTransform, image, image, width*height);
@@ -6738,8 +6757,8 @@ void CLASS convert_to_rgb()
 	  out_cam[i][j] += out_rgb[output_color-1][i][k] * rgb_cam[k][j];
   }
   if (verbose)
-    fprintf (stderr, raw_color ? "Building histograms...\n" :
-	"Converting to %s colorspace...\n", name[output_color-1]);
+    fprintf (stderr, raw_color ? _("Building histograms...\n") :
+	_("Converting to %s colorspace...\n"), name[output_color-1]);
 
   mix_green = rgb_cam[1][1] == rgb_cam[1][3];
   memset (histogram, 0, sizeof histogram);
@@ -6774,7 +6793,7 @@ void CLASS fuji_rotate()
 
   if (!fuji_width) return;
   if (verbose)
-    fprintf (stderr, "Rotating image 45 degrees...\n");
+    fprintf (stderr,_("Rotating image 45 degrees...\n"));
   fuji_width = (fuji_width - 1 + shrink) >> shrink;
   step = sqrt(0.5);
   wide = fuji_width / step;
@@ -6800,6 +6819,43 @@ void CLASS fuji_rotate()
   height = high;
   image  = img;
   fuji_width = 0;
+}
+
+void CLASS stretch()
+{
+  int newdim, row, col, c;
+  double rc, frac;
+  ushort (*img)[4], *pix0, *pix1;
+
+  if (pixel_aspect == 1) return;
+  if (verbose) fprintf (stderr,_("Stretching the image...\n"));
+  if (pixel_aspect < 1) {
+    newdim = height / pixel_aspect + 0.5;
+    img = (ushort (*)[4]) calloc (width*newdim, sizeof *img);
+    merror (img, "stretch()");
+    for (rc=row=0; row < newdim; row++, rc+=pixel_aspect) {
+      frac = rc - (c = rc);
+      pix0 = pix1 = image[c*width];
+      if (c+1 < height) pix1 += width*4;
+      for (col=0; col < width; col++, pix0+=4, pix1+=4)
+	FORCC img[row*width+col][c] = pix0[c]*(1-frac) + pix1[c]*frac + 0.5;
+    }
+    height = newdim;
+  } else {
+    newdim = width * pixel_aspect + 0.5;
+    img = (ushort (*)[4]) calloc (height*newdim, sizeof *img);
+    merror (img, "stretch()");
+    for (rc=col=0; col < newdim; col++, rc+=1/pixel_aspect) {
+      frac = rc - (c = rc);
+      pix0 = pix1 = image[c];
+      if (c+1 < width) pix1 += 4;
+      for (row=0; row < height; row++, pix0+=width*4, pix1+=width*4)
+	FORCC img[row*newdim+col][c] = pix0[c]*(1-frac) + pix1[c]*frac + 0.5;
+    }
+    width = newdim;
+  }
+  free (image);
+  image = img;
 }
 
 int CLASS flip_index (int row, int col)
@@ -6853,7 +6909,7 @@ struct tiff_hdr {
   struct tiff_tag exif[4];
   short bps[4];
   int rat[6];
-  char make[64], model[72], soft[32], date[20];
+  char make[64], model[64], soft[32], date[20];
 };
 
 void CLASS tiff_set (ushort *ntag,
@@ -6882,11 +6938,8 @@ void CLASS write_ppm_tiff (FILE *ofp)
 
   iheight = height;
   iwidth  = width;
-  if (flip & 4) {
-    SWAP(height,width);
-    SWAP(ymag,xmag);
-  }
-  ppm = (uchar *) calloc (width, colors*xmag*output_bps/8);
+  if (flip & 4) SWAP(height,width);
+  ppm = (uchar *) calloc (width, colors*output_bps/8);
   ppm2 = (ushort *) ppm;
   merror (ppm, "write_ppm_tiff()");
 
@@ -6894,8 +6947,8 @@ void CLASS write_ppm_tiff (FILE *ofp)
   th.order = htonl(0x4d4d4949) >> 16;
   th.magic = 42;
   th.ifd = 10;
-  tiff_set (&th.ntag, 256, 4, 1, xmag*width);
-  tiff_set (&th.ntag, 257, 4, 1, ymag*height);
+  tiff_set (&th.ntag, 256, 4, 1, width);
+  tiff_set (&th.ntag, 257, 4, 1, height);
   tiff_set (&th.ntag, 258, 3, colors, output_bps);
   if (colors > 2)
     th.tag[th.ntag-1].val.i0 = TOFF(th.bps);
@@ -6907,8 +6960,8 @@ void CLASS write_ppm_tiff (FILE *ofp)
   if (oprof) psize = ntohl(oprof[0]);
   tiff_set (&th.ntag, 273, 4, 1, sizeof th + psize);
   tiff_set (&th.ntag, 277, 3, 1, colors);
-  tiff_set (&th.ntag, 278, 4, 1, ymag*height);
-  tiff_set (&th.ntag, 279, 4, 1, ymag*height*xmag*width*colors*output_bps/8);
+  tiff_set (&th.ntag, 278, 4, 1, height);
+  tiff_set (&th.ntag, 279, 4, 1, height*width*colors*output_bps/8);
   tiff_set (&th.ntag, 305, 2, 32, TOFF(th.soft));
   tiff_set (&th.ntag, 306, 2, 20, TOFF(th.date));
   tiff_set (&th.ntag, 34665, 4, 1, TOFF(th.nexif));
@@ -6922,7 +6975,7 @@ void CLASS write_ppm_tiff (FILE *ofp)
   th.rat[2] *= aperture;
   th.rat[4] *= focal_len;
   strncpy (th.make, make, 64);
-  strncpy (th.model, model, 72);
+  strncpy (th.model, model, 64);
   strcpy (th.soft, "dcraw v"VERSION);
   t = gmtime (&timestamp);
   sprintf (th.date, "%04d:%02d:%02d %02d:%02d:%02d",
@@ -6935,26 +6988,23 @@ void CLASS write_ppm_tiff (FILE *ofp)
   } else if (colors > 3)
     fprintf (ofp,
       "P7\nWIDTH %d\nHEIGHT %d\nDEPTH %d\nMAXVAL %d\nTUPLTYPE %s\nENDHDR\n",
-	xmag*width, ymag*height, colors, (1 << output_bps)-1, cdesc);
+	width, height, colors, (1 << output_bps)-1, cdesc);
   else
     fprintf (ofp, "P%d\n%d %d\n%d\n",
-	colors/2+5, xmag*width, ymag*height, (1 << output_bps)-1);
+	colors/2+5, width, height, (1 << output_bps)-1);
 
-  if (output_bps == 8)
-    gamma_lut (lut);
+  if (output_bps == 8) gamma_lut (lut);
   soff  = flip_index (0, 0);
   cstep = flip_index (0, 1) - soff;
   rstep = flip_index (1, 0) - flip_index (0, width);
   for (row=0; row < height; row++, soff += rstep) {
     for (col=0; col < width; col++, soff += cstep)
-      FORCC for (i=0; i < xmag; i++)
-	if (output_bps == 8)
-	     ppm [(col*xmag+i)*colors+c] = lut[image[soff][c]];
-	else ppm2[(col*xmag+i)*colors+c] =     image[soff][c];
+      if (output_bps == 8)
+	   FORCC ppm [col*colors+c] = lut[image[soff][c]];
+      else FORCC ppm2[col*colors+c] =     image[soff][c];
     if (output_bps == 16 && !output_tiff && th.order == 0x4949)
-      swab (ppm2, ppm2, xmag*width*colors*2);
-    for (i=0; i < ymag; i++)
-      fwrite (ppm, colors*output_bps/8, xmag*width, ofp);
+      swab (ppm2, ppm2, width*colors*2);
+    fwrite (ppm, colors*output_bps/8, width, ofp);
   }
   free (ppm);
 }
@@ -6975,51 +7025,56 @@ int CLASS main (int argc, char **argv)
 #ifndef LOCALTIME
   putenv ("TZ=UTC");
 #endif
-  if (argc == 1) {
-    fprintf (stderr,
-    "\nRaw Photo Decoder \"dcraw\" v"VERSION
-    "\nby Dave Coffin, dcoffin a cybercom o net"
-    "\n\nUsage:  %s [options] file1 file2 ...\n"
-    "\nValid options:"
-    "\n-v        Print verbose messages"
-    "\n-c        Write image data to standard output"
-    "\n-e        Extract embedded thumbnail image"
-    "\n-i        Identify files without decoding them"
-    "\n-z        Change file dates to camera timestamp"
-    "\n-a        Use automatic white balance"
-    "\n-w        Use camera white balance, if possible"
-    "\n-r <nums> Set raw white balance (four values required)"
-    "\n-b <num>  Adjust brightness (default = 1.0)"
-    "\n-k <num>  Set black point"
-    "\n-K <file> Subtract dark frame (16-bit raw PGM)"
-    "\n-H [0-9]  Highlight mode (0=clip, 1=no clip, 2+=recover)"
-    "\n-t [0-7]  Flip image (0=none, 3=180, 5=90CCW, 6=90CW)"
-    "\n-o [0-5]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"
-#ifndef NO_LCMS
-    "\n-o <file> Apply output ICC profile from file"
-    "\n-p <file> Apply camera ICC profile from file or \"embed\""
+#ifdef LOCALEDIR
+  setlocale (LC_CTYPE, "");
+  setlocale (LC_MESSAGES, "");
+  bindtextdomain ("dcraw", LOCALEDIR);
+  textdomain ("dcraw");
 #endif
-    "\n-d        Document Mode (no color, no interpolation)"
-    "\n-D        Document Mode without scaling (totally raw)"
-    "\n-q [0-3]  Set the interpolation quality"
-    "\n-h        Half-size color image (twice as fast as \"-q 0\")"
-    "\n-f        Interpolate RGGB as four colors"
-    "\n-B <domain> <range>  Apply bilateral filter to reduce noise"
-    "\n-j        Show Fuji Super CCD images tilted 45 degrees"
-    "\n-s [0-99] Select a different raw image from the same file"
-    "\n-4        Write 16-bit linear instead of 8-bit with gamma"
-    "\n-T        Write TIFF instead of PPM"
-    "\n\n", argv[0]);
+
+  if (argc == 1) {
+    printf(_("\nRaw photo decoder \"dcraw\" v%s"), VERSION);
+    printf(_("\nby Dave Coffin, dcoffin a cybercom o net\n"));
+    printf(_("\nUsage:  %s [OPTION]... [FILE]...\n\n"), argv[0]);
+    puts(_("-v        Print verbose messages"));
+    puts(_("-c        Write image data to standard output"));
+    puts(_("-e        Extract embedded thumbnail image"));
+    puts(_("-i        Identify files without decoding them"));
+    puts(_("-i -v     Identify files and show metadata"));
+    puts(_("-z        Change file dates to camera timestamp"));
+    puts(_("-a        Use automatic white balance"));
+    puts(_("-w        Use camera white balance, if possible"));
+    puts(_("-r <4 numbers> Set custom white balance"));
+    puts(_("-b <num>  Adjust brightness (default = 1.0)"));
+    puts(_("-k <num>  Set black point"));
+    puts(_("-K <file> Subtract dark frame (16-bit raw PGM)"));
+    puts(_("-H [0-9]  Highlight mode (0=clip, 1=no clip, 2+=recover)"));
+    puts(_("-t [0-7]  Flip image (0=none, 3=180, 5=90CCW, 6=90CW)"));
+    puts(_("-o [0-5]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"));
+#ifndef NO_LCMS
+    puts(_("-o <file> Apply output ICC profile from file"));
+    puts(_("-p <file> Apply camera ICC profile from file or \"embed\""));
+#endif
+    puts(_("-d        Document mode (no color, no interpolation)"));
+    puts(_("-D        Document mode without scaling (totally raw)"));
+    puts(_("-j        Don't stretch or rotate raw pixels"));
+    puts(_("-q [0-3]  Set the interpolation quality"));
+    puts(_("-h        Half-size color image (twice as fast as \"-q 0\")"));
+    puts(_("-f        Interpolate RGGB as four colors"));
+    puts(_("-B <domain> <range> Apply bilateral filter to smooth noise"));
+    puts(_("-s [0-99] Select a different raw image from the same file"));
+    puts(_("-4        Write 16-bit linear instead of 8-bit with gamma"));
+    puts(_("-T        Write TIFF instead of PPM"));
+    puts("");
     return 1;
   }
-
   argv[argc] = "";
   for (arg=1; argv[arg][0] == '-'; ) {
     opt = argv[arg++][1];
     if ((cp = strchr (sp="BbrktqsH", opt)))
       for (i=0; i < "21411111"[cp-sp]-'0'; i++)
 	if (!isdigit(argv[arg+i][0])) {
-	  fprintf (stderr, "Non-numeric argument to \"-%c\"\n", opt);
+	  fprintf (stderr,_("Non-numeric argument to \"-%c\"\n"), opt);
 	  return 1;
 	}
     switch (opt) {
@@ -7051,26 +7106,26 @@ int CLASS main (int argc, char **argv)
       case 'v':  verbose           = 1;  break;
       case 'h':  half_size         = 1;		/* "-h" implies "-f" */
       case 'f':  four_color_rgb    = 1;  break;
-      case 'd':  document_mode     = 1;  break;
-      case 'D':  document_mode     = 2;  break;
       case 'a':  use_auto_wb       = 1;  break;
       case 'w':  use_camera_wb     = 1;  break;
+      case 'D':
+      case 'd':  document_mode = 1 + (opt == 'D');
       case 'j':  use_fuji_rotate   = 0;  break;
       case 'm':  output_color      = 0;  break;
       case 'T':  output_tiff       = 1;  break;
       case '4':  output_bps       = 16;  break;
       default:
-	fprintf (stderr, "Unknown option \"-%c\".\n", opt);
+	fprintf (stderr,_("Unknown option \"-%c\".\n"), opt);
 	return 1;
     }
   }
   if (arg == argc) {
-    fprintf (stderr, "No files to process.\n");
+    fprintf (stderr,_("No files to process.\n"));
     return 1;
   }
   if (write_to_stdout) {
     if (isatty(1)) {
-      fprintf (stderr, "Will not write an image to the terminal!\n");
+      fprintf (stderr,_("Will not write an image to the terminal!\n"));
       return 1;
     }
 #if defined(WIN32) || defined(DJGPP) || defined(__CYGWIN__)
@@ -7099,12 +7154,12 @@ int CLASS main (int argc, char **argv)
     status = (identify(),!is_raw);
     if (timestamp_only) {
       if ((status = !timestamp))
-	fprintf (stderr, "%s has no timestamp.\n", ifname);
+	fprintf (stderr,_("%s has no timestamp.\n"), ifname);
       else if (identify_only)
 	printf ("%10ld%10d %s\n", (long) timestamp, shot_order, ifname);
       else {
 	if (verbose)
-	  fprintf (stderr, "%s time set to %d.\n", ifname, (int) timestamp);
+	  fprintf (stderr,_("%s time set to %d.\n"), ifname, (int) timestamp);
 	ut.actime = ut.modtime = timestamp;
 	utime (ifname, &ut);
       }
@@ -7113,7 +7168,7 @@ int CLASS main (int argc, char **argv)
     write_fun = &CLASS write_ppm_tiff;
     if (thumbnail_only) {
       if ((status = !thumb_offset)) {
-	fprintf (stderr, "%s has no thumbnail.\n", ifname);
+	fprintf (stderr,_("%s has no thumbnail.\n"), ifname);
 	goto next;
       } else if (thumb_load_raw) {
 	load_raw = thumb_load_raw;
@@ -7132,24 +7187,31 @@ int CLASS main (int argc, char **argv)
       width  += width  & 1;
     }
     if (identify_only && verbose && make[0]) {
-      printf ("\nFilename: %s\n", ifname);
-      printf ("Timestamp: %s", ctime(&timestamp));
-      printf ("Camera: %s %s\n", make, model);
-      printf ("ISO speed: %d\n", (int) iso_speed);
-      printf ("Shutter: ");
+      printf (_("\nFilename: %s\n"), ifname);
+      printf (_("Timestamp: %s"), ctime(&timestamp));
+      printf (_("Camera: %s %s\n"), make, model);
+      if (dng_version) {
+	printf (_("DNG Version: "));
+	for (i=24; i >= 0; i -= 8)
+	  printf ("%d%c", dng_version >> i & 255, i ? '.':'\n');
+      }
+      printf (_("ISO speed: %d\n"), (int) iso_speed);
+      printf (_("Shutter: "));
       if (shutter > 0 && shutter < 1)
 	shutter = (printf ("1/"), 1 / shutter);
-      printf ("%0.1f sec\n", shutter);
-      printf ("Aperture: f/%0.1f\n", aperture);
-      printf ("Focal Length: %0.1f mm\n", focal_len);
-      printf ("Secondary pixels: %s\n", fuji_secondary ? "yes":"no");
-      printf ("Embedded ICC profile: %s\n", profile_length ? "yes":"no");
-      printf ("Decodable with dcraw: %s\n", is_raw ? "yes":"no");
+      printf (_("%0.1f sec\n"), shutter);
+      printf (_("Aperture: f/%0.1f\n"), aperture);
+      printf (_("Focal length: %0.1f mm\n"), focal_len);
+      printf (_("Secondary pixels: %s\n"), fuji_secondary ? _("yes"):_("no"));
+      printf (_("Embedded ICC profile: %s\n"), profile_length ? _("yes"):_("no"));
+      printf (_("Decodable with dcraw: %s\n"), is_raw ? _("yes"):_("no"));
+      if (pixel_aspect != 1)
+	printf (_("Pixel Aspect Ratio: %0.6f\n"), pixel_aspect);
       if (thumb_offset)
-	printf ("Thumb size:  %4d x %d\n", thumb_width, thumb_height);
-      printf ("Full size:   %4d x %d\n", raw_width, raw_height);
+	printf (_("Thumb size:  %4d x %d\n"), thumb_width, thumb_height);
+      printf (_("Full size:   %4d x %d\n"), raw_width, raw_height);
     } else if (!is_raw)
-      fprintf (stderr, "Cannot decode %s\n", ifname);
+      fprintf (stderr,_("Cannot decode file %s\n"), ifname);
     if (!is_raw) goto next;
     if (user_flip >= 0)
       flip = user_flip;
@@ -7163,33 +7225,36 @@ int CLASS main (int argc, char **argv)
     iwidth  = (width  + shrink) >> shrink;
     if (identify_only) {
       if (verbose) {
-	if (fuji_width && use_fuji_rotate) {
-	  fuji_width = (fuji_width - 1 + shrink) >> shrink;
-	  iwidth = fuji_width / sqrt(0.5);
-	  iheight = (iheight - fuji_width) / sqrt(0.5);
+	if (use_fuji_rotate) {
+	  if (fuji_width) {
+	    fuji_width = (fuji_width - 1 + shrink) >> shrink;
+	    iwidth = fuji_width / sqrt(0.5);
+	    iheight = (iheight - fuji_width) / sqrt(0.5);
+	  } else {
+	    if (pixel_aspect < 1) iheight = iheight / pixel_aspect + 0.5;
+	    if (pixel_aspect > 1) iwidth  = iwidth  * pixel_aspect + 0.5;
+	  }
 	}
-	iheight *= ymag;
-	iwidth  *= xmag;
 	if (flip & 4)
 	  SWAP(iheight,iwidth);
-	printf ("Image size:  %4d x %d\n", width, height);
-	printf ("Output size: %4d x %d\n", iwidth, iheight);
-	printf ("Raw colors: %d", colors);
+	printf (_("Image size:  %4d x %d\n"), width, height);
+	printf (_("Output size: %4d x %d\n"), iwidth, iheight);
+	printf (_("Raw colors: %d"), colors);
 	if (filters) {
-	  printf ("\nFilter pattern: ");
+	  printf (_("\nFilter pattern: "));
 	  if (!cdesc[3]) cdesc[3] = 'G';
 	  for (i=0; i < 16; i++)
 	    putchar (cdesc[fc(i >> 1,i & 1)]);
 	}
-	printf ("\nDaylight multipliers:");
+	printf (_("\nDaylight multipliers:"));
 	FORCC printf (" %f", pre_mul[c]);
 	if (cam_mul[0] > 0) {
-	  printf ("\nCamera multipliers:");
+	  printf (_("\nCamera multipliers:"));
 	  FORC4 printf (" %f", cam_mul[c]);
 	}
 	putchar ('\n');
       } else
-	printf ("%s is a %s %s image.\n", ifname, make, model);
+	printf (_("%s is a %s %s image.\n"), ifname, make, model);
 next:
       fclose(ifp);
       continue;
@@ -7200,7 +7265,7 @@ next:
     meta_data = (char *) (image + iheight*iwidth);
     if (verbose)
       fprintf (stderr,
-	"Loading %s %s image from %s...\n", make, model, ifname);
+	_("Loading %s %s image from %s ...\n"), make, model, ifname);
     fseek (ifp, data_offset, SEEK_SET);
     (*load_raw)();
     bad_pixels();
@@ -7231,6 +7296,7 @@ next:
     if (cam_profile) apply_profile (cam_profile, out_profile);
 #endif
     convert_to_rgb();
+    if (use_fuji_rotate) stretch();
 thumbnail:
     if (write_fun == &CLASS jpeg_thumb)
       write_ext = ".jpg";
@@ -7241,7 +7307,7 @@ thumbnail:
     ofname = (char *) malloc (strlen(ifname) + 16);
     merror (ofname, "main()");
     if (write_to_stdout)
-      strcpy (ofname, "standard output");
+      strcpy (ofname,_("standard output"));
     else {
       strcpy (ofname, ifname);
       if ((cp = strrchr (ofname, '.'))) *cp = 0;
@@ -7256,7 +7322,7 @@ thumbnail:
       }
     }
     if (verbose)
-      fprintf (stderr, "Writing data to %s ...\n", ofname);
+      fprintf (stderr,_("Writing data to %s ...\n"), ofname);
     (*write_fun)(ofp);
     fclose(ifp);
     if (ofp != stdout) fclose(ofp);
