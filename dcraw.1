@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "December 13, 2006"
+.TH dcraw 1 "December 21, 2006"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -186,11 +186,13 @@ For example, Fuji\ Super\ CCD\ SR cameras generate a second image
 underexposed four stops to show detail in the highlights.
 .TP
 .B -j
-For Fuji\ Super\ CCD cameras, show the image tilted 45 degrees,
-so that each output pixel corresponds to one raw pixel.
+For Fuji\ Super\ CCD cameras, show the image tilted 45 degrees.
+For cameras with non-square pixels, do not stretch the image to
+its correct aspect ratio.  In any case, this option guarantees
+that each output pixel corresponds to one raw pixel.
 .TP
 .B ""
-For most cameras,
+If they don't apply to your camera,
 .B -s
 and
 .B -j
