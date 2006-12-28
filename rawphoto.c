@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.27 $
-   $Date: 2006/06/09 05:18:58 $
+   $Revision: 1.28 $
+   $Date: 2006/12/28 20:05:15 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -43,7 +43,7 @@
 #include <libintl.h>
 #define _(String) gettext(String)
 
-#define PLUG_IN_VERSION  "1.1.15 - 9 June 2006"
+#define PLUG_IN_VERSION  "1.1.16 - 28 December 2006"
 
 static void query(void);
 static void run(RAWPHOTO_CONST gchar *name,
@@ -106,7 +106,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-    "arw,bay,bmq,cr2,crw,cs1,dc2,dcr,dng,erf,fff,hdr,jpg,k25,kdc,mdc,mos,mrw,nef,orf,pef,pxn,raf,raw,rdc,sr2,srf,sti,tif,x3f", "");
+    "arw,bay,bmq,cr2,crw,cs1,dc2,dcr,dng,erf,fff,hdr,jpg,k25,kc2,kdc,mdc,mos,mrw,nef,orf,pef,pxn,raf,raw,rdc,sr2,srf,sti,tif,x3f", "");
 }
 
 static void run (RAWPHOTO_CONST gchar *name,
