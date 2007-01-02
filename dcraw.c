@@ -1,6 +1,6 @@
 /*
    dcraw.c -- Dave Coffin's raw photo decoder
-   Copyright 1997-2006 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 1997-2007 by Dave Coffin, dcoffin a cybercom o net
 
    This is a command-line ANSI C program to convert raw photos from
    any digital camera on any computer running any operating system.
@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.360 $
-   $Date: 2006/12/22 03:56:43 $
+   $Revision: 1.361 $
+   $Date: 2007/01/02 03:51:27 $
  */
 
-#define VERSION "8.48"
+#define VERSION "8.49"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -1660,6 +1660,12 @@ void CLASS unpacked_load_raw()
       BAYER2(row,col) = pixel[col];
   }
   free (pixel);
+}
+
+void CLASS panasonic_load_raw()
+{
+  unpacked_load_raw();
+  remove_zeroes();
 }
 
 void CLASS olympus_e300_load_raw()
@@ -4943,6 +4949,38 @@ void CLASS parse_rollei()
   write_thumb = &CLASS rollei_thumb;
 }
 
+void CLASS parse_sinar_ia()
+{
+  int entries, off;
+  char str[8], *cp;
+
+  order = 0x4949;
+  fseek (ifp, 4, SEEK_SET);
+  entries = get4();
+  fseek (ifp, get4(), SEEK_SET);
+  while (entries--) {
+    off = get4(); get4();
+    fread (str, 8, 1, ifp);
+    if (!strcmp(str,"META"))   meta_offset = off;
+    if (!strcmp(str,"THUMB")) thumb_offset = off;
+    if (!strcmp(str,"RAW0"))   data_offset = off;
+  }
+  fseek (ifp, meta_offset+20, SEEK_SET);
+  fread (make, 64, 1, ifp);
+  make[63] = 0;
+  if ((cp = strchr(make,' '))) {
+    strcpy (model, cp+1);
+    *cp = 0;
+  }
+  raw_width  = get2();
+  raw_height = get2();
+  load_raw = &CLASS unpacked_load_raw;
+  thumb_width = (get4(),get2());
+  thumb_height = get2();
+  write_thumb = &CLASS ppm_thumb;
+  maximum = 0x3fff;
+}
+
 void CLASS parse_phase_one (int base)
 {
   unsigned entries, tag, type, len, data, save, i, c;
@@ -5283,8 +5321,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 8795,-2482,-797,-7804,15403,2573,-1422,1996,7082 } },
     { "Canon PowerShot S70", 0,
 	{ 9976,-3810,-832,-7115,14463,2906,-901,989,7889 } },
-    { "Canon PowerShot A610", 0, /* copied from the S60 */
-	{ 8795,-2482,-797,-7804,15403,2573,-1422,1996,7082 } },
+    { "Canon PowerShot A610", 0, /* DJC */
+	{ 15591,-6402,-1592,-5365,13198,2168,-1300,1824,5075 } },
     { "Canon PowerShot A620", 0, /* DJC */
 	{ 15265,-6193,-1558,-4125,12116,2010,-888,1639,5220 } },
     { "Contax N Digital", 0,
@@ -5491,6 +5529,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 10976,-4029,-1141,-7918,15491,2600,-1670,2071,8246 } },
     { "Panasonic DMC-FZ50", 0,
 	{ 7906,-2709,-594,-6231,13351,3220,-1922,2631,6537 } },
+    { "Panasonic DMC-L1", 0,
+	{ 8054,-1885,-1025,-8349,16367,2040,-2805,3542,7629 } },
     { "Panasonic DMC-LC1", 0,
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
     { "Panasonic DMC-LX1", 0,
@@ -5622,7 +5662,7 @@ void CLASS identify()
     { 10979200, "CASIO",    "EX-P700"         ,1 },
     {  3178560, "PENTAX",   "Optio S"         ,1 },
     {  4841984, "PENTAX",   "Optio S"         ,1 },
-    {  6114240, "PENTAX",   "Optio S4"        ,1 },  /* or S4i */
+    {  6114240, "PENTAX",   "Optio S4"        ,1 },  /* or S4i, CASIO EX-Z4 */
     { 12582980, "Sinar",    ""                ,0 },
     { 33292868, "Sinar",    ""                ,0 },
     { 44390468, "Sinar",    ""                ,0 } };
@@ -5733,6 +5773,8 @@ nucore:
     parse_riff();
   } else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
+  else if (!memcmp (head,"PWAD",4))
+    parse_sinar_ia();
   else if (!memcmp (head,"\0MRM",4))
     parse_minolta(0);
   else if (!memcmp (head,"FOVb",4))
@@ -6154,7 +6196,7 @@ konica_400z:
       pre_mul[0] = 1.137;
       pre_mul[2] = 1.453;
     }
-  } else if (!strncmp(model,"Optio S4",8)) {
+  } else if (fsize == 6114240) {
     height = 1737;
     width  = 2324;
     raw_width = 3520;
@@ -6299,12 +6341,20 @@ konica_400z:
     }
   } else if (!strcmp(make,"LEICA") || !strcmp(make,"Panasonic")) {
     maximum = 0xfff0;
+    load_raw = &CLASS unpacked_load_raw;
     if (width == 2568) {
       adobe_coeff ("Panasonic","DMC-LC1");
+    } else if (width == 3177) {
+      maximum = 0xf7fc;
+      width -= 10;
+      filters = 0x49494949;
+      adobe_coeff ("Panasonic","DMC-L1");
+      load_raw = &CLASS panasonic_load_raw;
     } else if (width == 3304) {
       maximum = 0xf94c;
       width -= 16;
       adobe_coeff ("Panasonic","DMC-FZ30");
+      load_raw = &CLASS panasonic_load_raw;
     } else if (width == 3690) {
       maximum = 0xf7f0;
       height -= 3;
@@ -6312,17 +6362,20 @@ konica_400z:
       left_margin = 3;
       filters = 0x49494949;
       adobe_coeff ("Panasonic","DMC-FZ50");
+      load_raw = &CLASS panasonic_load_raw;
     } else if (width == 3770) {
       height = 2760;
       width  = 3672;
       top_margin  = 15;
       left_margin = 17;
       adobe_coeff ("Panasonic","DMC-FZ50");
+      load_raw = &CLASS panasonic_load_raw;
     } else if (width == 3880) {
       maximum = 0xf7f0;
       width -= 22;
       left_margin = 6;
       adobe_coeff ("Panasonic","DMC-LX1");
+      load_raw = &CLASS panasonic_load_raw;
     } else if (width == 4290) {
       height--;
       width = 4248;
@@ -6336,7 +6389,6 @@ konica_400z:
       left_margin = 17;
       adobe_coeff ("Panasonic","DMC-LX2");
     }
-    load_raw = &CLASS unpacked_load_raw;
   } else if (!strcmp(model,"E-1") ||
 	     !strcmp(model,"E-400")) {
     filters = 0x61616161;
@@ -6483,7 +6535,7 @@ konica_400z:
     load_raw = &CLASS kodak_radc_load_raw;
     filters = 0x61616161;
     simple_coeff(2);
-  } else if (!strcmp(make,"Rollei")) {
+  } else if (!strcmp(make,"Rollei") && !load_raw) {
     switch (raw_width) {
       case 1316:
 	height = 1030;
