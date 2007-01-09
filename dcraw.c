@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.361 $
-   $Date: 2007/01/02 03:51:27 $
+   $Revision: 1.362 $
+   $Date: 2007/01/09 02:06:51 $
  */
 
-#define VERSION "8.49"
+#define VERSION "8.50"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -5511,6 +5511,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 11766,-4445,-1067,-6901,14421,2707,-1029,1217,7572 } },
     { "OLYMPUS SP500UZ", 0,
 	{ 9493,-3415,-666,-5211,12334,3260,-1548,2262,6482 } },
+    { "OLYMPUS SP510UZ", 0,
+	{ 10593,-3607,-1010,-5881,13127,3084,-1200,1805,6721 } },
     { "PENTAX *ist DL2", 0,
 	{ 10504,-2438,-1189,-8603,16207,2531,-1022,863,12242 } },
     { "PENTAX *ist DL", 0,
@@ -6414,7 +6416,7 @@ konica_400z:
     if (!strcmp(model,"C5050Z") ||
 	!strcmp(model,"C8080WZ"))
       filters = 0x16161616;
-    if (!strcmp(model,"SP500UZ"))
+    if (!strncmp(model,"SP5",3))
       filters = 0x49494949;
   } else if (!strcmp(model,"N Digital")) {
     height = 2047;
