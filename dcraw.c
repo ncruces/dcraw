@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.362 $
-   $Date: 2007/01/09 02:06:51 $
+   $Revision: 1.363 $
+   $Date: 2007/01/18 23:57:32 $
  */
 
-#define VERSION "8.50"
+#define VERSION "8.52"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -1217,15 +1217,7 @@ void CLASS fuji_load_raw()
   free (pixel);
 }
 
-void CLASS jpeg_thumb (FILE *tfp)
-{
-  char *thumb = (char *) malloc (thumb_length);
-  merror (thumb, "jpeg_thumb()");
-  fread  (thumb, 1, thumb_length, ifp);
-  thumb[0] = 0xff;
-  fwrite (thumb, 1, thumb_length, tfp);
-  free (thumb);
-}
+void CLASS jpeg_thumb (FILE *tfp);
 
 void CLASS ppm_thumb (FILE *tfp)
 {
@@ -5325,6 +5317,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 15591,-6402,-1592,-5365,13198,2168,-1300,1824,5075 } },
     { "Canon PowerShot A620", 0, /* DJC */
 	{ 15265,-6193,-1558,-4125,12116,2010,-888,1639,5220 } },
+    { "Canon PowerShot S3 IS", 0, /* DJC */
+	{ 14062,-5199,-1446,-4712,12470,2243,-1286,2028,4836 } },
     { "Contax N Digital", 0,
 	{ 7777,1285,-1053,-9280,16543,2916,-3677,5679,7060 } },
     { "EPSON R-D1", 0,
@@ -5807,7 +5801,7 @@ nucore:
   if (!strncmp (model,"Digital Camera ",15))
     strcpy (model, model+15);
   make[63] = model[63] = model2[63] = 0;
-  if (!is_raw) return;
+  if (!is_raw) goto notraw;
 
   if ((raw_height | raw_width) < 0)
        raw_height = raw_width  = 0;
@@ -6658,8 +6652,6 @@ dng_skip:
     is_raw = 0;
   }
 #endif
-  if (flip == -1) flip = tiff_flip;
-  if (flip == -1) flip = 0;
   if (!cdesc[0])
     strcpy (cdesc, colors == 3 ? "RGB":"GMCY");
   if (!raw_height) raw_height = height;
@@ -6671,6 +6663,9 @@ dng_skip:
       if ((filters >> i & 15) == 6)
 	filters |= 8 << i;
     }
+notraw:
+  if (flip == -1) flip = tiff_flip;
+  if (flip == -1) flip = 0;
 }
 
 #ifndef NO_LCMS
@@ -6980,15 +6975,85 @@ void CLASS tiff_set (ushort *ntag,
   else tt->val.i0 = val;
 }
 
-#define TOFF(ptr) ((char *)(&(ptr)) - (char *)(&th))
+#define TOFF(ptr) ((char *)(&(ptr)) - (char *)th)
+
+void CLASS tiff_head (struct tiff_hdr *th, int full)
+{
+  int c, psize=0;
+  struct tm *t;
+
+  memset (th, 0, sizeof *th);
+  th->order = htonl(0x4d4d4949) >> 16;
+  th->magic = 42;
+  th->ifd = 10;
+  if (full) {
+    tiff_set (&th->ntag, 256, 4, 1, width);
+    tiff_set (&th->ntag, 257, 4, 1, height);
+    tiff_set (&th->ntag, 258, 3, colors, output_bps);
+    if (colors > 2)
+      th->tag[th->ntag-1].val.i0 = TOFF(th->bps);
+    FORC4 th->bps[c] = output_bps;
+    tiff_set (&th->ntag, 259, 3, 1, 1);
+    tiff_set (&th->ntag, 262, 3, 1, 1 + (colors > 1));
+  }
+  tiff_set (&th->ntag, 271, 2, 64, TOFF(th->make));
+  tiff_set (&th->ntag, 272, 2, 64, TOFF(th->model));
+  if (full) {
+    if (oprof) psize = ntohl(oprof[0]);
+    tiff_set (&th->ntag, 273, 4, 1, sizeof *th + psize);
+    tiff_set (&th->ntag, 277, 3, 1, colors);
+    tiff_set (&th->ntag, 278, 4, 1, height);
+    tiff_set (&th->ntag, 279, 4, 1, height*width*colors*output_bps/8);
+  } else
+    tiff_set (&th->ntag, 274, 3, 1, "12435867"[flip]-'0');
+  tiff_set (&th->ntag, 305, 2, 32, TOFF(th->soft));
+  tiff_set (&th->ntag, 306, 2, 20, TOFF(th->date));
+  tiff_set (&th->ntag, 34665, 4, 1, TOFF(th->nexif));
+  if (psize) tiff_set (&th->ntag, 34675, 7, psize, sizeof *th);
+  tiff_set (&th->nexif, 33434, 5, 1, TOFF(th->rat[0]));
+  tiff_set (&th->nexif, 33437, 5, 1, TOFF(th->rat[2]));
+  tiff_set (&th->nexif, 34855, 3, 1, iso_speed);
+  tiff_set (&th->nexif, 37386, 5, 1, TOFF(th->rat[4]));
+  for (c=0; c < 6; c++) th->rat[c] = 1000000;
+  th->rat[0] *= shutter;
+  th->rat[2] *= aperture;
+  th->rat[4] *= focal_len;
+  strncpy (th->make, make, 64);
+  strncpy (th->model, model, 64);
+  strcpy (th->soft, "dcraw v"VERSION);
+  t = gmtime (&timestamp);
+  sprintf (th->date, "%04d:%02d:%02d %02d:%02d:%02d",
+      t->tm_year+1900,t->tm_mon+1,t->tm_mday,t->tm_hour,t->tm_min,t->tm_sec);
+}
+
+void CLASS jpeg_thumb (FILE *tfp)
+{
+  char *thumb;
+  ushort exif[5];
+  struct tiff_hdr th;
+
+  thumb = (char *) malloc (thumb_length);
+  merror (thumb, "jpeg_thumb()");
+  fread (thumb, 1, thumb_length, ifp);
+  fputc (0xff, tfp);
+  fputc (0xd8, tfp);
+  if (strcmp (thumb+6, "Exif")) {
+    memcpy (exif, "\xff\xe1  Exif\0\0", 10);
+    exif[1] = htons (8 + sizeof th);
+    fwrite (exif, 1, sizeof exif, tfp);
+    tiff_head (&th, 0);
+    fwrite (&th, 1, sizeof th, tfp);
+  }
+  fwrite (thumb+2, 1, thumb_length-2, tfp);
+  free (thumb);
+}
 
 void CLASS write_ppm_tiff (FILE *ofp)
 {
   struct tiff_hdr th;
-  struct tm *t;
   uchar *ppm, lut[0x10000];
   ushort *ppm2;
-  int i, c, row, col, psize=0, soff, rstep, cstep;
+  int c, row, col, soff, rstep, cstep;
 
   iheight = height;
   iwidth  = width;
@@ -6996,49 +7061,11 @@ void CLASS write_ppm_tiff (FILE *ofp)
   ppm = (uchar *) calloc (width, colors*output_bps/8);
   ppm2 = (ushort *) ppm;
   merror (ppm, "write_ppm_tiff()");
-
-  memset (&th, 0, sizeof th);
-  th.order = htonl(0x4d4d4949) >> 16;
-  th.magic = 42;
-  th.ifd = 10;
-  tiff_set (&th.ntag, 256, 4, 1, width);
-  tiff_set (&th.ntag, 257, 4, 1, height);
-  tiff_set (&th.ntag, 258, 3, colors, output_bps);
-  if (colors > 2)
-    th.tag[th.ntag-1].val.i0 = TOFF(th.bps);
-  FORC4 th.bps[c] = output_bps;
-  tiff_set (&th.ntag, 259, 3, 1, 1);
-  tiff_set (&th.ntag, 262, 3, 1, 1 + (colors > 1));
-  tiff_set (&th.ntag, 271, 2, 64, TOFF(th.make));
-  tiff_set (&th.ntag, 272, 2, 72, TOFF(th.model));
-  if (oprof) psize = ntohl(oprof[0]);
-  tiff_set (&th.ntag, 273, 4, 1, sizeof th + psize);
-  tiff_set (&th.ntag, 277, 3, 1, colors);
-  tiff_set (&th.ntag, 278, 4, 1, height);
-  tiff_set (&th.ntag, 279, 4, 1, height*width*colors*output_bps/8);
-  tiff_set (&th.ntag, 305, 2, 32, TOFF(th.soft));
-  tiff_set (&th.ntag, 306, 2, 20, TOFF(th.date));
-  tiff_set (&th.ntag, 34665, 4, 1, TOFF(th.nexif));
-  if (psize) tiff_set (&th.ntag, 34675, 7, psize, sizeof th);
-  tiff_set (&th.nexif, 33434, 5, 1, TOFF(th.rat[0]));
-  tiff_set (&th.nexif, 33437, 5, 1, TOFF(th.rat[2]));
-  tiff_set (&th.nexif, 34855, 3, 1, iso_speed);
-  tiff_set (&th.nexif, 37386, 5, 1, TOFF(th.rat[4]));
-  for (i=0; i < 6; i++) th.rat[i] = 1000000;
-  th.rat[0] *= shutter;
-  th.rat[2] *= aperture;
-  th.rat[4] *= focal_len;
-  strncpy (th.make, make, 64);
-  strncpy (th.model, model, 64);
-  strcpy (th.soft, "dcraw v"VERSION);
-  t = gmtime (&timestamp);
-  sprintf (th.date, "%04d:%02d:%02d %02d:%02d:%02d",
-      t->tm_year+1900,t->tm_mon+1,t->tm_mday,t->tm_hour,t->tm_min,t->tm_sec);
-
   if (output_tiff) {
+    tiff_head (&th, 1);
     fwrite (&th, sizeof th, 1, ofp);
-    if (psize)
-      fwrite (oprof, psize, 1, ofp);
+    if (oprof)
+      fwrite (oprof, ntohl(oprof[0]), 1, ofp);
   } else if (colors > 3)
     fprintf (ofp,
       "P7\nWIDTH %d\nHEIGHT %d\nDEPTH %d\nMAXVAL %d\nTUPLTYPE %s\nENDHDR\n",
@@ -7206,6 +7233,13 @@ int CLASS main (int argc, char **argv)
       continue;
     }
     status = (identify(),!is_raw);
+    if (user_flip >= 0)
+      flip = user_flip;
+    switch ((flip+3600) % 360) {
+      case 270:  flip = 5;  break;
+      case 180:  flip = 3;  break;
+      case  90:  flip = 6;
+    }
     if (timestamp_only) {
       if ((status = !timestamp))
 	fprintf (stderr,_("%s has no timestamp.\n"), ifname);
@@ -7267,13 +7301,6 @@ int CLASS main (int argc, char **argv)
     } else if (!is_raw)
       fprintf (stderr,_("Cannot decode file %s\n"), ifname);
     if (!is_raw) goto next;
-    if (user_flip >= 0)
-      flip = user_flip;
-    switch ((flip+3600) % 360) {
-      case 270:  flip = 5;  break;
-      case 180:  flip = 3;  break;
-      case  90:  flip = 6;
-    }
     shrink = half_size && filters;
     iheight = (height + shrink) >> shrink;
     iwidth  = (width  + shrink) >> shrink;
