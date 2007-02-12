@@ -19,11 +19,11 @@
    copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
    purchase a license from the author.
 
-   $Revision: 1.364 $
-   $Date: 2007/01/21 00:41:17 $
+   $Revision: 1.365 $
+   $Date: 2007/02/12 22:55:47 $
  */
 
-#define VERSION "8.53"
+#define VERSION "8.54"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -4160,7 +4160,8 @@ void CLASS parse_mos (int offset)
   int skip, from, i, c, neut[4], planes=0, frot=0;
   static const char *mod[] =
   { "","DCB2","Volare","Cantare","CMost","Valeo 6","Valeo 11","Valeo 22",
-    "","Valeo 17","","Aptus 17","Aptus 22","Aptus 75","Aptus 65" };
+    "Valeo 11p","Valeo 17","","Aptus 17","Aptus 22","Aptus 75","Aptus 65",
+    "Aptus 54S","Aptus 65S","Aptus 75S" };
   float romm_cam[3][3];
 
   fseek (ifp, offset, SEEK_SET);
@@ -5347,6 +5348,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 9636,-2804,-988,-7442,15040,2589,-1803,2311,8621 } },
     { "FUJIFILM FinePix S5600", 0,
 	{ 9636,-2804,-988,-7442,15040,2589,-1803,2311,8621 } },
+    { "FUJIFILM FinePix S6", 0,
+	{ 12628,-4887,-1401,-6861,14996,1962,-2198,2782,7091 } },
     { "FUJIFILM FinePix S7000", 0,
 	{ 10190,-3506,-1312,-7153,15051,2238,-2003,2399,7505 } },
     { "FUJIFILM FinePix S9000", 0,
@@ -5523,15 +5526,15 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 11095,-3157,-1324,-8377,15834,2720,-1108,947,11688 } },
     { "Panasonic DMC-FZ30", 0,
 	{ 10976,-4029,-1141,-7918,15491,2600,-1670,2071,8246 } },
-    { "Panasonic DMC-FZ50", 0,
+    { "Panasonic DMC-FZ50", 0,	/* aka "LEICA V-LUX1" */
 	{ 7906,-2709,-594,-6231,13351,3220,-1922,2631,6537 } },
-    { "Panasonic DMC-L1", 0,
+    { "Panasonic DMC-L1", 0,	/* aka "LEICA DIGILUX 3" */
 	{ 8054,-1885,-1025,-8349,16367,2040,-2805,3542,7629 } },
-    { "Panasonic DMC-LC1", 0,
+    { "Panasonic DMC-LC1", 0,	/* aka "LEICA DIGILUX 2" */
 	{ 11340,-4069,-1275,-7555,15266,2448,-2960,3426,7685 } },
-    { "Panasonic DMC-LX1", 0,
+    { "Panasonic DMC-LX1", 0,	/* aka "LEICA D-LUX2" */
 	{ 10704,-4187,-1230,-8314,15952,2501,-920,945,8927 } },
-    { "Panasonic DMC-LX2", 0,
+    { "Panasonic DMC-LX2", 0,	/* aka "LEICA D-LUX3" */
 	{ 8048,-2810,-623,-6450,13519,3272,-1700,2146,7049 } },
     { "SAMSUNG GX-1", 0,
 	{ 10504,-2438,-1189,-8603,16207,2531,-1022,863,12242 } },
@@ -6482,8 +6485,10 @@ konica_400z:
       height = 242;
       if (fsize < 100000) {
 	raw_width = 256; width = 249;
+	pixel_aspect = (4.0*height) / (3.0*width);
       } else {
 	raw_width = 512; width = 501;
+	pixel_aspect = (493.0*height) / (373.0*width);
       }
       data_offset += raw_width + 1;
       colors = 4;
