@@ -1,7 +1,7 @@
 .\"
 .\" Man page for dcraw
 .\"
-.\" Copyright (c) 2006 by David Coffin
+.\" Copyright (c) 2007 by David Coffin
 .\"
 .\" You may distribute without restriction.
 .\"
@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "December 21, 2006"
+.TH dcraw 1 "February 21, 2007"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -74,15 +74,9 @@ Use Adaptive Homogeneity-Directed (AHD) interpolation.
 Interpolate RGB as four colors.  Use this if the output shows
 false 2x2 meshes with VNG or mazes with AHD.
 .TP
-.B -B sigma_domain sigma_range
-Use a bilateral filter to smooth noise while preserving edges.
-.B sigma_domain
-is in units of pixels, while
-.B sigma_range
-is in units of CIELab colorspace.
-Try
-.B -B\ 2\ 4
-to start.
+.B -n noise_threshold
+Use wavelets to erase noise while preserving real detail.
+The best threshold should be somewhere between 100 and 1000.
 .TP
 .B -b brightness
 By default,
