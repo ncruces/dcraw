@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 8.48\n"
+"Project-Id-Version: dcraw 8.60\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2006-12-21 22:45-0500\n"
+"PO-Revision-Date: 2007-02-22 12:00-0500\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -42,6 +42,9 @@ msgstr "%s ne estas valida PGM-dosiero!\n"
 
 msgid "%s has the wrong dimensions!\n"
 msgstr "%s havas malĝustajn dimensiojn!\n"
+
+msgid "Wavelet denoising...\n"
+msgstr "Ondeta senbruigo...\n"
 
 msgid "%s: Cannot use camera white balance.\n"
 msgstr "%s: Ne povas uzi fotilan kolor-multiplikon.\n"
@@ -132,6 +135,9 @@ msgstr "-r <4 nombroj> Specifu propran kolor-multiplikon"
 
 msgid "-b <num>  Adjust brightness (default = 1.0)"
 msgstr "-b <num>  Agordu helecon (supoze 1.0)"
+
+msgid "-n <num>  Set threshold for wavelet denoising"
+msgstr "-n <num>  Agordu sojlon por ondeta senbruigo"
 
 msgid "-k <num>  Set black point"
 msgstr "-k <num>  Agordu nigran nivelon"
