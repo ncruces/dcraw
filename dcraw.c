@@ -5,22 +5,21 @@
    This is a command-line ANSI C program to convert raw photos from
    any digital camera on any computer running any operating system.
 
-   Attention!  Some parts of this program are restricted under the
-   terms of the GNU General Public License.  Such code is enclosed
-   in "BEGIN GPL BLOCK" and "END GPL BLOCK" declarations.
-   Any code not declared GPL is free for all uses.
+   No license is required to download and use dcraw.c.  However,
+   to lawfully redistribute this code, you must either (a) include
+   full source code* for all executable files containing RESTRICTED
+   functions, (b) remove all RESTRICTED functions, re-implement them,
+   or copy them from an earlier, unrestricted Revision of dcraw.c,
+   or (c) purchase a license from the author.
 
-   Starting in Revision 1.237, the code to support Foveon cameras
-   is under GPL.
+   The functions that process Foveon images have been RESTRICTED
+   since Revision 1.237.  All other code remains free for all uses.
 
-   To lawfully redistribute dcraw.c, you must either (a) include
-   full source code for all executable files containing restricted
-   functions, (b) remove these functions, re-implement them, or
-   copy them from an earlier, non-GPL Revision of dcraw.c, or (c)
-   purchase a license from the author.
+   *If you have not modified dcraw.c in any way, a link to my
+   homepage qualifies as "full source code".
 
-   $Revision: 1.366 $
-   $Date: 2007/02/22 16:50:08 $
+   $Revision: 1.367 $
+   $Date: 2007/02/24 22:10:59 $
  */
 
 #define VERSION "8.60"
@@ -2383,7 +2382,7 @@ void CLASS smal_v9_load_raw()
   if (holes) fill_holes (holes);
 }
 
-/* BEGIN GPL BLOCK */
+/* RESTRICTED code starts here */
 
 void CLASS foveon_decoder (unsigned size, unsigned code)
 {
@@ -3020,7 +3019,7 @@ void CLASS foveon_interpolate()
 }
 #undef image
 
-/* END GPL BLOCK */
+/* RESTRICTED code ends here */
 
 /*
    Seach from the current directory up to the root looking for
