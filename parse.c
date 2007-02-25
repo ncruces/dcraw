@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.62 $
-   $Date: 2006/08/18 02:51:53 $
+   $Revision: 1.63 $
+   $Date: 2007/02/25 03:07:01 $
  */
 
 #include <stdio.h>
@@ -242,8 +242,12 @@ void parse_makernote (base)
     type = get2();
     count= get4();
     tiff_dump (base, tag, type, count, 2);
+    if (tag == 0x11) {
+      fseek (ifp, get4()+base, SEEK_SET);
+      parse_tiff_ifd (base, 3);
+    }
     if (tag == 0x1d)
-      while ((val = fgetc(ifp)))
+      while ((val = fgetc(ifp)) && val != EOF)
 	serial = serial*10 + (isdigit(val) ? val - '0' : val % 10);
     if (tag == 0x91)
       fread (buf91, sizeof buf91, 1, ifp);
