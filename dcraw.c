@@ -18,11 +18,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.369 $
-   $Date: 2007/02/27 02:11:06 $
+   $Revision: 1.370 $
+   $Date: 2007/03/02 17:40:15 $
  */
 
-#define VERSION "8.61"
+#define VERSION "8.62"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -867,6 +867,8 @@ void CLASS lossless_jpeg_load_raw()
 	row = jidx / cr2_slice[1+j];
 	col = jidx % cr2_slice[1+j] + i*cr2_slice[1];
       }
+      if (raw_width == 3984 && (col -= 2) < 0)
+	col += (row--,raw_width);
       if ((unsigned) (row-top_margin) < height) {
 	if ((unsigned) (col-left_margin) < width) {
 	  BAYER(row-top_margin,col-left_margin) = val;
@@ -4141,7 +4143,7 @@ get2_256:
       parse_thumb_note (base, 136, 137);
     }
     if (tag == 0x4001) {
-      i = len == 582 ? 50 : len == 653 ? 68 : len == 796 ? 126 : 0;
+      i = len == 582 ? 50 : len == 653 ? 68 : 126;
       fseek (ifp, i, SEEK_CUR);
 get2_rggb:
       FORC4 cam_mul[c ^ (c >> 1)] = get2();
@@ -6040,6 +6042,12 @@ nucore:
     height -= 2;
     if (unique_id == 0x80000236)
       adobe_coeff ("Canon","EOS 400D");
+    goto canon_cr2;
+  } else if (is_canon && raw_width == 3984) {
+    top_margin  = 20;
+    left_margin = 76;
+    height -= 2;
+    maximum = 0x3bb0;
     goto canon_cr2;
   } else if (is_canon && raw_width == 4476) {
     top_margin  = 34;
