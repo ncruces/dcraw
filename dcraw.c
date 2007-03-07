@@ -18,11 +18,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.370 $
-   $Date: 2007/03/02 17:40:15 $
+   $Revision: 1.371 $
+   $Date: 2007/03/07 23:37:58 $
  */
 
-#define VERSION "8.62"
+#define VERSION "8.63"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -95,7 +95,7 @@ short order;
 char *ifname, make[64], model[64], model2[64], *meta_data, cdesc[5];
 float flash_used, canon_ev, iso_speed, shutter, aperture, focal_len;
 time_t timestamp;
-unsigned shot_order, kodak_cbpp, filters, unique_id, *oprof;
+unsigned shot_order, kodak_cbpp, filters, exif_cfa, unique_id, *oprof;
 int profile_offset, profile_length;
 int thumb_offset, thumb_length, thumb_width, thumb_height, thumb_misc;
 int data_offset, strip_offset, curve_offset, meta_offset, meta_length;
@@ -4183,7 +4183,7 @@ void CLASS get_timestamp (int reversed)
 
 void CLASS parse_exif (int base)
 {
-  unsigned kodak, entries, tag, type, len, save;
+  unsigned kodak, entries, tag, type, len, save, c;
   double expo;
 
   kodak = !strncmp(make,"EASTMAN",7);
@@ -4203,6 +4203,10 @@ void CLASS parse_exif (int base)
       case 37500:  parse_makernote (base);		break;
       case 40962:  if (kodak) raw_width  = get4();	break;
       case 40963:  if (kodak) raw_height = get4();	break;
+      case 41730:
+	if (get4() == 0x20002)
+	  for (exif_cfa=c=0; c < 8; c+=2)
+	    exif_cfa |= fgetc(ifp) * 0x01010101 << c;
     }
     fseek (ifp, save, SEEK_SET);
   }
@@ -4712,6 +4716,8 @@ void CLASS parse_tiff (int base)
 	  &CLASS unpacked_load_raw : &CLASS eight_bit_load_raw;
 	if (tiff_ifd[raw].bytes*5 == raw_width*raw_height*8)
 	  load_raw = &CLASS olympus_e300_load_raw;
+	if (tiff_bps == 12 && tiff_ifd[raw].phint == 2)
+	  load_raw = &CLASS olympus_cseries_load_raw;
 	break;
       case 6:  case 7:  case 99:
 	load_raw = &CLASS lossless_jpeg_load_raw;		break;
@@ -5912,8 +5918,6 @@ nucore:
   if (!strcmp(make,"NIKON"))
     load_raw = nikon_is_compressed() ?
 	&CLASS nikon_compressed_load_raw : &CLASS nikon_load_raw;
-  if (!strncmp (make,"OLYMPUS",7))
-    height += height & 1;
 
 /* Set parameters based on camera name (for non-DNG files). */
 
@@ -6464,33 +6468,33 @@ konica_400z:
       left_margin = 17;
       adobe_coeff ("Panasonic","DMC-LX2");
     }
-  } else if (!strcmp(model,"E-1") ||
-	     !strcmp(model,"E-400")) {
-    filters = 0x61616161;
-    maximum = 0xfff0;
-  } else if (!strcmp(model,"E-10") ||
-	    !strncmp(model,"E-20",4)) {
-    maximum = 0xffc0;
-    black <<= 2;
-  } else if (!strcmp(model,"E-300") ||
-	     !strcmp(model,"E-500")) {
-    width -= 20;
-    maximum = 0xfc30;
-    if (load_raw == &CLASS unpacked_load_raw) black = 0;
-  } else if (!strcmp(model,"E-330")) {
-    width -= 30;
   } else if (!strcmp(model,"C770UZ")) {
     height = 1718;
     width  = 2304;
     filters = 0x16161616;
     load_raw = &CLASS nikon_e2100_load_raw;
   } else if (!strcmp(make,"OLYMPUS")) {
-    load_raw = &CLASS olympus_cseries_load_raw;
-    if (!strcmp(model,"C5050Z") ||
-	!strcmp(model,"C8080WZ"))
-      filters = 0x16161616;
-    if (!strncmp(model,"SP5",3))
-      filters = 0x49494949;
+    height += height & 1;
+    filters = exif_cfa;
+    if (!strcmp(model,"E-1") ||
+	!strcmp(model,"E-400")) {
+      maximum = 0xfff0;
+    } else if (!strcmp(model,"E-10") ||
+	      !strncmp(model,"E-20",4)) {
+      maximum = 0xffc0;
+      black <<= 2;
+    } else if (!strcmp(model,"E-300") ||
+	       !strcmp(model,"E-500")) {
+      width -= 20;
+      maximum = 0xfc30;
+      if (load_raw == &CLASS unpacked_load_raw) black = 0;
+    } else if (!strcmp(model,"E-330")) {
+      width -= 30;
+    } else if (!strcmp(model,"SP550UZ")) {
+      thumb_length = fsize - (thumb_offset = 0xa39800);
+      thumb_height = 480;
+      thumb_width  = 640;
+    }
   } else if (!strcmp(model,"N Digital")) {
     height = 2047;
     width  = 3072;
