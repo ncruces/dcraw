@@ -18,11 +18,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.371 $
-   $Date: 2007/03/07 23:37:58 $
+   $Revision: 1.372 $
+   $Date: 2007/03/13 05:04:22 $
  */
 
-#define VERSION "8.63"
+#define VERSION "8.64"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -3268,75 +3268,59 @@ void CLASS colorcheck()
 }
 #endif
 
+void CLASS hat_transform (float *temp, float *base, int st, int size, int sc)
+{
+  int i;
+  for (i=0; i < sc; i++)
+    temp[i] = 2*base[st*i] + base[st*(sc-i)] + base[st*(i+sc)];
+  for (; i+sc < size; i++)
+    temp[i] = 2*base[st*i] + base[st*(i-sc)] + base[st*(i+sc)];
+  for (; i < size; i++)
+    temp[i] = 2*base[st*i] + base[st*(i-sc)] + base[st*(2*size-2-(i+sc))];
+  for (i=0; i < size; i++)
+    base[st*i] = temp[i] * 0.25;
+}
+
 void CLASS wavelet_denoise()
 {
-  float *fimg, *temp, mul[2], avg, diff;
-  int scale=1, dim=0, row, col, size, sh, nc, c, i, j, k, m, wlast;
+  float *fimg, *temp, thold, val, mul[2], avg, diff;
+  int scale=1, depth=6, lev, row, col, size, nc, c, i, wlast;
   ushort *window[4];
-  static const float wlet[] =	/* Daubechies 9-tap/7-tap filter */
-  { 1.149604398, -1.586134342, -0.05298011854, 0.8829110762, 0.4435068522 };
+  static const float noise[] =
+  { 0.8002,0.2735,0.1202,0.0585,0.0291,0.0152,0.0080,0.0044 };
 
   if (verbose) fprintf (stderr,_("Wavelet denoising...\n"));
 
   while (maximum << scale < 0x10000) scale++;
   maximum <<= --scale;
   black <<= scale;
-  while (1 << dim < iwidth || 1 << dim < iheight) dim++;
-  fimg = (float *) calloc ((1 << dim*2)+(1 << dim)+2, sizeof *fimg);
+  size = iheight*iwidth;
+  fimg = (float *) calloc (depth*size+iheight+iwidth, sizeof *fimg);
   merror (fimg, "wavelet_denoise()");
-  temp = fimg + (1 << dim*2) + 1;
+  temp = fimg + depth*size;
   if ((nc = colors) == 3 && filters) nc++;
   for (c=0; c < nc; c++) {	/* denoise R,G1,B,G3 individually */
-    for (row=0; row < iheight; row++)
-      for (col=0; col < iwidth; col++)
-	fimg[(row << dim)+col] = image[row*iwidth+col][c] << scale;
-    for (size = 1 << dim; size > 1; size >>= 1)
-      for (sh=0; sh <= dim; sh += dim)
-	for (i=0; i < size; i++) {
-	  for (j=0; j < size; j++)
-	    temp[j] = fimg[(i << (dim-sh))+(j << sh)];
-	  for (k=1; k < 5; k+=2) {
-	    temp[size] = temp[size-2];
-	    for (m=1; m < size; m+=2)
-	      temp[m] += wlet[k] * (temp[m-1] + temp[m+1]);
-	    temp[-1] = temp[1];
-	    for (m=0; m < size; m+=2)
-	      temp[m] += wlet[k+1] * (temp[m-1] + temp[m+1]);
-	  }
-	  for (m=0; m < size; m++)
-	    temp[m] *= (m & 1) ? 1/wlet[0] : wlet[0];
-	  for (j=k=0; j < size; j++, k+=2) {
-	    if (k == size) k = 1;
-	    fimg[(i << (dim-sh))+(j << sh)] = temp[k];
-	  }
-	}
-    for (i=0; i < 1 << dim*2; i++)
-      if      (fimg[i] < -threshold) fimg[i] += threshold;
-      else if (fimg[i] >  threshold) fimg[i] -= threshold;
-      else     fimg[i] = 0;
-    for (size = 2; size <= 1 << dim; size <<= 1)
-      for (sh=dim; sh >= 0; sh -= dim)
-	for (i=0; i < size; i++) {
-	  for (j=k=0; j < size; j++, k+=2) {
-	    if (k == size) k = 1;
-	    temp[k] = fimg[(i << (dim-sh))+(j << sh)];
-	  }
-	  for (m=0; m < size; m++)
-	    temp[m] *= (m & 1) ? wlet[0] : 1/wlet[0];
-	  for (k=3; k > 0; k-=2) {
-	    temp[-1] = temp[1];
-	    for (m=0; m < size; m+=2)
-	      temp[m] -= wlet[k+1] * (temp[m-1] + temp[m+1]);
-	    temp[size] = temp[size-2];
-	    for (m=1; m < size; m+=2)
-	      temp[m] -= wlet[k] * (temp[m-1] + temp[m+1]);
-	  }
-	  for (j=0; j < size; j++)
-	    fimg[(i << (dim-sh))+(j << sh)] = temp[j];
-	}
-    for (row=0; row < iheight; row++)
-      for (col=0; col < iwidth; col++)
-	image[row*iwidth+col][c] = CLIP(fimg[(row << dim)+col] + 0.5);
+    for (i=0; i < size; i++)
+      fimg[i] = sqrt((unsigned) (image[i][c] << (scale+16)));
+    for (lev=0; lev < depth-1; lev++) {
+      memcpy (fimg+size*(lev+1), fimg+size*lev, size*sizeof *fimg);
+      for (i=0; i < iheight; i++)
+	hat_transform (temp, fimg+size*(lev+1)+i*iwidth,1,iwidth, 1 << lev);
+      for (i=0; i < iwidth; i++)
+	hat_transform (temp, fimg+size*(lev+1)+i,iwidth, iheight, 1 << lev);
+      thold = threshold * noise[lev];
+      for (i=size*lev; i < size*(lev+1); i++) {
+	fimg[i] -= fimg[i+size];
+	if	(fimg[i] < -thold) fimg[i] += thold;
+	else if (fimg[i] >  thold) fimg[i] -= thold;
+	else	 fimg[i] = 0;
+      }
+    }
+    for (i=0; i < size; i++) {
+      for (val=lev=0; lev < depth; lev++)
+	val += fimg[size*lev+i];
+      image[i][c] = CLIP(val*val/0x10000);
+    }
   }
   if (filters && colors == 3) {  /* pull G1 and G3 closer together */
     for (row=0; row < 2; row++)
@@ -3350,15 +3334,17 @@ void CLASS wavelet_denoise()
 	for (col = FC(wlast,1) & 1; col < width; col+=2)
 	  window[2][col] = BAYER(wlast,col);
       }
+      thold = threshold/512;
       for (col = (FC(row,0) & 1)+1; col < width-1; col+=2) {
 	avg = ( window[0][col-1] + window[0][col+1] +
 		window[2][col-1] + window[2][col+1] - black*4 )
 	      * mul[row & 1] + (window[1][col] - black) * 0.5 + black;
-	diff = BAYER(row,col) - avg;
-	if      (diff < -threshold/M_SQRT2) diff += threshold/M_SQRT2;
-	else if (diff >  threshold/M_SQRT2) diff -= threshold/M_SQRT2;
+	avg = avg < 0 ? 0 : sqrt(avg);
+	diff = sqrt(BAYER(row,col)) - avg;
+	if      (diff < -thold) diff += thold;
+	else if (diff >  thold) diff -= thold;
 	else diff = 0;
-	BAYER(row,col) = CLIP(avg + diff + 0.5);
+	BAYER(row,col) = CLIP(SQR(avg+diff) + 0.5);
       }
     }
   }
