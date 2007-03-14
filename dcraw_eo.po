@@ -1,13 +1,13 @@
 # Esperanto translation of dcraw messages.
-# (c) 2006 Dave Coffin dcoffin a cybercom o net
+# (c) 2007 Dave Coffin dcoffin a cybercom o net
 # Distribute freely.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 8.60\n"
+"Project-Id-Version: dcraw 8.65\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2007-03-09 15:15-0500\n"
+"PO-Revision-Date: 2007-03-14 16:40-0400\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -15,6 +15,12 @@ msgstr ""
 
 msgid "%s: Out of memory in %s\n"
 msgstr "%s: Mankas memoro en %s\n"
+
+msgid "Unexpected end of file\n"
+msgstr "Neatendita fino de dosiero\n"
+
+msgid "Corrupt data near 0x%lx\n"
+msgstr "Difekta datumo proksime al 0x%lx\n"
 
 msgid "%s: decoder table overflow\n"
 msgstr "%s: deĉifra tabelo tro grandas\n"
