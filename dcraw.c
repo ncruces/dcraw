@@ -18,11 +18,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.372 $
-   $Date: 2007/03/13 05:04:22 $
+   $Revision: 1.373 $
+   $Date: 2007/03/14 20:30:19 $
  */
 
-#define VERSION "8.64"
+#define VERSION "8.65"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -105,7 +105,7 @@ int height, width, fuji_width, colors, tiff_samples;
 int black, maximum, mix_green, raw_color, use_gamma;
 int iheight, iwidth, shrink, flip;
 double pixel_aspect;
-int zero_after_ff, is_raw, dng_version, is_foveon;
+int zero_after_ff, is_raw, dng_version, is_foveon, data_error;
 ushort (*image)[4], white[8][8], curve[0x1000], cr2_slice[3];
 float bright=1, user_mul[4]={0,0,0,0}, threshold=0;
 int half_size=0, four_color_rgb=0, document_mode=0, highlight=0;
@@ -245,6 +245,18 @@ void CLASS merror (void *ptr, char *where)
   longjmp (failure, 1);
 }
 
+void CLASS derror()
+{
+  if (!data_error) {
+    fprintf (stderr, "%s: ", ifname);
+    if (feof(ifp))
+      fprintf (stderr,_("Unexpected end of file\n"));
+    else
+      fprintf (stderr,_("Corrupt data near 0x%lx\n"), ftell(ifp));
+  }
+  data_error = 1;
+}
+
 ushort CLASS sget2 (uchar *s)
 {
   if (order == 0x4949)		/* "II" means little-endian */
@@ -315,7 +327,7 @@ double CLASS getreal (int type)
 
 void CLASS read_shorts (ushort *pixel, int count)
 {
-  fread (pixel, 2, count, ifp);
+  if (fread (pixel, 2, count, ifp) < count) derror();
   if ((order == 0x4949) == (ntohs(0x1234) == 0x1234))
     swab (pixel, pixel, count*2);
 }
@@ -445,7 +457,7 @@ void CLASS canon_600_load_raw()
   { { 1141,1145 }, { 1128,1109 }, { 1178,1149 }, { 1128,1109 } };
 
   for (irow=row=0; irow < height; irow++) {
-    fread (data, raw_width * 10 / 8, 1, ifp);
+    if (fread (data, 1, raw_width*5/4, ifp) < raw_width*5/4) derror();
     for (dp=data, pix=pixel; dp < data+1120; dp+=10, pix+=8) {
       pix[0] = (dp[0] << 2) + (dp[1] >> 6    );
       pix[1] = (dp[2] << 2) + (dp[1] >> 4 & 3);
@@ -530,9 +542,9 @@ unsigned CLASS getbits (int nbits)
     return bitbuf = vbits = reset = 0;
   if (nbits == 0 || reset) return 0;
   while (vbits < nbits) {
-    c = fgetc(ifp);
+    if ((c = fgetc(ifp)) == EOF) derror();
     if ((reset = zero_after_ff && c == 0xff && fgetc(ifp))) return 0;
-    bitbuf = (bitbuf << 8) + c;
+    bitbuf = (bitbuf << 8) + (uchar) c;
     vbits += 8;
   }
   vbits -= nbits;
@@ -685,7 +697,7 @@ int CLASS canon_has_lowbits()
 void CLASS canon_compressed_load_raw()
 {
   ushort *pixel, *prow;
-  int lowbits, i, row, r, col, save, val;
+  int nblocks, lowbits, i, row, r, col, save, val;
   unsigned irow, icol;
   struct decode *decode, *dindex;
   int block, diffbuf[64], leaf, len, diff, carry=0, pnum=0, base[2];
@@ -700,7 +712,8 @@ void CLASS canon_compressed_load_raw()
   zero_after_ff = 1;
   getbits(-1);
   for (row=0; row < raw_height; row+=8) {
-    for (block=0; block < raw_width >> 3; block++) {
+    nblocks = MIN (8, raw_height-row) * raw_width >> 6;
+    for (block=0; block < nblocks; block++) {
       memset (diffbuf, 0, sizeof diffbuf);
       decode = first_decode;
       for (i=0; i < 64; i++ ) {
@@ -723,7 +736,8 @@ void CLASS canon_compressed_load_raw()
       for (i=0; i < 64; i++ ) {
 	if (pnum++ % raw_width == 0)
 	  base[0] = base[1] = 512;
-	pixel[(block << 6) + i] = ( base[i & 1] += diffbuf[i] );
+	if ((pixel[(block << 6) + i] = base[i & 1] += diffbuf[i]) >> 10)
+	  derror();
       }
     }
     if (lowbits) {
@@ -838,7 +852,8 @@ void CLASS ljpeg_row (int jrow, struct jhead *jh)
   for (col=0; col < jh->wide; col++)
     for (c=0; c < jh->clrs; c++) {
       diff = ljpeg_diff (jh->huff[c]);
-      *outp = col ? outp[-jh->clrs]+diff : (jh->vpred[c] += diff);
+      *outp = diff = col ? outp[-jh->clrs]+diff : (jh->vpred[c] += diff);
+      if (diff >> jh->bits) derror();
       outp++;
     }
 }
@@ -987,6 +1002,7 @@ void CLASS pentax_k10_load_raw()
 	hpred[col & 1] += diff;
       if (col < width)
 	BAYER(row,col) = hpred[col & 1];
+      if (hpred[col & 1] >> 12) derror();
     }
 }
 
@@ -1020,9 +1036,8 @@ void CLASS nikon_compressed_load_raw()
       } else
 	hpred[col & 1] += diff;
       if ((unsigned) (col-left_margin) >= width) continue;
-      diff = hpred[col & 1];
-      if (diff >= csize) diff = csize-1;
-      BAYER(row,col-left_margin) = curve[diff];
+      if (hpred[col & 1] >= csize) derror();
+      else BAYER(row,col-left_margin) = curve[hpred[col & 1]];
     }
   free (curve);
 }
@@ -1047,7 +1062,7 @@ void CLASS nikon_load_raw()
       if ((unsigned) (col-left_margin) < width)
 	BAYER(row,col-left_margin) = i;
       if (tiff_compress == 34713 && (col % 10) == 9)
-	getbits(8);
+	if (getbits(8)) derror();
     }
   }
 }
@@ -1197,14 +1212,16 @@ void CLASS nikon_e2100_load_raw()
 void CLASS fuji_load_raw()
 {
   ushort *pixel;
-  int row, col, r, c;
+  int wide, row, col, r, c;
 
   fseek (ifp, (top_margin*raw_width + left_margin) * 2, SEEK_CUR);
-  pixel = (ushort *) calloc (raw_width, sizeof *pixel);
+  wide = fuji_width << !fuji_layout;
+  pixel = (ushort *) calloc (wide, sizeof *pixel);
   merror (pixel, "fuji_load_raw()");
   for (row=0; row < raw_height; row++) {
-    read_shorts (pixel, raw_width);
-    for (col=0; col < fuji_width << !fuji_layout; col++) {
+    read_shorts (pixel, wide);
+    fseek (ifp, 2*(raw_width - wide), SEEK_CUR);
+    for (col=0; col < wide; col++) {
       if (fuji_layout) {
 	r = fuji_width - 1 - col + (row >> 1);
 	c = col + ((row+1) >> 1);
@@ -1540,6 +1557,7 @@ void CLASS phase_one_load_raw_c()
 	pixel[col] = pred[col & 1] = ph1_bits(16);
       else
 	pixel[col] = pred[col & 1] += ph1_bits(i) + 1 - (1 << (i - 1));
+      if (pred[col & 1] >> 16) derror();
       if (ph1.format == 5 && pixel[col] < 256)
 	pixel[col] = curve[pixel[col]];
     }
@@ -1635,22 +1653,24 @@ void CLASS packed_12_load_raw()
     for (col=0; col < width; col++)
       BAYER(row,col) = getbits(12);
     for (col = width*3/2; col < raw_width; col++)
-      getbits(8);
+      if (getbits(8)) derror();
   }
 }
 
 void CLASS unpacked_load_raw()
 {
   ushort *pixel;
-  int row, col;
+  int row, col, bits=0;
 
+  while (1 << ++bits < maximum);
   fseek (ifp, (top_margin*raw_width + left_margin) * 2, SEEK_CUR);
-  pixel = (ushort *) calloc (raw_width, sizeof *pixel);
+  pixel = (ushort *) calloc (width, sizeof *pixel);
   merror (pixel, "unpacked_load_raw()");
   for (row=0; row < height; row++) {
-    read_shorts (pixel, raw_width);
+    read_shorts (pixel, width);
+    fseek (ifp, 2*(raw_width - width), SEEK_CUR);
     for (col=0; col < width; col++)
-      BAYER2(row,col) = pixel[col];
+      if ((BAYER2(row,col) = pixel[col]) >> bits) derror();
   }
   free (pixel);
 }
@@ -1672,9 +1692,10 @@ void CLASS olympus_e300_load_raw()
   merror (data, "olympus_e300_load_raw()");
   pixel = (ushort *) (data + dwide);
   for (row=0; row < height; row++) {
-    fread (data, 1, dwide, ifp);
+    if (fread (data, 1, dwide, ifp) < dwide) derror();
     for (dp=data, pix=pixel; pix < pixel+raw_width; dp+=3, pix+=2) {
-      if (((dp-data) & 15) == 15) dp++;
+      if (((dp-data) & 15) == 15)
+	if (*dp++) derror();
       pix[0] = dp[1] << 8 | dp[0];
       pix[1] = dp[2] << 4 | dp[1] >> 4;
     }
@@ -1708,7 +1729,7 @@ void CLASS minolta_rd175_load_raw()
   unsigned irow, box, row, col;
 
   for (irow=0; irow < 1481; irow++) {
-    fread (pixel, 1, 768, ifp);
+    if (fread (pixel, 1, 768, ifp) < 768) derror();
     box = irow / 82;
     row = irow % 82 * 12 + ((box < 12) ? box | 1 : (box-12)*2);
     switch (irow) {
@@ -1738,7 +1759,7 @@ void CLASS eight_bit_load_raw()
   pixel = (uchar *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "eight_bit_load_raw()");
   for (row=0; row < height; row++) {
-    fread (pixel, 1, raw_width, ifp);
+    if (fread (pixel, 1, raw_width, ifp) < raw_width) derror();
     for (col=0; col < width; col++)
       BAYER(row,col) = pixel[col];
   }
@@ -1890,10 +1911,8 @@ void CLASS kodak_radc_load_raw()
 	  for (x=0; x < width/2; x++) {
 	    val = (buf[c][y+1][x] << 4) / mul[c];
 	    if (val < 0) val = 0;
-	    if (c)
-	      BAYER(row+y*2+c-1,x*2+2-c) = val;
-	    else
-	      BAYER(row+r*2+y,x*2+y) = val;
+	    if (c) BAYER(row+y*2+c-1,x*2+2-c) = val;
+	    else   BAYER(row+r*2+y,x*2+y) = val;
 	  }
 	memcpy (buf[c][0]+!c, buf[c][2], sizeof buf[c][0]-2*!c);
       }
@@ -1978,7 +1997,7 @@ void CLASS kodak_dc120_load_raw()
   int row, shift, col;
 
   for (row=0; row < height; row++) {
-    fread (pixel, 848, 1, ifp);
+    if (fread (pixel, 1, 848, ifp) < 848) derror();
     shift = row * mul[row & 3] + add[row & 3];
     for (col=0; col < width; col++)
       BAYER(row,col) = (ushort) pixel[(col + shift) % 848];
@@ -1996,7 +2015,7 @@ void CLASS kodak_easy_load_raw()
   pixel = (uchar *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "kodak_easy_load_raw()");
   for (row=0; row < height; row++) {
-    fread (pixel, 1, raw_width, ifp);
+    if (fread (pixel, 1, raw_width, ifp) < raw_width) derror();
     for (col=0; col < raw_width; col++) {
       val = curve[pixel[col]];
       if ((unsigned) (col-left_margin) < width)
@@ -2048,7 +2067,8 @@ void CLASS kodak_262_load_raw()
       if (pi2 < 0) pi2 = pi1;
       if (pi1 < 0 && col > 1) pi1 = pi2 = pi-2;
       pred = (pi1 < 0) ? 0 : (pixel[pi1] + pixel[pi2]) >> 1;
-      pixel[pi] = pred + ljpeg_diff (decode[chess]);
+      pixel[pi] = val = pred + ljpeg_diff (decode[chess]);
+      if (val >> 8) derror();
       val = curve[pixel[pi++]];
       if ((unsigned) (col-left_margin) < width)
 	BAYER(row,col-left_margin) = val;
@@ -2117,7 +2137,8 @@ void CLASS kodak_65000_load_raw()
       len = MIN (256, width-col);
       ret = kodak_65000_decode (buf, len);
       for (i=0; i < len; i++)
-	BAYER(row,col+i) = curve[ret ? buf[i] : (pred[i & 1] += buf[i])];
+	if ((BAYER(row,col+i) =	curve[ret ? buf[i] :
+		(pred[i & 1] += buf[i])]) >> 12) derror();
     }
 }
 
@@ -2140,7 +2161,7 @@ void CLASS kodak_ycbcr_load_raw()
 	rgb[0] = rgb[1] + cr;
 	for (j=0; j < 2; j++)
 	  for (k=0; k < 2; k++) {
-	    y[j][k] = y[j][k^1] + *bp++;
+	    if ((y[j][k] = y[j][k^1] + *bp++) >> 10) derror();
 	    ip = image[(row+j)*width + col+i+k];
 	    FORC3 ip[c] = curve[LIM(y[j][k]+rgb[c], 0, 0xfff)];
 	  }
@@ -2160,7 +2181,7 @@ void CLASS kodak_rgb_load_raw()
       kodak_65000_decode (buf, len*3);
       memset (rgb, 0, sizeof rgb);
       for (bp=buf, i=0; i < len; i++, ip+=4)
-	FORC3 ip[c] = (rgb[c] += *bp++) & 0xfff;
+	FORC3 if ((ip[c] = rgb[c] += *bp++) >> 12) derror();
     }
 }
 
@@ -2210,12 +2231,13 @@ void CLASS sony_load_raw()
   pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "sony_load_raw()");
   for (row=0; row < height; row++) {
-    fread (pixel, 2, raw_width, ifp);
+    if (fread (pixel, 2, raw_width, ifp) < raw_width) derror();
     sony_decrypt ((unsigned *) pixel, raw_width/2, !row, key);
     for (col=9; col < left_margin; col++)
       black += ntohs(pixel[col]);
     for (col=0; col < width; col++)
-      BAYER(row,col) = ntohs(pixel[col+left_margin]);
+      if ((BAYER(row,col) = ntohs(pixel[col+left_margin])) >> 14)
+	derror();
   }
   free (pixel);
   if (left_margin > 9)
@@ -2238,7 +2260,7 @@ void CLASS sony_arw_load_raw()
       diff = getbits(len);
       if ((diff & (1 << (len-1))) == 0)
 	diff -= (1 << len) - 1;
-      sum += diff;
+      if ((sum += diff) >> 12) derror();
       if (row < height) BAYER(row,col) = sum;
     }
 }
@@ -2473,9 +2495,9 @@ void CLASS foveon_load_camf()
 void CLASS foveon_load_raw()
 {
   struct decode *dindex;
-  short diff[1024], pred[3];
+  short diff[1024];
   unsigned bitbuf=0;
-  int fixed, row, col, bit=-1, c, i;
+  int pred[3], fixed, row, col, bit=-1, c, i;
 
   fixed = get4();
   read_shorts ((ushort *) diff, 1024);
@@ -2497,6 +2519,7 @@ void CLASS foveon_load_raw()
 	  dindex = dindex->branch[bitbuf >> bit & 1];
 	}
 	pred[c] += diff[dindex->leaf];
+	if (pred[c] >> 16 && ~pred[c] >> 16) derror();
       }
       FORC3 image[row*width+col][c] = pred[c];
     }
@@ -5754,7 +5777,7 @@ void CLASS identify()
   colors = 3;
   tiff_bps = 12;
   for (i=0; i < 0x1000; i++) curve[i] = i;
-  mix_green = profile_length = 0;
+  mix_green = profile_length = data_error = 0;
 
   order = get2();
   hlen = get4();
@@ -6648,7 +6671,7 @@ konica_400z:
     load_raw = &CLASS casio_qv5700_load_raw;
   } else if (!strcmp(model,"QV-R51")) {
     height = 1926;
-    width  = 2576;
+    width  = 2580;
     raw_width = 3904;
     load_raw = &CLASS packed_12_load_raw;
     pre_mul[0] = 1.340;
