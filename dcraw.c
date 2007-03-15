@@ -18,11 +18,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.373 $
-   $Date: 2007/03/14 20:30:19 $
+   $Revision: 1.374 $
+   $Date: 2007/03/15 05:19:10 $
  */
 
-#define VERSION "8.65"
+#define VERSION "8.66"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -1367,7 +1367,7 @@ void CLASS phase_one_correct()
   float poly[8], num, cfrac, frac, mult[2], *yval[2];
   ushort curve[0x10000], *xval[2];
 
-  if (shrink || !meta_length) return;
+  if (half_size || !meta_length) return;
   if (verbose) fprintf (stderr,_("Phase One correction...\n"));
   fseek (ifp, meta_offset, SEEK_SET);
   order = get2();
@@ -1608,7 +1608,7 @@ void CLASS sinar_4shot_load_raw()
   ushort *pixel;
   unsigned shot, row, col, r, c;
 
-  if ((shot = shot_select) || shrink) {
+  if ((shot = shot_select) || half_size) {
     if (shot) shot--;
     if (shot > 3) shot = 3;
     fseek (ifp, data_offset + shot*4, SEEK_SET);
@@ -1616,6 +1616,10 @@ void CLASS sinar_4shot_load_raw()
     unpacked_load_raw();
     return;
   }
+  free (image);
+  image = (ushort (*)[4])
+	calloc ((iheight=height)*(iwidth=width), sizeof *image);
+  merror (image, "sinar_4shot_load_raw()");
   pixel = (ushort *) calloc (raw_width, sizeof *pixel);
   merror (pixel, "sinar_4shot_load_raw()");
   for (shot=0; shot < 4; shot++) {
@@ -1631,7 +1635,7 @@ void CLASS sinar_4shot_load_raw()
     }
   }
   free (pixel);
-  filters = 0;
+  shrink = filters = 0;
 }
 
 void CLASS imacon_full_load_raw()
@@ -3300,14 +3304,12 @@ void CLASS hat_transform (float *temp, float *base, int st, int size, int sc)
     temp[i] = 2*base[st*i] + base[st*(i-sc)] + base[st*(i+sc)];
   for (; i < size; i++)
     temp[i] = 2*base[st*i] + base[st*(i-sc)] + base[st*(2*size-2-(i+sc))];
-  for (i=0; i < size; i++)
-    base[st*i] = temp[i] * 0.25;
 }
 
 void CLASS wavelet_denoise()
 {
-  float *fimg, *temp, thold, val, mul[2], avg, diff;
-  int scale=1, depth=6, lev, row, col, size, nc, c, i, wlast;
+  float *fimg, *temp, thold, mul[2], avg, diff;
+  int scale=1, size, lev, hpass, lpass, row, col, nc, c, i, wlast;
   ushort *window[4];
   static const float noise[] =
   { 0.8002,0.2735,0.1202,0.0585,0.0291,0.0152,0.0080,0.0044 };
@@ -3318,32 +3320,37 @@ void CLASS wavelet_denoise()
   maximum <<= --scale;
   black <<= scale;
   size = iheight*iwidth;
-  fimg = (float *) calloc (depth*size+iheight+iwidth, sizeof *fimg);
+  fimg = (float *) malloc ((size*3 + iheight + iwidth) * sizeof *fimg);
   merror (fimg, "wavelet_denoise()");
-  temp = fimg + depth*size;
+  temp = fimg + size*3;
   if ((nc = colors) == 3 && filters) nc++;
   for (c=0; c < nc; c++) {	/* denoise R,G1,B,G3 individually */
     for (i=0; i < size; i++)
       fimg[i] = sqrt((unsigned) (image[i][c] << (scale+16)));
-    for (lev=0; lev < depth-1; lev++) {
-      memcpy (fimg+size*(lev+1), fimg+size*lev, size*sizeof *fimg);
-      for (i=0; i < iheight; i++)
-	hat_transform (temp, fimg+size*(lev+1)+i*iwidth,1,iwidth, 1 << lev);
-      for (i=0; i < iwidth; i++)
-	hat_transform (temp, fimg+size*(lev+1)+i,iwidth, iheight, 1 << lev);
-      thold = threshold * noise[lev];
-      for (i=size*lev; i < size*(lev+1); i++) {
-	fimg[i] -= fimg[i+size];
-	if	(fimg[i] < -thold) fimg[i] += thold;
-	else if (fimg[i] >  thold) fimg[i] -= thold;
-	else	 fimg[i] = 0;
+    for (hpass=lev=0; lev < 5; lev++) {
+      lpass = size*((lev & 1)+1);
+      for (row=0; row < iheight; row++) {
+	hat_transform (temp, fimg+hpass+row*iwidth, 1, iwidth, 1 << lev);
+	for (col=0; col < iwidth; col++)
+	  fimg[lpass + row*iwidth + col] = temp[col] * 0.25;
       }
+      for (col=0; col < iwidth; col++) {
+	hat_transform (temp, fimg+lpass+col, iwidth, iheight, 1 << lev);
+	for (row=0; row < iheight; row++)
+	  fimg[lpass + row*iwidth + col] = temp[row] * 0.25;
+      }
+      thold = threshold * noise[lev];
+      for (i=0; i < size; i++) {
+	fimg[hpass+i] -= fimg[lpass+i];
+	if	(fimg[hpass+i] < -thold) fimg[hpass+i] += thold;
+	else if (fimg[hpass+i] >  thold) fimg[hpass+i] -= thold;
+	else	 fimg[hpass+i] = 0;
+	if (hpass) fimg[i] += fimg[hpass+i];
+      }
+      hpass = lpass;
     }
-    for (i=0; i < size; i++) {
-      for (val=lev=0; lev < depth; lev++)
-	val += fimg[size*lev+i];
-      image[i][c] = CLIP(val*val/0x10000);
-    }
+    for (i=0; i < size; i++)
+      image[i][c] = CLIP(SQR(fimg[i]+fimg[lpass+i])/0x10000);
   }
   if (filters && colors == 3) {  /* pull G1 and G3 closer together */
     for (row=0; row < 2; row++)
@@ -3451,7 +3458,7 @@ skip_block:
 void CLASS pre_interpolate()
 {
   ushort (*img)[4];
-  int row, col;
+  int row, col, c;
 
   if (shrink) {
     if (half_size) {
@@ -3462,8 +3469,10 @@ void CLASS pre_interpolate()
       img = (ushort (*)[4]) calloc (height*width, sizeof *img);
       merror (img, "unshrink()");
       for (row=0; row < height; row++)
-	for (col=0; col < width; col++)
-	  img[row*width+col][FC(row,col)] = BAYER(row,col);
+	for (col=0; col < width; col++) {
+	  c = fc(row,col);
+	  img[row*width+col][c] = image[(row >> 1)*iwidth+(col >> 1)][c];
+	}
       free (image);
       image = img;
       shrink = 0;
