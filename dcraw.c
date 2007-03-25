@@ -18,11 +18,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.376 $
-   $Date: 2007/03/19 21:09:00 $
+   $Revision: 1.377 $
+   $Date: 2007/03/25 22:56:19 $
  */
 
-#define VERSION "8.68"
+#define VERSION "8.69"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -4739,8 +4739,9 @@ void CLASS parse_tiff (int base)
 	  case 32803: load_raw = &CLASS kodak_65000_load_raw;
 	}
     }
-  if (tiff_samples == 3 && tiff_bps == 8)
-    if (!dng_version) is_raw = 0;
+  if (!dng_version && tiff_samples == 3)
+    if (tiff_ifd[raw].bytes && tiff_bps != 14 && tiff_bps != 2048)
+      is_raw = 0;
   for (i=0; i < tiff_nifds; i++)
     if (i != raw && tiff_ifd[i].samples == max_samp &&
 	tiff_ifd[i].width * tiff_ifd[i].height / SQR(tiff_ifd[i].bps+1) >
