@@ -3,8 +3,8 @@
    by Dave Coffin at cybercom dot net, user dcoffin
    http://www.cybercom.net/~dcoffin/
 
-   $Revision: 1.29 $
-   $Date: 2007/02/12 23:42:03 $
+   $Revision: 1.30 $
+   $Date: 2007/04/28 23:46:57 $
 
    This code is licensed under the same terms as The GIMP.
    To simplify maintenance, it calls my command-line "dcraw"
@@ -43,7 +43,7 @@
 #include <libintl.h>
 #define _(String) gettext(String)
 
-#define PLUG_IN_VERSION  "1.1.17 - 12 February 2007"
+#define PLUG_IN_VERSION  "1.1.18 - 28 April 2007"
 
 static void query(void);
 static void run(RAWPHOTO_CONST gchar *name,
@@ -95,7 +95,7 @@ static void query (void)
 			  "Loads raw digital camera files",
 			  "This plug-in loads raw digital camera files.",
 			  "Dave Coffin at cybercom dot net, user dcoffin",
-			  "Copyright 2003-2006 by Dave Coffin",
+			  "Copyright 2003-2007 by Dave Coffin",
 			  PLUG_IN_VERSION,
 			  "<Load>/rawphoto",
 			  NULL,
@@ -106,7 +106,7 @@ static void query (void)
 			  load_return_vals);
 
   gimp_register_load_handler ("file_rawphoto_load",
-    "arw,bay,bmq,cr2,crw,cs1,dc2,dcr,dng,erf,fff,hdr,ia,jpg,k25,kc2,kdc,mdc,mos,mrw,nef,orf,pef,pxn,raf,raw,rdc,sr2,srf,sti,tif,x3f", "");
+    "arw,bay,bmq,cr2,crw,cs1,dc2,dcr,dng,erf,fff,hdr,ia,jpg,k25,kc2,kdc,mdc,mef,mos,mrw,nef,orf,pef,pxn,qtk,raf,raw,rdc,sr2,srf,sti,tif,x3f", "");
 }
 
 static void run (RAWPHOTO_CONST gchar *name,
