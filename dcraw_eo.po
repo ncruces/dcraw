@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 8.65\n"
+"Project-Id-Version: dcraw 8.70\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2007-03-14 16:40-0400\n"
+"PO-Revision-Date: 2007-04-18 17:00-0400\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -38,7 +38,7 @@ msgid "Foveon interpolation...\n"
 msgstr "Interpolado de Foveon...\n"
 
 msgid "%s: Invalid white balance \"%s\"\n"
-msgstr "%s: Nevalida kolor-multipliko \"%s\"\n"
+msgstr "%s: Nevalida blank-ekvilibro \"%s\"\n"
 
 msgid "Fixed bad pixels at:"
 msgstr "Riparis difektajn bilderojn ĉe:"
@@ -53,7 +53,7 @@ msgid "Wavelet denoising...\n"
 msgstr "Ondeta senbruigo...\n"
 
 msgid "%s: Cannot use camera white balance.\n"
-msgstr "%s: Ne povas uzi fotilan kolor-multiplikon.\n"
+msgstr "%s: Ne povas uzi fotilan blank-ekvilibron.\n"
 
 msgid "Scaling with black %d, multipliers"
 msgstr "Skalas per nigra %d, multiplikantoj"
@@ -66,9 +66,6 @@ msgstr "Interpolado VNG...\n"
 
 msgid "AHD interpolation...\n"
 msgstr "Interpolado AHD...\n"
-
-msgid "Bilateral filtering...\n"
-msgstr "Bilatera filtrado...\n"
 
 msgid "Highlight recovery...\n"
 msgstr "Rekonstruas brilaĵojn...\n"
@@ -130,14 +127,17 @@ msgstr "-i -v     Identigu dosierojn kaj montru pridatumon"
 msgid "-z        Change file dates to camera timestamp"
 msgstr "-z        Ŝanĝu dosierajn datojn al fotila tempo"
 
-msgid "-a        Use automatic white balance"
-msgstr "-a        Uzu aŭtomatan kolor-multiplikon"
-
 msgid "-w        Use camera white balance, if possible"
-msgstr "-w        Uzu fotilan kolor-multiplikon, se eblas"
+msgstr "-w        Uzu fotilan blank-ekvilibron, se eblas"
 
-msgid "-r <4 numbers> Set custom white balance"
-msgstr "-r <4 nombroj> Specifu propran kolor-multiplikon"
+msgid "-a        Average the whole image for white balance"
+msgstr "-a        Averaĝu la tutan bildon por blank-ekvilibro"
+
+msgid "-A <x y w h> Average a grey box for white balance"
+msgstr "-A <x y ∆x ∆y> Averaĝu grizan rektangulon por blank-ekvilibro"
+
+msgid "-r <r g b g> Set custom white balance"
+msgstr "-r <r v b v> Specifu propran blank-ekvilibron"
 
 msgid "-b <num>  Adjust brightness (default = 1.0)"
 msgstr "-b <num>  Agordu helecon (supoze 1.0)"
@@ -183,9 +183,6 @@ msgstr "-h        Duongranda kolora bildo (duoble pli rapide ol \"-q 0\")"
 
 msgid "-f        Interpolate RGGB as four colors"
 msgstr "-f        Interpolu RGGB-on kiel kvar kolorojn"
-
-msgid "-B <domain> <range> Apply bilateral filter to smooth noise"
-msgstr "-B <spaco> <koloro> Apliku bilateran filtron por glatigi bruon"
 
 msgid "-s [0-99] Select a different raw image from the same file"
 msgstr "-s [0-99] Elektu alian krudan bildon el la sama dosiero"

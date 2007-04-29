@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "February 21, 2007"
+.TH dcraw 1 "April 29, 2007"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -104,18 +104,27 @@ Subtract a dark frame from the raw data.  To generate a
 dark frame, shoot a raw photo with no light and do
 .BR dcraw\ -D\ -4\ -j\ -t\ 0 .
 .TP
-.B -a
-Automatic color balance.  The default is to use a fixed
-color balance based on a white card photographed in sunlight.
-.TP
 .B -w
-Use the color balance specified by the camera.
-If this can't be found, print a warning and revert to the default.
+Use the white balance specified by the camera.
+If this is not found, print a warning and use another method.
+.TP
+.B -a
+Calculate the white balance by averaging the entire image.
+.TP
+.B -A left top width height
+Calculate the white balance by averaging a rectangular area.
+First do
+.B dcraw\ -j\ -t\ 0
+and select an area of neutral grey color.
 .TP
 .B -r mul0 mul1 mul2 mul3
-Specify your own raw color balance.
+Specify your own raw white balance.
 These multipliers can be cut and pasted from the output of
 .BR dcraw\ -v .
+.TP
+no white balance option
+Use a fixed white balance based on a color chart illuminated
+with a standard D65 lamp.
 .TP
 .B -H 0
 Clip all highlights to solid white (default).
