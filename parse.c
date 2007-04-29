@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.63 $
-   $Date: 2007/02/25 03:07:01 $
+   $Revision: 1.64 $
+   $Date: 2007/04/29 04:00:59 $
  */
 
 #include <stdio.h>
@@ -218,6 +218,11 @@ void parse_makernote (base)
     val = get2();		/* should be 42 decimal */
     offset = get4();
     fseek (ifp, offset-8, SEEK_CUR);
+  } else if (!strcmp (buf,"OLYMPUS")) {
+    base = ftell(ifp)-10;
+    fseek (ifp, -2, SEEK_CUR);
+    order = get2();
+    val = get2();
   } else if (!strncmp (buf,"FUJIFILM",8) ||
 	     !strncmp (buf,"SONY",4) ||
 	     !strcmp  (buf,"Panasonic")) {
@@ -242,7 +247,7 @@ void parse_makernote (base)
     type = get2();
     count= get4();
     tiff_dump (base, tag, type, count, 2);
-    if (tag == 0x11) {
+    if (tag == 0x11 || type == 13) {
       fseek (ifp, get4()+base, SEEK_SET);
       parse_tiff_ifd (base, 3);
     }
@@ -635,7 +640,7 @@ void get_utf8 (int offset, char *buf, int len)
 
 void parse_foveon()
 {
-  int entries, off, len, tag, save, i, j, k, pent, poff[256][2];
+  unsigned entries, off, len, tag, save, i, j, k, pent, poff[256][2];
   char name[128], value[128], camf[0x20000], *pos, *cp, *dp;
   unsigned val, key, type, num, ndim, dim[3];
 
@@ -658,7 +663,7 @@ void parse_foveon()
 	tag, tag >> 8, tag >> 16, tag >> 24, off, len);
     if (get4() != (0x20434553 | (tag << 24))) {
       printf ("Bad Section identifier at %6x\n", off);
-      goto next;
+      return;
     }
     val = get4();
     printf ("version %d.%d, ",val >> 16, val & 0xffff);
@@ -763,7 +768,7 @@ void parse_foveon()
 	get4();
 	printf ("nchars %d\n", get4());
 	off += pent*8 + 24;
-	if (pent > 256) pent=256;
+	if ((unsigned) pent > 256) pent=256;
 	for (i=0; i < pent*2; i++)
 	  poff[0][i] = off + get4()*2;
 	for (i=0; i < pent; i++) {
@@ -776,7 +781,6 @@ void parse_foveon()
 	    strcpy (model, value);
 	}
     }
-next:
     fseek (ifp, save, SEEK_SET);
   }
 }
