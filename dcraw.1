@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "May 3, 2007"
+.TH dcraw 1 "May 6, 2007"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -64,8 +64,11 @@ Output a half-size color image.  Twice as fast as
 .B -q 0
 Use high-speed, low-quality bilinear interpolation.
 .TP
-.B -q 2
+.B -q 1
 Use Variable Number of Gradients (VNG) interpolation.
+.TP
+.B -q 2
+Use Patterned Pixel Grouping (PPG) interpolation.
 .TP
 .B -q 3
 Use Adaptive Homogeneity-Directed (AHD) interpolation.
