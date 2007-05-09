@@ -18,8 +18,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.380 $
-   $Date: 2007/05/06 23:05:56 $
+   $Revision: 1.381 $
+   $Date: 2007/05/09 17:19:29 $
  */
 
 #define VERSION "8.72"
@@ -6690,12 +6690,14 @@ konica_400z:
       left_margin = 4;
       goto fz8_common;
     } else if (width == 3170) {
-      height = 2326;
-      top_margin  = 13;
       left_margin = 18;
-      filters = 0x49494949;
 fz8_common:
       width = 3096;
+      if (height > 2326) {
+	height = 2326;
+	top_margin = 13;
+	filters = 0x49494949;
+      }
       load_raw = &CLASS olympus_e300_load_raw;
       maximum = 0xf7f;
       adobe_coeff ("Panasonic","DMC-FZ8");
