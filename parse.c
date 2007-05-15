@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.64 $
-   $Date: 2007/04/29 04:00:59 $
+   $Revision: 1.65 $
+   $Date: 2007/05/15 06:16:12 $
  */
 
 #include <stdio.h>
@@ -198,7 +198,7 @@ void nikon_decrypt (uchar ci, uchar cj, int tag, int i, int size, uchar *buf)
 
 int parse_tiff_ifd (int base, int level);
 
-void parse_makernote (base)
+void parse_makernote (int base, int level)
 {
   int offset=0, entries, tag, type, count, val, save;
   unsigned serial=0, key=0;
@@ -246,10 +246,10 @@ void parse_makernote (base)
     tag  = get2();
     type = get2();
     count= get4();
-    tiff_dump (base, tag, type, count, 2);
-    if (tag == 0x11 || type == 13) {
+    tiff_dump (base, tag, type, count, level);
+    if ((tag == 0x11 && !strncmp(make,"NIKON",5)) || type == 13) {
       fseek (ifp, get4()+base, SEEK_SET);
-      parse_tiff_ifd (base, 3);
+      parse_tiff_ifd (base, level+1);
     }
     if (tag == 0x1d)
       while ((val = fgetc(ifp)) && val != EOF)
@@ -263,12 +263,12 @@ void parse_makernote (base)
     if (tag == 0xa7)
       key = fgetc(ifp)^fgetc(ifp)^fgetc(ifp)^fgetc(ifp);
     if (!strcmp (buf,"OLYMP") && tag >> 8 == 0x20)
-      parse_tiff_ifd (base, 3);
+      parse_tiff_ifd (base, level+1);
     if (tag == 0xe01)
       parse_nikon_capture_note (count);
     if (tag == 0xb028) {
       fseek (ifp, get4(), SEEK_SET);
-      parse_tiff_ifd (base, 3);
+      parse_tiff_ifd (base, level+1);
     }
     fseek (ifp, save+12, SEEK_SET);
   }
@@ -281,7 +281,7 @@ void parse_makernote (base)
   order = sorder;
 }
 
-void parse_exif(int base)
+void parse_exif (int base, int level)
 {
   int entries, tag, type, count, save;
 
@@ -292,9 +292,9 @@ void parse_exif(int base)
     tag  = get2();
     type = get2();
     count= get4();
-    tiff_dump (base, tag, type, count, 1);
+    tiff_dump (base, tag, type, count, level);
     if (tag == 0x927c)
-      parse_makernote (base);
+      parse_makernote (base, level+1);
     fseek (ifp, save+12, SEEK_SET);
   }
 }
@@ -366,7 +366,15 @@ int parse_tiff_ifd (int base, int level)
 	break;
       case 34665:
 	fseek (ifp, get4()+base, SEEK_SET);
-	parse_exif (base);
+	parse_exif (base, level+1);
+	break;
+      case 50459:
+	i = order;
+	save2 = ftell(ifp);
+	order = get2();
+	fseek (ifp, save2 + (get2(),get4()), SEEK_SET);
+	parse_tiff_ifd (save2, level+1);
+	order = i;
 	break;
       case 50706:
 	is_dng = 1;
