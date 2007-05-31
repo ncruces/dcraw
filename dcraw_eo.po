@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 8.72\n"
+"Project-Id-Version: dcraw 8.73\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2007-05-06 21:00-0400\n"
+"PO-Revision-Date: 2007-05-31 02:20-0400\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -57,6 +57,9 @@ msgstr "%s: Ne povas uzi fotilan blank-ekvilibron.\n"
 
 msgid "Scaling with black %d, multipliers"
 msgstr "Skalas per nigra %d, multiplikantoj"
+
+msgid "Correcting chromatic aberration...\n"
+msgstr "Korektas koloran aberacion...\n"
 
 msgid "Bilinear interpolation...\n"
 msgstr "Interpolado bilinia...\n"
@@ -228,6 +231,9 @@ msgstr "Tempostampo: %s"
 
 msgid "Camera: %s %s\n"
 msgstr "Fotilo: %s %s\n"
+
+msgid "Owner: %s\n"
+msgstr "Posedanto: %s\n"
 
 msgid "DNG Version: "
 msgstr "DNG-versio: "
