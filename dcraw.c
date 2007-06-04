@@ -18,8 +18,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.382 $
-   $Date: 2007/06/02 04:18:22 $
+   $Revision: 1.383 $
+   $Date: 2007/06/04 01:19:23 $
  */
 
 #define VERSION "8.73"
@@ -7610,6 +7610,7 @@ int CLASS main (int argc, char **argv)
     puts(_("-a        Average the whole image for white balance"));
     puts(_("-A <x y w h> Average a grey box for white balance"));
     puts(_("-r <r g b g> Set custom white balance"));
+    puts(_("-C <r b>  Correct chromatic aberration"));
     puts(_("-b <num>  Adjust brightness (default = 1.0)"));
     puts(_("-n <num>  Set threshold for wavelet denoising"));
     puts(_("-k <num>  Set black point"));
