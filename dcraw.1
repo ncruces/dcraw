@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "May 31, 2007"
+.TH dcraw 1 "June 8, 2007"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -128,6 +128,10 @@ These multipliers can be cut and pasted from the output of
 no white balance option
 Use a fixed white balance based on a color chart illuminated
 with a standard D65 lamp.
+.TP
+.B -M
+If the raw metadata contains a color matrix, don't use it.
+This option only affects Olympus, Leaf, and Phase One cameras.
 .TP
 .B -C red_mag blue_mag
 Enlarge the raw red and blue layers by the given factors,
