@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 8.73\n"
+"Project-Id-Version: dcraw 8.74\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2007-06-03 20:00-0400\n"
+"PO-Revision-Date: 2007-06-08 01:30-0400\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -147,6 +147,9 @@ msgstr "-A <x y ∆x ∆y> Averaĝu grizan rektangulon por blank-ekvilibro"
 
 msgid "-r <r g b g> Set custom white balance"
 msgstr "-r <r v b v> Specifu propran blank-ekvilibron"
+
+msgid "-M        Don't use an embedded color matrix"
+msgstr "-M        Ne uzu kolor-matricon el pridatumo"
 
 msgid "-C <r b>  Correct chromatic aberration"
 msgstr "-C <r b>  Korektu koloran aberacion"
