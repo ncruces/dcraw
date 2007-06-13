@@ -18,8 +18,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.385 $
-   $Date: 2007/06/13 06:40:04 $
+   $Revision: 1.386 $
+   $Date: 2007/06/13 22:42:15 $
  */
 
 #define VERSION "8.75"
@@ -871,7 +871,7 @@ void CLASS ljpeg_row (int jrow, struct jhead *jh)
     for (c=0; c < jh->clrs; c++) {
       diff = ljpeg_diff (jh->huff[c]);
       *outp = diff = col ? outp[-jh->clrs]+diff : (jh->vpred[c] += diff);
-      if (diff >> jh->bits) derror();
+      if ((ushort) diff >> jh->bits) derror();
       outp++;
     }
 }
