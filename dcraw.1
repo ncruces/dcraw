@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "June 8, 2007"
+.TH dcraw 1 "June 13, 2007"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -129,8 +129,15 @@ no white balance option
 Use a fixed white balance based on a color chart illuminated
 with a standard D65 lamp.
 .TP
+.BR +M " or " -M
+Use (or don't use) any color matrix from the camera metadata.
+The default is
+.B +M
+if
+.B -w
+is set,
 .B -M
-If the raw metadata contains a color matrix, don't use it.
+otherwise.
 This option only affects Olympus, Leaf, and Phase One cameras.
 .TP
 .B -C red_mag blue_mag
