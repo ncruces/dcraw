@@ -18,11 +18,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.386 $
-   $Date: 2007/06/13 22:42:15 $
+   $Revision: 1.387 $
+   $Date: 2007/06/24 00:18:52 $
  */
 
-#define VERSION "8.75"
+#define VERSION "8.76"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -103,9 +103,10 @@ unsigned shot_order, kodak_cbpp, filters, exif_cfa, unique_id;
 unsigned profile_offset, profile_length, *oprof;
 unsigned thumb_offset, thumb_length, thumb_misc;
 unsigned data_offset, strip_offset, curve_offset, meta_offset, meta_length;
-unsigned tiff_nifds, tiff_samples, tiff_bps, tiff_compress, tile_length;
+unsigned tiff_nifds, tiff_samples, tiff_bps, tiff_compress;
 unsigned black, maximum, mix_green, raw_color, use_gamma, zero_is_bad;
 unsigned zero_after_ff, is_raw, dng_version, is_foveon, data_error;
+unsigned tile_width, tile_length;
 ushort raw_height, raw_width, height, width, top_margin, left_margin;
 ushort shrink, iheight, iwidth, fuji_width, thumb_width, thumb_height;
 int flip, tiff_flip, colors;
@@ -791,7 +792,7 @@ void CLASS canon_compressed_load_raw()
    enough to decode Canon, Kodak and Adobe DNG images.
  */
 struct jhead {
-  int bits, high, wide, clrs, restart, vpred[4];
+  int bits, high, wide, clrs, psv, restart, vpred[4];
   struct CLASS decode *huff[4];
   ushort *row;
 };
@@ -821,7 +822,7 @@ int CLASS ljpeg_start (struct jhead *jh, int info_only)
 	jh->high = data[1] << 8 | data[2];
 	jh->wide = data[3] << 8 | data[4];
 	jh->clrs = data[5];
-	if (len == 9) getc(ifp);
+	if (len == 9 && !dng_version) getc(ifp);
 	break;
       case 0xffc4:
 	if (info_only) break;
@@ -830,12 +831,15 @@ int CLASS ljpeg_start (struct jhead *jh, int info_only)
 	  dp = make_decoder (++dp, 0);
 	}
 	break;
+      case 0xffda:
+	jh->psv = data[1+data[0]*2];
+	break;
       case 0xffdd:
 	jh->restart = data[0] << 8 | data[1];
     }
   } while (tag != 0xffda);
   if (info_only) return 1;
-  jh->row = (ushort *) calloc (jh->wide*jh->clrs, 2);
+  jh->row = (ushort *) calloc (jh->wide*jh->clrs, 4);
   merror (jh->row, "ljpeg_start()");
   return zero_after_ff = 1;
 }
@@ -855,10 +859,10 @@ int CLASS ljpeg_diff (struct decode *dindex)
   return diff;
 }
 
-void CLASS ljpeg_row (int jrow, struct jhead *jh)
+ushort * CLASS ljpeg_row (int jrow, struct jhead *jh)
 {
-  int col, c, diff;
-  ushort mark=0, *outp=jh->row;
+  int col, c, diff, pred;
+  ushort mark=0, *row[3];
 
   if (jrow * jh->wide % jh->restart == 0) {
     FORC4 jh->vpred[c] = 1 << (jh->bits-1);
@@ -867,13 +871,26 @@ void CLASS ljpeg_row (int jrow, struct jhead *jh)
       while (c != EOF && mark >> 4 != 0xffd);
     getbits(-1);
   }
+  FORC3 row[c] = jh->row + jh->wide*jh->clrs*((jrow+c) & 1);
   for (col=0; col < jh->wide; col++)
     for (c=0; c < jh->clrs; c++) {
       diff = ljpeg_diff (jh->huff[c]);
-      *outp = diff = col ? outp[-jh->clrs]+diff : (jh->vpred[c] += diff);
-      if ((ushort) diff >> jh->bits) derror();
-      outp++;
+      if (!col) pred = (jh->vpred[c] += diff) - diff;
+      else	pred = row[0][-jh->clrs];
+      if (jrow && col) switch (jh->psv) {
+	case 1:	break;
+	case 2: pred = row[1][0];					break;
+	case 3: pred = row[1][-jh->clrs];				break;
+	case 4: pred = pred +   row[1][0] - row[1][-jh->clrs];		break;
+	case 5: pred = pred + ((row[1][0] - row[1][-jh->clrs]) >> 1);	break;
+	case 6: pred = row[1][0] + ((pred - row[1][-jh->clrs]) >> 1);	break;
+	case 7: pred = (pred + row[1][0]) >> 1;				break;
+	default: pred = 0;
+      }
+      if ((**row = pred + diff) >> jh->bits) derror();
+      row[0]++; row[1]++;
     }
+  return row[2];
 }
 
 void CLASS lossless_jpeg_load_raw()
@@ -881,14 +898,15 @@ void CLASS lossless_jpeg_load_raw()
   int jwide, jrow, jcol, val, jidx, i, j, row=0, col=0;
   struct jhead jh;
   int min=INT_MAX;
+  ushort *rp;
 
   if (!ljpeg_start (&jh, 0)) return;
   jwide = jh.wide * jh.clrs;
 
   for (jrow=0; jrow < jh.high; jrow++) {
-    ljpeg_row (jrow, &jh);
+    rp = ljpeg_row (jrow, &jh);
     for (jcol=0; jcol < jwide; jcol++) {
-      val = jh.row[jcol];
+      val = *rp++;
       if (jh.bits <= 12)
 	val = curve[val];
       if (cr2_slice[0]) {
@@ -945,35 +963,29 @@ void CLASS adobe_copy_pixel (int row, int col, ushort **rp)
 
 void CLASS adobe_dng_load_raw_lj()
 {
-  int save, twide, trow=0, tcol=0, jrow, jcol;
+  unsigned save, trow=0, tcol=0, jwide, jrow, jcol, row, col;
   struct jhead jh;
   ushort *rp;
 
-  while (1) {
+  while (trow < raw_height) {
     save = ftell(ifp);
     if (tile_length < INT_MAX)
       fseek (ifp, get4(), SEEK_SET);
     if (!ljpeg_start (&jh, 0)) break;
-    if (trow >= raw_height) break;
-    if (jh.high > raw_height-trow)
-	jh.high = raw_height-trow;
-    twide = jh.wide;
-    if (filters) twide *= jh.clrs;
-    else         colors = jh.clrs;
-    if (fuji_secondary) twide /= 2;
-    if (twide > raw_width-tcol)
-	twide = raw_width-tcol;
-
-    for (jrow=0; jrow < jh.high; jrow++) {
-      ljpeg_row (jrow, &jh);
-      for (rp=jh.row, jcol=0; jcol < twide; jcol++)
-	adobe_copy_pixel (trow+jrow, tcol+jcol, &rp);
+    jwide = jh.wide;
+    if (filters) jwide *= jh.clrs;
+    jwide >>= fuji_secondary;
+    for (row=col=jrow=0; jrow < jh.high; jrow++) {
+      rp = ljpeg_row (jrow, &jh);
+      for (jcol=0; jcol < jwide; jcol++) {
+	adobe_copy_pixel (trow+row, tcol+col, &rp);
+	if (++col >= tile_width || col >= raw_width)
+	  row += 1 + (col = 0);
+      }
     }
     fseek (ifp, save+4, SEEK_SET);
-    if ((tcol += twide) >= raw_width) {
-      tcol = 0;
-      trow += jh.high;
-    }
+    if ((tcol += tile_width) >= raw_width)
+      trow += tile_length + (tcol = 0);
     free (jh.row);
   }
 }
@@ -4721,6 +4733,9 @@ int CLASS parse_tiff_ifd (int base)
       case 315:				/* Artist */
 	fread (artist, 64, 1, ifp);
 	break;
+      case 322:				/* TileWidth */
+	tile_width = getint(type);
+	break;
       case 323:				/* TileLength */
 	tile_length = getint(type);
 	break;
@@ -6120,7 +6135,7 @@ void CLASS identify()
   timestamp = shot_order = tiff_samples = black = is_foveon = 0;
   mix_green = profile_length = data_error = zero_is_bad = 0;
   pixel_aspect = is_raw = raw_color = use_gamma = 1;
-  tile_length = INT_MAX;
+  tile_width = tile_length = INT_MAX;
   for (i=0; i < 4; i++) {
     cam_mul[i] = i == 1;
     pre_mul[i] = i < 3;
