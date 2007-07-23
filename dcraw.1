@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "June 13, 2007"
+.TH dcraw 1 "July 23, 2007"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -204,8 +204,8 @@ applies the flip specified by the camera.
 .B -t 0
 disables all flipping.
 .TP
-.B -s [0-99]
-Select which raw image to decode if the file contains more than one.
+.BR "-s [0..N-1]" " or " "-s all"
+If a file contains N raw images, choose one or "all" to decode.
 For example, Fuji\ Super\ CCD\ SR cameras generate a second image
 underexposed four stops to show detail in the highlights.
 .TP
@@ -214,13 +214,6 @@ For Fuji\ Super\ CCD cameras, show the image tilted 45 degrees.
 For cameras with non-square pixels, do not stretch the image to
 its correct aspect ratio.  In any case, this option guarantees
 that each output pixel corresponds to one raw pixel.
-.TP
-.B ""
-If they don't apply to your camera,
-.B -s
-and
-.B -j
-are silently ignored.
 .SH FILES
 .TP
 \:./.badpixels, ../.badpixels, ../../.badpixels, ...
