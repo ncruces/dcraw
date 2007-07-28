@@ -18,8 +18,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.388 $
-   $Date: 2007/07/23 06:52:52 $
+   $Revision: 1.389 $
+   $Date: 2007/07/28 23:39:53 $
  */
 
 #define VERSION "8.77"
@@ -5800,6 +5800,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 15591,-6402,-1592,-5365,13198,2168,-1300,1824,5075 } },
     { "Canon PowerShot A620", 0, /* DJC */
 	{ 15265,-6193,-1558,-4125,12116,2010,-888,1639,5220 } },
+    { "Canon PowerShot A640", 0, /* DJC */
+	{ 13124,-5329,-1390,-3602,11658,1944,-1612,2863,4885 } },
     { "Canon PowerShot S3 IS", 0, /* DJC */
 	{ 14062,-5199,-1446,-4712,12470,2243,-1286,2028,4836 } },
     { "CINE 650", 0,
