@@ -18,8 +18,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.389 $
-   $Date: 2007/07/28 23:39:53 $
+   $Revision: 1.390 $
+   $Date: 2007/08/01 17:39:28 $
  */
 
 #define VERSION "8.77"
@@ -4468,7 +4468,6 @@ void CLASS get_timestamp (int reversed)
   char str[20];
   int i;
 
-  if (timestamp) return;
   str[19] = 0;
   if (reversed)
     for (i=19; i--; ) str[i] = fgetc(ifp);
