@@ -18,8 +18,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.390 $
-   $Date: 2007/08/01 17:39:28 $
+   $Revision: 1.391 $
+   $Date: 2007/08/08 21:28:17 $
  */
 
 #define VERSION "8.77"
@@ -1089,7 +1089,7 @@ void CLASS nikon_load_raw()
       i = getbits(12);
       if ((unsigned) (col-left_margin) < width)
 	BAYER(row,col-left_margin) = i;
-      if (tiff_compress == 34713 && (col % 10) == 9)
+      if (tiff_compress > 32768 && (col % 10) == 9)
 	if (getbits(8)) derror();
     }
   }
@@ -5071,6 +5071,8 @@ void CLASS parse_tiff (int base)
 	load_raw = &CLASS lossless_jpeg_load_raw;		break;
       case 262:
 	load_raw = &CLASS kodak_262_load_raw;			break;
+      case 32769:
+	load_raw = &CLASS nikon_load_raw;			break;
       case 32773:
 	load_raw = &CLASS packed_12_load_raw;			break;
       case 65535:
@@ -5081,6 +5083,8 @@ void CLASS parse_tiff (int base)
 	  case 6: load_raw = &CLASS kodak_ycbcr_load_raw; filters = 0;  break;
 	  case 32803: load_raw = &CLASS kodak_65000_load_raw;
 	}
+      case 32867: case 34713: break;
+      default: is_raw = 0;
     }
   if (!dng_version && tiff_samples == 3)
     if (tiff_ifd[raw].bytes && tiff_bps != 14 && tiff_bps != 2048)
@@ -6622,9 +6626,6 @@ cp_e2500:
     width  = 2576;
     colors = 4;
     filters = 0xb4b4b4b4;
-  } else if (!strncmp(model,"R-D1",4)) {
-    tiff_compress = 34713;
-    load_raw = &CLASS nikon_load_raw;
   } else if (!strcmp(model,"FinePix S5100") ||
 	     !strcmp(model,"FinePix S5500")) {
     load_raw = &CLASS unpacked_load_raw;
