@@ -18,8 +18,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.391 $
-   $Date: 2007/08/08 21:28:17 $
+   $Revision: 1.392 $
+   $Date: 2007/08/10 21:09:34 $
  */
 
 #define VERSION "8.77"
@@ -53,10 +53,7 @@
 #else
 #define _(String) (String)
 #endif
-#ifndef DJGPP
 #define fgetc getc_unlocked
-#define fseek fseeko
-#endif
 #ifdef __CYGWIN__
 #include <io.h>
 #endif
@@ -258,7 +255,7 @@ void CLASS derror()
     if (feof(ifp))
       fprintf (stderr,_("Unexpected end of file\n"));
     else
-      fprintf (stderr,_("Corrupt data near 0x%lx\n"), ftell(ifp));
+      fprintf (stderr,_("Corrupt data near 0x%llx\n"), (INT64) ftello(ifp));
   }
   data_error = 1;
 }
@@ -7941,7 +7938,7 @@ next:
     if (shot_select >= is_raw)
       fprintf (stderr,_("%s: \"-s %d\" requests a nonexistent image!\n"),
 	ifname, shot_select);
-    fseek (ifp, data_offset, SEEK_SET);
+    fseeko (ifp, data_offset, SEEK_SET);
     (*load_raw)();
     if (zero_is_bad) remove_zeroes();
     bad_pixels();
