@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.393 $
-   $Date: 2007/10/30 06:23:29 $
+   $Revision: 1.394 $
+   $Date: 2007/11/04 02:18:54 $
  */
 
-#define VERSION "8.78"
+#define VERSION "8.79"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -1711,6 +1711,7 @@ void CLASS hasselblad_load_raw()
       }
     }
   }
+  maximum = 0xffff;
 }
 
 void CLASS leaf_hdr_load_raw()
@@ -6182,6 +6183,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 7828,-1761,-348,-5788,14071,1830,-2853,4518,6557 } },
     { "OLYMPUS E-330", 0,
 	{ 8961,-2473,-1084,-7979,15990,2067,-2319,3035,8249 } },
+    { "OLYMPUS E-3", 0,
+	{ 9487,-2875,-1115,-7533,15606,2010,-1618,2100,7389 } },
     { "OLYMPUS E-400", 0,
 	{ 6169,-1483,-21,-7107,14761,2536,-2904,3580,8568 } },
     { "OLYMPUS E-410", 0,
@@ -6723,11 +6726,10 @@ canon_cr2:
   } else if (!strcmp(model,"D1X")) {
     width -= 4;
     pixel_aspect = 0.5;
-  } else if (!strncmp(model,"D40",3)) {
+  } else if (!strncmp(model,"D40",3) ||
+	     !strncmp(model,"D50",3) ||
+	     !strncmp(model,"D70",3)) {
     width--;
-  } else if (!strncmp(model,"D50",3) || !strncmp(model,"D70",3)) {
-    width--;
-    maximum = 0xf53;
   } else if (!strcmp(model,"D80")) {
     height -= 3;
     width  -= 4;
@@ -6838,6 +6840,7 @@ cp_e2500:
   } else if (fsize == 8998912) {
     height = 2118;
     width  = 2832;
+    maximum = 0xf83;
     load_raw = &CLASS nikon_e2100_load_raw;
   } else if (!strcmp(model,"FinePix S5100") ||
 	     !strcmp(model,"FinePix S5500")) {
@@ -7177,10 +7180,13 @@ fz18:	if (height > 2480)
       width -= 30;
       if (load_raw == &CLASS unpacked_load_raw)
 	maximum = 0xf790;
+    } else if (!strcmp(model,"E-3")) {
+      maximum = 0xf99;
+      goto e410;
     } else if (!strcmp(model,"E-410") ||
 	       !strcmp(model,"E-510")) {
-      load_raw = &CLASS olympus_e410_load_raw;
       maximum = 0xf6a;
+e410: load_raw = &CLASS olympus_e410_load_raw;
       black >>= 4;
     } else if (!strcmp(model,"SP550UZ")) {
       thumb_length = fsize - (thumb_offset = 0xa39800);
