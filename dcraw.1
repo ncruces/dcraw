@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "October 30, 2007"
+.TH dcraw 1 "November 28, 2007"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -19,7 +19,7 @@ dcraw - command-line decoder for raw digital photos
 .SH DESCRIPTION
 .B dcraw
 decodes raw photos, displays metadata, and extracts thumbnails.
-.SH OPTIONS
+.SH GENERAL OPTIONS
 .TP
 .B -v
 Print verbose messages, not just warnings and errors.
@@ -47,6 +47,110 @@ shows metadata.
 .B ""
 .B dcraw
 cannot decode JPEG files!!
+.SH REPAIR OPTIONS
+For dead pixel removal, see
+.BR FILES .
+.TP
+.B -k black
+Set the black level.  Default depends on the camera.
+.TP
+.B -K darkframe.pgm
+Subtract a dark frame from the raw data.  To generate a
+dark frame, shoot a raw photo with no light and do
+.BR dcraw\ -D\ -4\ -j\ -t\ 0 .
+.TP
+.B -n noise_threshold
+Use wavelets to erase noise while preserving real detail.
+The best threshold should be somewhere between 100 and 1000.
+.TP
+.B -C red_mag blue_mag
+Enlarge the raw red and blue layers by the given factors,
+typically 0.999 to 1.001, to correct chromatic aberration.
+.TP
+.B -H 0
+Clip all highlights to solid white (default).
+.TP
+.B -H 1
+Leave highlights unclipped in various shades of pink.
+.TP
+.B -H 2
+Blend clipped and unclipped values together for a gradual fade
+to white.
+.TP
+.B -H 3+
+Reconstruct highlights.  Low numbers favor whites; high numbers
+favor colors.  Try
+.B -H 5
+as a compromise.  If that's not good enough, do
+.BR -H\ 9 ,
+cut out the non-white highlights, and paste them into an image
+generated with
+.BR -H\ 3 .
+.SH COLOR OPTIONS
+By default,
+.B dcraw
+uses a fixed white balance based on a color chart illuminated
+with a standard D65 lamp.
+.TP
+.B -w
+Use the white balance specified by the camera.
+If this is not found, print a warning and use another method.
+.TP
+.B -a
+Calculate the white balance by averaging the entire image.
+.TP
+.B -A left top width height
+Calculate the white balance by averaging a rectangular area.
+First do
+.B dcraw\ -j\ -t\ 0
+and select an area of neutral grey color.
+.TP
+.B -r mul0 mul1 mul2 mul3
+Specify your own raw white balance.
+These multipliers can be cut and pasted from the output of
+.BR dcraw\ -v .
+.TP
+.BR +M " or " -M
+Use (or don't use) any color matrix from the camera metadata.
+The default is
+.B +M
+if
+.B -w
+is set,
+.B -M
+otherwise.
+This option only affects Olympus, Leaf, and Phase One cameras.
+.TP
+.B -o [0-5]
+Select the output colorspace when the
+.B -p
+option is not used:
+
+.B \t0
+\ \ Raw color (unique to each camera)
+.br
+.B \t1
+\ \ sRGB D65 (default)
+.br
+.B \t2
+\ \ Adobe RGB (1998) D65
+.br
+.B \t3
+\ \ Wide Gamut RGB D65
+.br
+.B \t4
+\ \ Kodak ProPhoto RGB D65
+.br
+.B \t5
+\ \ XYZ
+.TP
+.BR -p\ camera.icm \ [\  -o\ output.icm \ ]
+Use ICC profiles to define the camera's raw colorspace and the
+desired output colorspace (sRGB by default).
+.TP
+.B -p embed
+Use the ICC profile embedded in the raw photo.
+.SH INTERPOLATION OPTIONS
 .TP
 .B -d
 Show the raw data as a grayscale image with no interpolation.
@@ -80,122 +184,23 @@ false 2x2 meshes with VNG or mazes with AHD.
 .B -m number_of_passes
 After interpolation, clean up color artifacts by repeatedly
 applying a 3x3 median filter to the R-G and B-G channels.
-.TP
-.B -n noise_threshold
-Use wavelets to erase noise while preserving real detail.
-The best threshold should be somewhere between 100 and 1000.
-.TP
-.B -b brightness
+.SH OUTPUT OPTIONS
 By default,
 .B dcraw
-writes 8-bit PGM/PPM/PAM with a BT.709 gamma curve and a
-99th-percentile white point.  If the result is too light or
-too dark,
-.B -b
-lets you adjust it.  Default is 1.0.
+writes PGM/PPM/PAM with 8-bit samples, a BT.709 gamma curve,
+a histogram-based white level, and no metadata.
+.TP
+.B -W
+Use a fixed white level, ignoring the image histogram.
+.TP
+.B -b brightness
+Divide the white level by this number, 1.0 by default.
 .TP
 .B -4
-Write 16-bit linear pseudo-PGM/PPM/PAM with no gamma curve,
-no white point, and no
-.B -b
-option.
+Write 16-bit linear samples (fixed white level, no gamma).
 .TP
 .B -T
-Write TIFF output (with metadata) instead of PGM/PPM/PAM.
-.TP
-.B -k black
-Set the black point.  Default depends on the camera.
-.TP
-.B -K darkframe.pgm
-Subtract a dark frame from the raw data.  To generate a
-dark frame, shoot a raw photo with no light and do
-.BR dcraw\ -D\ -4\ -j\ -t\ 0 .
-.TP
-.B -w
-Use the white balance specified by the camera.
-If this is not found, print a warning and use another method.
-.TP
-.B -a
-Calculate the white balance by averaging the entire image.
-.TP
-.B -A left top width height
-Calculate the white balance by averaging a rectangular area.
-First do
-.B dcraw\ -j\ -t\ 0
-and select an area of neutral grey color.
-.TP
-.B -r mul0 mul1 mul2 mul3
-Specify your own raw white balance.
-These multipliers can be cut and pasted from the output of
-.BR dcraw\ -v .
-.TP
-no white balance option
-Use a fixed white balance based on a color chart illuminated
-with a standard D65 lamp.
-.TP
-.BR +M " or " -M
-Use (or don't use) any color matrix from the camera metadata.
-The default is
-.B +M
-if
-.B -w
-is set,
-.B -M
-otherwise.
-This option only affects Olympus, Leaf, and Phase One cameras.
-.TP
-.B -C red_mag blue_mag
-Enlarge the raw red and blue layers by the given factors,
-typically 0.999 to 1.001, to correct chromatic aberration.
-.TP
-.B -H 0
-Clip all highlights to solid white (default).
-.TP
-.B -H 1
-Leave highlights unclipped in various shades of pink.
-.TP
-.B -H 2
-Blend clipped and unclipped values together for a gradual fade to white.
-.TP
-.B -H 3-9
-Reconstruct highlights.  Low numbers favor whites; high numbers
-favor colors.  Try
-.B -H 5
-as a compromise.  If that's not good enough, do
-.BR -H\ 9 ,
-cut out the non-white highlights, and paste them into an image
-generated with
-.BR -H\ 3 .
-.TP
-.B -o [0-5]
-Select the output colorspace when the
-.B -p
-option is not used:
-
-.B \t0
-\ \ Raw color (unique to each camera)
-.br
-.B \t1
-\ \ sRGB D65 (default)
-.br
-.B \t2
-\ \ Adobe RGB (1998) D65
-.br
-.B \t3
-\ \ Wide Gamut RGB D65
-.br
-.B \t4
-\ \ Kodak ProPhoto RGB D65
-.br
-.B \t5
-\ \ XYZ
-.TP
-.BR -p\ camera.icm \ [\  -o\ output.icm \ ]
-Use ICC profiles to define the camera's raw colorspace and the
-desired output colorspace (sRGB by default).
-.TP
-.B -p embed
-Use the ICC profile embedded in the raw photo.
+Write TIFF with metadata instead of PGM/PPM/PAM.
 .TP
 .B -t [0-7,90,180,270]
 Flip the output image.  By default,
@@ -204,16 +209,16 @@ applies the flip specified by the camera.
 .B -t 0
 disables all flipping.
 .TP
-.BR "-s [0..N-1]" " or " "-s all"
-If a file contains N raw images, choose one or "all" to decode.
-For example, Fuji\ Super\ CCD\ SR cameras generate a second image
-underexposed four stops to show detail in the highlights.
-.TP
 .B -j
 For Fuji\ Super\ CCD cameras, show the image tilted 45 degrees.
 For cameras with non-square pixels, do not stretch the image to
 its correct aspect ratio.  In any case, this option guarantees
 that each output pixel corresponds to one raw pixel.
+.TP
+.BR "-s [0..N-1]" " or " "-s all"
+If a file contains N raw images, choose one or "all" to decode.
+For example, Fuji\ Super\ CCD\ SR cameras generate a second image
+underexposed four stops to show detail in the highlights.
 .SH FILES
 .TP
 \:./.badpixels, ../.badpixels, ../../.badpixels, ...
