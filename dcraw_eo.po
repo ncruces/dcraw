@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 8.78\n"
+"Project-Id-Version: dcraw 8.81\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2007-10-30 03:00-0400\n"
+"PO-Revision-Date: 2007-12-10 01:30-0500\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -157,14 +157,11 @@ msgstr "+M/-M     Uzu/ne uzu kolor-matricon el pridatumo"
 msgid "-C <r b>  Correct chromatic aberration"
 msgstr "-C <r b>  Korektu koloran aberacion"
 
-msgid "-b <num>  Adjust brightness (default = 1.0)"
-msgstr "-b <num>  Agordu helecon (supoze 1.0)"
-
 msgid "-n <num>  Set threshold for wavelet denoising"
 msgstr "-n <num>  Agordu sojlon por ondeta senbruigo"
 
-msgid "-k <num>  Set black point"
-msgstr "-k <num>  Agordu nigran nivelon"
+msgid "-k <num>  Set the black level"
+msgstr "-k <num>  Agordu la nigran nivelon"
 
 msgid "-K <file> Subtract dark frame (16-bit raw PGM)"
 msgstr "-K <dos>  Subtrahu senluman kadron (16-bita kruda PGM)"
@@ -192,6 +189,12 @@ msgstr "-D        Dokumenta reĝimo sen skalado (tute krude)"
 
 msgid "-j        Don't stretch or rotate raw pixels"
 msgstr "-j        Nek streĉu nek rotaciigu krudajn bilderojn"
+
+msgid "-W        Don't automatically brighten the image"
+msgstr "-W        Ne aŭtomate heligu la bildon"
+
+msgid "-b <num>  Adjust brightness (default = 1.0)"
+msgstr "-b <num>  Agordu helecon (supoze 1.0)"
 
 msgid "-q [0-3]  Set the interpolation quality"
 msgstr "-q [0-3]  Elektu kvaliton de interpolado"
