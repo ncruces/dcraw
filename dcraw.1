@@ -1,7 +1,7 @@
 .\"
 .\" Man page for dcraw
 .\"
-.\" Copyright (c) 2007 by David Coffin
+.\" Copyright (c) 2008 by David Coffin
 .\"
 .\" You may distribute without restriction.
 .\"
@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "November 28, 2007"
+.TH dcraw 1 "February 6, 2008"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -48,16 +48,33 @@ shows metadata.
 .B dcraw
 cannot decode JPEG files!!
 .SH REPAIR OPTIONS
-For dead pixel removal, see
-.BR FILES .
 .TP
-.B -k black
-Set the black level.  Default depends on the camera.
+.B -P deadpixels.txt
+Read the dead pixel list from this file instead of ".badpixels".
+See
+.B FILES
+for a description of the format.
 .TP
 .B -K darkframe.pgm
 Subtract a dark frame from the raw data.  To generate a
 dark frame, shoot a raw photo with no light and do
 .BR dcraw\ -D\ -4\ -j\ -t\ 0 .
+.TP
+.B -k darkness
+When shadows appear foggy, you need to raise the darkness level.
+To measure this, apply
+.B pamsumm -mean
+to the dark frame generated above.
+.TP
+.B -S saturation
+When highlights appear pink, you need to lower the saturation level.
+To measure this, take a picture of something shiny and do
+.B dcraw -D -4 -j -c
+photo.raw
+.B | pamsumm -max
+.TP
+.B ""
+The default darkness and saturation are usually correct.
 .TP
 .B -n noise_threshold
 Use wavelets to erase noise while preserving real detail.
@@ -239,6 +256,7 @@ to locate dead pixels.
 .BR pgm (5),
 .BR ppm (5),
 .BR pam (5),
+.BR pamsumm (1),
 .BR pnmgamma (1),
 .BR pnmtotiff (1),
 .BR pnmtopng (1),
