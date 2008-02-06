@@ -1,6 +1,6 @@
 /*
    dcraw.c -- Dave Coffin's raw photo decoder
-   Copyright 1997-2007 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 1997-2008 by Dave Coffin, dcoffin a cybercom o net
 
    This is a command-line ANSI C program to convert raw photos from
    any digital camera on any computer running any operating system.
@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.397 $
-   $Date: 2007/12/10 07:43:31 $
+   $Revision: 1.398 $
+   $Date: 2008/02/06 21:29:13 $
  */
 
-#define VERSION "8.81"
+#define VERSION "8.82"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -3350,35 +3350,39 @@ void CLASS foveon_interpolate()
    Seach from the current directory up to the root looking for
    a ".badpixels" file, and fix those pixels now.
  */
-void CLASS bad_pixels()
+void CLASS bad_pixels (char *fname)
 {
   FILE *fp=0;
-  char *fname, *cp, line[128];
+  char *cp, line[128];
   int len, time, row, col, r, c, rad, tot, n, fixed=0;
 
   if (!filters) return;
-  for (len=32 ; ; len *= 2) {
-    fname = (char *) malloc (len);
-    if (!fname) return;
-    if (getcwd (fname, len-16)) break;
-    free (fname);
-    if (errno != ERANGE) return;
-  }
+  if (fname)
+    fp = fopen (fname, "r");
+  else {
+    for (len=32 ; ; len *= 2) {
+      fname = (char *) malloc (len);
+      if (!fname) return;
+      if (getcwd (fname, len-16)) break;
+      free (fname);
+      if (errno != ERANGE) return;
+    }
 #if defined(WIN32) || defined(DJGPP)
-  if (fname[1] == ':')
-    memmove (fname, fname+2, len-2);
-  for (cp=fname; *cp; cp++)
-    if (*cp == '\\') *cp = '/';
+    if (fname[1] == ':')
+      memmove (fname, fname+2, len-2);
+    for (cp=fname; *cp; cp++)
+      if (*cp == '\\') *cp = '/';
 #endif
-  cp = fname + strlen(fname);
-  if (cp[-1] == '/') cp--;
-  while (*fname == '/') {
-    strcpy (cp, "/.badpixels");
-    if ((fp = fopen (fname, "r"))) break;
-    if (cp == fname) break;
-    while (*--cp != '/');
+    cp = fname + strlen(fname);
+    if (cp[-1] == '/') cp--;
+    while (*fname == '/') {
+      strcpy (cp, "/.badpixels");
+      if ((fp = fopen (fname, "r"))) break;
+      if (cp == fname) break;
+      while (*--cp != '/');
+    }
+    free (fname);
   }
-  free (fname);
   if (!fp) return;
   while (fgets (line, 128, fp)) {
     cp = strchr (line, '#');
@@ -3397,7 +3401,7 @@ void CLASS bad_pixels()
     BAYER2(row,col) = tot/n;
     if (verbose) {
       if (!fixed++)
-	fprintf (stderr,_("Fixed bad pixels at:"));
+	fprintf (stderr,_("Fixed dead pixels at:"));
       fprintf (stderr, " %d,%d", col, row);
     }
   }
@@ -3680,7 +3684,7 @@ void CLASS wavelet_denoise()
 void CLASS scale_colors()
 {
   unsigned bottom, right, size, row, col, ur, uc, i, x, y, c, sum[8];
-  int val, dblack;
+  int val, dark, sat;
   double dsum[8], dmin, dmax;
   float scale_mul[4], fr, fc;
   ushort *img=0, *pix;
@@ -3730,7 +3734,8 @@ skip_block: ;
       fprintf (stderr,_("%s: Cannot use camera white balance.\n"), ifname);
   }
   if (pre_mul[3] == 0) pre_mul[3] = colors < 4 ? pre_mul[1] : 1;
-  dblack = black;
+  dark = black;
+  sat = maximum;
   if (threshold) wavelet_denoise();
   maximum -= black;
   for (dmin=DBL_MAX, dmax=c=0; c < 4; c++) {
@@ -3742,7 +3747,8 @@ skip_block: ;
   if (!highlight) dmax = dmin;
   FORC4 scale_mul[c] = (pre_mul[c] /= dmax) * 65535.0 / maximum;
   if (verbose) {
-    fprintf (stderr,_("Scaling with black %d, multipliers"), dblack);
+    fprintf (stderr,
+      _("Scaling with darkness %d, saturation %d, and\nmultipliers"), dark, sat);
     FORC4 fprintf (stderr, " %f", pre_mul[c]);
     fputc ('\n', stderr);
   }
@@ -6298,6 +6304,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 7511,-2571,-692,-7894,15088,3060,-948,1111,8128 } },
     { "SONY DSLR-A100", 0,
 	{ 9437,-2811,-774,-8405,16215,2290,-710,596,7181 } },
+    { "SONY DSLR-A200", 0,
+	{ 9847,-3091,-928,-8485,16345,2225,-715,595,7103 } },
     { "SONY DSLR-A700", 254,
 	{ 5775,-805,-359,-8574,16295,2391,-1943,2341,7249 } },
   };
@@ -6393,6 +6401,7 @@ void CLASS identify()
     {  6291456, "RoverShot","3320AF"          ,0 },
     {  6573120, "Canon",    "PowerShot A610"  ,0 },
     {  9219600, "Canon",    "PowerShot A620"  ,0 },
+    { 10341600, "Canon",    "PowerShot A720"  ,0 },
     { 10383120, "Canon",    "PowerShot A630"  ,0 },
     { 12945240, "Canon",    "PowerShot A640"  ,0 },
     {  7710960, "Canon",    "PowerShot S3 IS" ,0 },
@@ -6639,6 +6648,14 @@ void CLASS identify()
     raw_width  = 3152;
     top_margin  = 12;
     left_margin = 36;
+    load_raw = &CLASS canon_a5_load_raw;
+  } else if (!strcmp(model,"PowerShot A720")) {
+    height = 2472;
+    width  = 3298;
+    raw_height = 2480;
+    raw_width  = 3336;
+    top_margin  = 5;
+    left_margin = 6;
     load_raw = &CLASS canon_a5_load_raw;
   } else if (!strcmp(model,"PowerShot A630")) {
     height = 2472;
@@ -7280,6 +7297,9 @@ e410: load_raw = &CLASS olympus_e410_load_raw;
     height--;
     load_raw = &CLASS sony_arw_load_raw;
     maximum = 0xfeb;
+  } else if (!strcmp(model,"DSLR-A200")) {
+    height = raw_height += 8;
+    load_raw = &CLASS sony_arw_load_raw;
   } else if (!strncmp(model,"P850",4)) {
     maximum = 0xf7c;
   } else if (!strcmp(model,"C330")) {
@@ -7968,10 +7988,11 @@ void CLASS write_ppm_tiff (FILE *ofp)
 
 int CLASS main (int argc, char **argv)
 {
-  int arg, status=0, user_flip=-1, user_black=-1, user_qual=-1;
+  int arg, status=0;
   int timestamp_only=0, thumbnail_only=0, identify_only=0;
+  int user_qual=-1, user_black=-1, user_sat=-1, user_flip=-1;
   int use_fuji_rotate=1, write_to_stdout=0, quality, i, c;
-  char opm, opt, *ofname, *sp, *cp, *dark_frame=0;
+  char opm, opt, *ofname, *sp, *cp, *bpfile=0, *dark_frame=0;
   const char *write_ext;
   struct utimbuf ut;
   FILE *ofp;
@@ -8005,9 +8026,11 @@ int CLASS main (int argc, char **argv)
     puts(_("-r <r g b g> Set custom white balance"));
     puts(_("+M/-M     Use/don't use an embedded color matrix"));
     puts(_("-C <r b>  Correct chromatic aberration"));
-    puts(_("-n <num>  Set threshold for wavelet denoising"));
-    puts(_("-k <num>  Set the black level"));
+    puts(_("-P <file> Fix the dead pixels listed in this file"));
     puts(_("-K <file> Subtract dark frame (16-bit raw PGM)"));
+    puts(_("-k <num>  Set the darkness level"));
+    puts(_("-S <num>  Set the saturation level"));
+    puts(_("-n <num>  Set threshold for wavelet denoising"));
     puts(_("-H [0-9]  Highlight mode (0=clip, 1=unclip, 2=blend, 3+=rebuild)"));
     puts(_("-t [0-7]  Flip image (0=none, 3=180, 5=90CCW, 6=90CW)"));
     puts(_("-o [0-5]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"));
@@ -8033,8 +8056,8 @@ int CLASS main (int argc, char **argv)
   argv[argc] = "";
   for (arg=1; (((opm = argv[arg][0]) - 2) | 2) == '+'; ) {
     opt = argv[arg++][1];
-    if ((cp = strchr (sp="nbrktqmHAC", opt)))
-      for (i=0; i < "1141111142"[cp-sp]-'0'; i++)
+    if ((cp = strchr (sp="nbrkStqmHAC", opt)))
+      for (i=0; i < "11411111142"[cp-sp]-'0'; i++)
 	if (!isdigit(argv[arg+i][0])) {
 	  fprintf (stderr,_("Non-numeric argument to \"-%c\"\n"), opt);
 	  return 1;
@@ -8047,6 +8070,7 @@ int CLASS main (int argc, char **argv)
       case 'C':  aber[0] = 1 / atof(argv[arg++]);
 		 aber[2] = 1 / atof(argv[arg++]);  break;
       case 'k':  user_black  = atoi(argv[arg++]);  break;
+      case 'S':  user_sat    = atoi(argv[arg++]);  break;
       case 't':  user_flip   = atoi(argv[arg++]);  break;
       case 'q':  user_qual   = atoi(argv[arg++]);  break;
       case 'm':  med_passes  = atoi(argv[arg++]);  break;
@@ -8064,8 +8088,8 @@ int CLASS main (int argc, char **argv)
       case 'p':  cam_profile = argv[arg++];
 #endif
 	break;
-      case 'K':  dark_frame  = argv[arg++];
-	break;
+      case 'P':  bpfile     = argv[arg++];  break;
+      case 'K':  dark_frame = argv[arg++];  break;
       case 'z':  timestamp_only    = 1;  break;
       case 'e':  thumbnail_only    = 1;  break;
       case 'i':  identify_only     = 1;  break;
@@ -8252,11 +8276,12 @@ next:
     fseeko (ifp, data_offset, SEEK_SET);
     (*load_raw)();
     if (zero_is_bad) remove_zeroes();
-    bad_pixels();
+    bad_pixels (bpfile);
     if (dark_frame) subtract (dark_frame);
     quality = 2 + !fuji_width;
     if (user_qual >= 0) quality = user_qual;
     if (user_black >= 0) black = user_black;
+    if (user_sat > 0) maximum = user_sat;
 #ifdef COLORCHECK
     colorcheck();
 #endif
