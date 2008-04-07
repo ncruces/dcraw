@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.400 $
-   $Date: 2008/04/06 01:18:43 $
+   $Revision: 1.401 $
+   $Date: 2008/04/07 19:25:08 $
  */
 
-#define VERSION "8.84"
+#define VERSION "8.85"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -7380,6 +7380,9 @@ fz18:	if (height > 2480)
 	maximum = 0xf790;
     } else if (!strcmp(model,"E-3")) {
       maximum = 0xf99;
+      goto e410;
+    } else if (!strcmp(model,"E-420")) {
+      maximum = 0xfd7;
       goto e410;
     } else if (!strcmp(model,"E-410") ||
 	       !strcmp(model,"E-510")) {
