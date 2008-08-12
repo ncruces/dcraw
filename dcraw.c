@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.403 $
-   $Date: 2008/04/29 18:18:53 $
+   $Revision: 1.404 $
+   $Date: 2008/08/12 19:39:17 $
  */
 
-#define VERSION "8.86"
+#define VERSION "8.87"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -2313,6 +2313,30 @@ void CLASS eight_bit_load_raw()
   maximum = curve[0xff];
 }
 
+void CLASS kodak_yrgb_load_raw()
+{
+  uchar *pixel;
+  int row, col, y, cb, cr, rgb[3], c;
+
+  pixel = (uchar *) calloc (raw_width, 3*sizeof *pixel);
+  merror (pixel, "kodak_yrgb_load_raw()");
+  for (row=0; row < height; row++) {
+    if (~row & 1)
+      if (fread (pixel, raw_width, 3, ifp) < 3) derror();
+    for (col=0; col < raw_width; col++) {
+      y  = pixel[width*2*(row & 1) + col];
+      cb = pixel[width + (col & -2)]   - 128;
+      cr = pixel[width + (col & -2)+1] - 128;
+      rgb[1] = y - ((cb + cr + 2) >> 2);
+      rgb[2] = rgb[1] + cb;
+      rgb[0] = rgb[1] + cr;
+      FORC3 image[row*width+col][c] = LIM(rgb[c],0,255);
+    }
+  }
+  free (pixel);
+  use_gamma = 0;
+}
+
 void CLASS kodak_262_load_raw()
 {
   static const uchar kodak_tree[2][26] =
@@ -3822,7 +3846,7 @@ void CLASS pre_interpolate()
       width  = iwidth;
     } else {
       img = (ushort (*)[4]) calloc (height*width, sizeof *img);
-      merror (img, "unshrink()");
+      merror (img, "pre_interpolate()");
       for (row=0; row < height; row++)
 	for (col=0; col < width; col++) {
 	  c = fc(row,col);
@@ -4049,9 +4073,8 @@ void CLASS vng_interpolate()
 */
 void CLASS ppg_interpolate()
 {
-  int gr[4], dir[5] = { 1, width, -1, -width, 1 };
-  int row, col, avg, diff[2], guess[2], c, d, i;
-  static const short sort[] = { 0,2,1,3,0,1,2,3 };
+  int dir[5] = { 1, width, -1, -width, 1 };
+  int row, col, diff[2], guess[2], c, d, i;
   ushort (*pix)[4];
 
   border_interpolate(3);
@@ -4061,20 +4084,6 @@ void CLASS ppg_interpolate()
   for (row=3; row < height-3; row++)
     for (col=3+(FC(row,3) & 1), c=FC(row,col); col < width-3; col+=2) {
       pix = image + row*width+col;
-      for (avg=i=0; i < 4; i++)
-	avg += gr[i] = pix[dir[i]][1] << 2;
-      avg >>= 2;
-      for (i=0; i < 8; i+=2)
-	if (gr[sort[i]] > gr[sort[i+1]])
-	  SWAP(gr[sort[i]],gr[sort[i+1]])
-      for (d=0; d < 4; d++) {
-	for (i=-2; i < 2; i++)
-	  if (pix[i*dir[d] + (i+1)*dir[d+1]][1] <= avg) break;
-	if (i == 2) {
-	  pix[0][1] = (gr[1]+gr[2]) >> 3;
-	  goto next_pixel;
-	}
-      }
       for (i=0; (d=dir[i]) > 0; i++) {
 	guess[i] = (pix[-d][1] + pix[0][c] + pix[d][1]) * 2
 		      - pix[-2*d][c] - pix[2*d][c];
@@ -4086,7 +4095,6 @@ void CLASS ppg_interpolate()
       }
       d = dir[i = diff[0] > diff[1]];
       pix[0][1] = ULIM(guess[i] >> 2, pix[d][1], pix[-d][1]);
-next_pixel: ;
     }
 /*  Calculate red and blue for each green pixel:		*/
   for (row=1; row < height-1; row++)
@@ -6035,6 +6043,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 7054,-1501,-990,-8156,15544,2812,-1278,1414,7796 } },
     { "Canon EOS 450D", 0, 0x390d,
 	{ 5784,-262,-821,-7539,15064,2672,-1982,2681,7427 } },
+    { "Canon EOS 1000D", 0, 0xe43,
+	{ 7054,-1501,-990,-8156,15544,2812,-1278,1414,7796 } },
     { "Canon EOS-1Ds Mark III", 0, 0x3bb0,
 	{ 5859,-211,-930,-8255,16017,2353,-1732,1887,7448 } },
     { "Canon EOS-1Ds Mark II", 0, 0xe80,
@@ -6093,6 +6103,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 13124,-5329,-1390,-3602,11658,1944,-1612,2863,4885 } },
     { "Canon PowerShot A650", 0, 0,	/* DJC */
 	{ 9427,-3036,-959,-2581,10671,1911,-1039,1982,4430 } },
+    { "Canon PowerShot A720", 0, 0,	/* DJC */
+	{ 14573,-5482,-1546,-1266,9799,1468,-1040,1912,3810 } },
     { "Canon PowerShot S3 IS", 0, 0,	/* DJC */
 	{ 14062,-5199,-1446,-4712,12470,2243,-1286,2028,4836 } },
     { "CINE 650", 0, 0,
@@ -6247,6 +6259,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON D60", 0, 0,
 	{ 8736,-2458,-935,-9075,16894,2251,-1354,1242,8263 } },
+    { "NIKON D700", 0, 0,
+	{ 8139,-2171,-663,-8747,16541,2295,-1925,2008,8093 } },
     { "NIKON D70", 0, 0,
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
     { "NIKON D80", 0, 0,
@@ -6307,12 +6321,14 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 6169,-1483,-21,-7107,14761,2536,-2904,3580,8568 } },
     { "OLYMPUS E-410", 0, 0xf6a,
 	{ 8856,-2582,-1026,-7761,15766,2082,-2009,2575,7469 } },
-    { "OLYMPUS E-420", 0, 0xfd7, /* copied from above */
-	{ 8856,-2582,-1026,-7761,15766,2082,-2009,2575,7469 } },
+    { "OLYMPUS E-420", 0, 0xfd7,
+	{ 8746,-2425,-1095,-7594,15612,2073,-1780,2309,7416 } },
     { "OLYMPUS E-500", 0, 0,
 	{ 8136,-1968,-299,-5481,13742,1871,-2556,4205,6630 } },
     { "OLYMPUS E-510", 0, 0xf6a,
 	{ 8785,-2529,-1033,-7639,15624,2112,-1783,2300,7817 } },
+    { "OLYMPUS E-520", 0, 0xfd2,
+	{ 8344,-2322,-1020,-7596,15635,2048,-1748,2269,7287 } },
     { "OLYMPUS SP350", 0, 0,
 	{ 12078,-4836,-1069,-6671,14306,2578,-786,939,7418 } },
     { "OLYMPUS SP3", 0, 0,
@@ -6465,6 +6481,11 @@ void CLASS identify()
     {  1652736, "Kodak",    "DCS200"          ,0 },
     {  4159302, "Kodak",    "C330"            ,0 },
     {  4162462, "Kodak",    "C330"            ,0 },
+    {   460800, "Kodak",    "C603v"           ,0 },
+    {   614400, "Kodak",    "C603v"           ,0 },
+    {  6163328, "Kodak",    "C603"            ,0 },
+    {  6166488, "Kodak",    "C603"            ,0 },
+    {  9116448, "Kodak",    "C603y"           ,0 },
     {   311696, "ST Micro", "STV680 VGA"      ,0 },  /* SPYz */
     {   614400, "Kodak",    "KAI-0340"        ,0 },
     {   787456, "Creative", "PC-CAM 600"      ,0 },
@@ -6490,6 +6511,7 @@ void CLASS identify()
     { 10383120, "Canon",    "PowerShot A630"  ,0 },
     { 12945240, "Canon",    "PowerShot A640"  ,0 },
     { 15636240, "Canon",    "PowerShot A650"  ,0 },
+    {  5298000, "Canon",    "PowerShot SD300" ,0 },
     {  7710960, "Canon",    "PowerShot S3 IS" ,0 },
     {  5939200, "OLYMPUS",  "C770UZ"          ,0 },
     {  1581060, "NIKON",    "E900"            ,1 },  /* or E900s,E910 */
@@ -6732,6 +6754,14 @@ void CLASS identify()
     colors = 4;
     filters = 0x1e4b4e1b;
     load_raw = &CLASS canon_a5_load_raw;
+  } else if (!strcmp(model,"PowerShot SD300")) {
+    height = 1752;
+    width  = 2344;
+    raw_height = 1766;
+    raw_width  = 2400;
+    top_margin  = 12;
+    left_margin = 12;
+    load_raw = &CLASS canon_a5_load_raw;
   } else if (!strcmp(model,"PowerShot A460")) {
     height = 1960;
     width  = 2616;
@@ -6875,6 +6905,8 @@ void CLASS identify()
     height -= 2;
     if (unique_id == 0x80000236)
       adobe_coeff ("Canon","EOS 400D");
+    if (unique_id == 0x80000254)
+      adobe_coeff ("Canon","EOS 1000D");
     goto canon_cr2;
   } else if (is_canon && raw_width == 3984) {
     top_margin  = 20;
@@ -6919,6 +6951,10 @@ canon_cr2:
 	     !strcmp(model,"D80")) {
     height -= 3;
     width  -= 4;
+  } else if (!strcmp(model,"D3")   ||
+	     !strcmp(model,"D700")) {
+    width -= 4;
+    left_margin = 2;
   } else if (!strncmp(model,"D40",3) ||
 	     !strncmp(model,"D50",3) ||
 	     !strncmp(model,"D70",3)) {
@@ -6938,9 +6974,6 @@ canon_cr2:
   } else if (!strncmp(model,"D2X",3)) {
     if (width == 3264) width -= 32;
     else width -= 8;
-  } else if (!strcmp(model,"D3")) {
-    width -= 4;
-    left_margin = 2;
   } else if (!strcmp(model,"D300")) {
     width -= 32;
   } else if (fsize == 1581060) {
@@ -7410,6 +7443,20 @@ fz18:	if (height > 2480)
     height--;
   } else if (!strcmp(model,"DSLR-A350")) {
     height -= 4;
+  } else if (!strcmp(model,"C603v")) {
+    height = 480;
+    width  = 640;
+    goto c603v;
+  } else if (!strcmp(model,"C603y")) {
+    height = 2134;
+    width  = 2848;
+c603v:
+    filters = 0;
+    load_raw = &CLASS kodak_yrgb_load_raw;
+  } else if (!strcmp(model,"C603")) {
+    raw_height = height = 2152;
+    raw_width  = width  = 2864;
+    goto c603;
   } else if (!strcmp(model,"C330")) {
     height = 1744;
     width  = 2336;
@@ -7417,6 +7464,7 @@ fz18:	if (height > 2480)
     raw_width  = 2338;
     top_margin = 33;
     left_margin = 1;
+c603:
     order = 0x4949;
     if ((data_offset = fsize - raw_height*raw_width)) {
       fseek (ifp, 168, SEEK_SET);
