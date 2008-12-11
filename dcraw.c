@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.408 $
-   $Date: 2008/12/06 23:35:55 $
+   $Revision: 1.409 $
+   $Date: 2008/12/11 06:56:09 $
  */
 
 #define VERSION "8.89"
@@ -1139,7 +1139,7 @@ void CLASS nikon_compressed_load_raw()
       7,6,8,5,9,4,10,3,11,12,2,0,1,13,14 } };
   struct decode *dindex;
   ushort ver0, ver1, vpred[2][2], hpred[2], csize;
-  int i, max, step=0, huff=0, split=0, row, col, len, shl, diff;
+  int i, min, max, step=0, huff=0, split=0, row, col, len, shl, diff;
 
   fseek (ifp, meta_offset, SEEK_SET);
   ver0 = fgetc(ifp);
@@ -1162,14 +1162,16 @@ void CLASS nikon_compressed_load_raw()
     split = get2();
   } else if (ver0 != 0x46 && csize <= 0x4001)
     read_shorts (curve, max=csize);
+  while (curve[max-2] == curve[max-1]) max--;
   init_decoder();
   make_decoder (nikon_tree[huff], 0);
   fseek (ifp, data_offset, SEEK_SET);
   getbits(-1);
-  for (row=0; row < height; row++) {
+  for (min=row=0; row < height; row++) {
     if (split && row == split) {
       init_decoder();
       make_decoder (nikon_tree[huff+1], 0);
+      max += (min = 16) << 1;
     }
     for (col=0; col < raw_width; col++) {
       for (dindex=first_decode; dindex->branch[0]; )
@@ -1181,9 +1183,9 @@ void CLASS nikon_compressed_load_raw()
 	diff -= (1 << len) - !shl;
       if (col < 2) hpred[col] = vpred[row & 1][col] += diff;
       else	   hpred[col & 1] += diff;
-      if (hpred[col & 1] >= max) derror();
+      if ((ushort)(hpred[col & 1] + min) >= max) derror();
       if ((unsigned) (col-left_margin) < width)
-	BAYER(row,col-left_margin) = curve[hpred[col & 1] & 0x3fff];
+	BAYER(row,col-left_margin) = curve[LIM((short)hpred[col & 1],0,0x3fff)];
     }
   }
 }
