@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.410 $
-   $Date: 2009/01/01 09:10:46 $
+   $Revision: 1.411 $
+   $Date: 2009/01/04 20:19:22 $
  */
 
 #define VERSION "8.89"
@@ -7426,14 +7426,14 @@ konica_400z:
 	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-FZ18");  break;
       case 3690:
-	height += 36;
+	height -= 2;
 	left_margin = -14;
-	filters = 0x49494949;
 	maximum = 0xf7f0;
       case 3770:
 	width = 3672;
-	if ((height -= 39) == 2760)
+	if (--height == 2798 && (height = 2760))
 	  top_margin = 15;
+	else filters = 0x49494949;
 	left_margin += 17;
 	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-FZ50");  break;
