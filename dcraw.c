@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.411 $
-   $Date: 2009/01/04 20:19:22 $
+   $Revision: 1.412 $
+   $Date: 2009/01/08 19:39:07 $
  */
 
 #define VERSION "8.89"
@@ -5168,6 +5168,7 @@ int CLASS parse_tiff_ifd (int base)
       case 50706:			/* DNGVersion */
 	FORC4 dng_version = (dng_version << 8) + fgetc(ifp);
 	if (!make[0]) strcpy (make, "DNG");
+	is_raw = 1;
 	break;
       case 50710:			/* CFAPlaneColor */
 	if (len > 4) len = 4;
