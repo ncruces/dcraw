@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.412 $
-   $Date: 2009/01/08 19:39:07 $
+   $Revision: 1.413 $
+   $Date: 2009/01/10 23:37:51 $
  */
 
-#define VERSION "8.89"
+#define VERSION "8.90"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -5453,14 +5453,16 @@ void CLASS parse_external_jpeg()
   file++;
   if (!ext || strlen(ext) != 4 || ext-file != 8) return;
   jname = (char *) malloc (strlen(ifname) + 1);
-  merror (jname, "parse_external()");
+  merror (jname, "parse_external_jpeg()");
   strcpy (jname, ifname);
   jfile = file - ifname + jname;
   jext  = ext  - ifname + jname;
   if (strcasecmp (ext, ".jpg")) {
     strcpy (jext, isupper(ext[1]) ? ".JPG":".jpg");
-    memcpy (jfile, file+4, 4);
-    memcpy (jfile+4, file, 4);
+    if (isdigit(*file)) {
+      memcpy (jfile, file+4, 4);
+      memcpy (jfile+4, file, 4);
+    }
   } else
     while (isdigit(*--jext)) {
       if (*jext != '9') {
@@ -6572,6 +6574,7 @@ void CLASS identify()
     {  4841984, "PENTAX",   "Optio S"         ,1 },
     {  6114240, "PENTAX",   "Optio S4"        ,1 },  /* or S4i, CASIO EX-Z4 */
     { 10702848, "PENTAX",   "Optio 750Z"      ,1 },
+    { 16098048, "SAMSUNG",  "S85"             ,1 },
     { 12582980, "Sinar",    ""                ,0 },
     { 33292868, "Sinar",    ""                ,0 },
     { 44390468, "Sinar",    ""                ,0 } };
@@ -7236,6 +7239,13 @@ konica_400z:
     width  = 3072;
     load_raw = &CLASS packed_12_load_raw;
     load_flags = 7;
+  } else if (!strcmp(model,"S85")) {
+    height = 2448;
+    width  = 3264;
+    raw_width = 3288;
+    order = 0x4d4d;
+    load_raw = &CLASS unpacked_load_raw;
+    maximum = 0xfef8;
   } else if (!strcmp(model,"STV680 VGA")) {
     height = 484;
     width  = 644;
