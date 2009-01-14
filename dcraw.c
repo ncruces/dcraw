@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.413 $
-   $Date: 2009/01/10 23:37:51 $
+   $Revision: 1.414 $
+   $Date: 2009/01/14 03:23:23 $
  */
 
 #define VERSION "8.90"
@@ -7663,14 +7663,21 @@ c603:
     filters = 0x61616161;
     simple_coeff(2);
   } else if (!strcmp(model,"QuickTake 100")) {
-    data_offset = 736;
+    fseek (ifp, 544, SEEK_SET);
+    height = get2();
+    width  = get2();
+    data_offset = (get4(),get2()) == 30 ? 738:736;
+    if (height > width) {
+      SWAP(height,width);
+      fseek (ifp, data_offset-6, SEEK_SET);
+      flip = ~get2() & 3 ? 5:6;
+    }
     load_raw = &CLASS quicktake_100_load_raw;
-    goto qt_common;
+    filters = 0x61616161;
   } else if (!strcmp(model,"QuickTake 150")) {
     data_offset = 738 - head[5];
     if (head[5]) strcpy (model+10, "200");
     load_raw = &CLASS kodak_radc_load_raw;
-qt_common:
     height = 480;
     width  = 640;
     filters = 0x61616161;
