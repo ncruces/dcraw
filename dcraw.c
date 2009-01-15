@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.415 $
-   $Date: 2009/01/14 17:46:50 $
+   $Revision: 1.416 $
+   $Date: 2009/01/15 22:10:18 $
  */
 
 #define VERSION "8.90"
@@ -3665,7 +3665,7 @@ void CLASS wavelet_denoise()
   if ((nc = colors) == 3 && filters) nc++;
   FORC(nc) {			/* denoise R,G1,B,G3 individually */
     for (i=0; i < size; i++)
-      fimg[i] = sqrt((unsigned) (image[i][c] << (scale+16)));
+      fimg[i] = 256 * sqrt(image[i][c] << scale);
     for (hpass=lev=0; lev < 5; lev++) {
       lpass = size*((lev & 1)+1);
       for (row=0; row < iheight; row++) {
