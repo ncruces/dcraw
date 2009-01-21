@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.416 $
-   $Date: 2009/01/15 22:10:18 $
+   $Revision: 1.417 $
+   $Date: 2009/01/21 01:19:45 $
  */
 
 #define VERSION "8.90"
@@ -5037,6 +5037,9 @@ int CLASS parse_tiff_ifd (int base)
 	break;
       case 29443:
 	FORC4 cam_mul[c ^ (c < 2)] = get2();
+	break;
+      case 29459:
+	FORC4 cam_mul[c ^ (c >> 1)] = get2();
 	break;
       case 33405:			/* Model2 */
 	fgets (model2, 64, ifp);
