@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.419 $
-   $Date: 2009/02/12 18:25:44 $
+   $Revision: 1.420 $
+   $Date: 2009/03/03 18:58:23 $
  */
 
-#define VERSION "8.91"
+#define VERSION "8.92"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -117,7 +117,7 @@ unsigned tile_width, tile_length, gpsdata[32], load_flags;
 ushort raw_height, raw_width, height, width, top_margin, left_margin;
 ushort shrink, iheight, iwidth, fuji_width, thumb_width, thumb_height;
 int flip, tiff_flip, colors;
-double pixel_aspect, aber[4]={1,1,1,1};
+double pixel_aspect, aber[4]={1,1,1,1}, gamm[5]={ 0.45,4.5,0,0,0 };
 ushort (*image)[4], white[8][8], curve[0x4001], cr2_slice[3], sraw_mul[4];
 float bright=1, user_mul[4]={0,0,0,0}, threshold=0;
 int half_size=0, four_color_rgb=0, document_mode=0, highlight=0;
@@ -972,6 +972,8 @@ void CLASS canon_sraw_load_raw()
   struct jhead jh;
   short *rp=0, (*ip)[4];
   int jwide, slice, scol, ecol, row, col, jrow=0, jcol=0, pix[3], c;
+  int v[3]={0,0,0}, ver, hue;
+  char *cp;
 
   if (!ljpeg_start (&jh, 0)) return;
   jwide = (jh.wide >>= 1) * jh.clrs;
@@ -993,6 +995,12 @@ void CLASS canon_sraw_load_raw()
       }
     }
   }
+  for (cp=model2; *cp && !isdigit(*cp); cp++);
+  sscanf (cp, "%d.%d.%d", v, v+1, v+2);
+  ver = (v[0]*1000 + v[1])*1000 + v[2];
+  hue = (jh.sraw+1) << 2;
+  if (unique_id == 0x80000218 && ver > 1000006 && ver < 3000000)
+    hue = jh.sraw << 1;
   ip = (short (*)[4]) image;
   rp = ip[0];
   for (row=0; row < height; row++, ip+=width) {
@@ -1014,11 +1022,11 @@ void CLASS canon_sraw_load_raw()
       pix[2] = rp[0] + rp[1] - 512;
       pix[1] = rp[0] + ((-778*rp[1] - (rp[2] << 11)) >> 12) - 512;
     } else {
-      rp[1] += jh.sraw+1;
-      rp[2] += jh.sraw+1;
-      pix[0] = rp[0] + ((  200*rp[1] + 22929*rp[2]) >> 12);
-      pix[1] = rp[0] + ((-5640*rp[1] - 11751*rp[2]) >> 12);
-      pix[2] = rp[0] + ((29040*rp[1] -   101*rp[2]) >> 12);
+      rp[1] = (rp[1] << 2) + hue;
+      rp[2] = (rp[2] << 2) + hue;
+      pix[0] = rp[0] + ((  200*rp[1] + 22929*rp[2]) >> 14);
+      pix[1] = rp[0] + ((-5640*rp[1] - 11751*rp[2]) >> 14);
+      pix[2] = rp[0] + ((29040*rp[1] -   101*rp[2]) >> 14);
     }
     FORC3 rp[c] = CLIP(pix[c] * sraw_mul[c] >> 10);
   }
@@ -1102,14 +1110,15 @@ void CLASS adobe_dng_load_raw_nc()
 
 void CLASS pentax_k10_load_raw()
 {
-  static const uchar pentax_tree[] =
-  { 0,2,3,1,1,1,1,1,1,2,0,0,0,0,0,0,
-    3,4,2,5,1,6,0,7,8,9,10,11,12 };
+  static const uchar pentax_tree[2][30] =
+  { { 0,2,3,1,1,1,1,1,1,2,0,0,0,0,0,0, 3,4,2,5,1,6,0,7,8,9,10,11,12 },
+    { 0,2,3,1,1,1,1,1,1,2,0,0,0,0,0,0, 1,2,0,3,4,5,6,7,8,9,10,11,12 } };
   int row, col, diff;
   ushort vpred[2][2] = {{0,0},{0,0}}, hpred[2];
 
   init_decoder();
-  make_decoder (pentax_tree, 0);
+  row = !strcmp(model,"K2000") || !strcmp(model,"K-m");
+  make_decoder (pentax_tree[row], 0);
   getbits(-1);
   for (row=0; row < height; row++)
     for (col=0; col < raw_width; col++) {
@@ -4517,6 +4526,8 @@ void CLASS parse_makernote (int base, int uptag)
       wbi = (get2(),get2());
       shot_order = (get2(),get2());
     }
+    if (tag == 7 && type == 2 && len > 20)
+      fgets (model2, 64, ifp);
     if (tag == 8 && type == 4)
       shot_order = get4();
     if (tag == 9 && !strcmp(make,"Canon"))
@@ -6392,6 +6403,8 @@ void CLASS adobe_coeff (char *make, char *model)
 	{ 9186,-2678,-907,-8693,16517,2260,-1129,1094,8524 } },
     { "PENTAX K2000", 0, 0,
 	{ 11057,-3604,-1155,-5152,13046,2329,-282,375,8104 } },
+    { "PENTAX K-m", 0, 0,
+	{ 11057,-3604,-1155,-5152,13046,2329,-282,375,8104 } },
     { "Panasonic DMC-FZ8", 0, 0xf7f0,
 	{ 8986,-2755,-802,-6341,13575,3077,-1476,2144,6379 } },
     { "Panasonic DMC-FZ18", 0, 0,
@@ -7877,7 +7890,7 @@ void CLASS convert_to_rgb()
   int row, col, c, i, j, k;
   ushort *img;
   float out[3], out_cam[3][4];
-  double num, inverse[3][3];
+  double num, inverse[3][3], bnd[2]={0,0};
   static const double xyzd50_srgb[3][3] =
   { { 0.436083, 0.385083, 0.143055 },
     { 0.222507, 0.716888, 0.060608 },
@@ -7917,6 +7930,18 @@ void CLASS convert_to_rgb()
   static const unsigned pwhite[] = { 0xf351, 0x10000, 0x116cc };
   unsigned pcurve[] = { 0x63757276, 0, 1, 0x1000000 };
 
+  bnd[gamm[1] >= 1] = 1;
+  if (gamm[1] && (gamm[1]-1)*(gamm[0]-1) <= 0) {
+    for (i=0; i < 36; i++) {
+      gamm[2] = (bnd[0] + bnd[1])/2;
+      bnd[(pow(gamm[2]/gamm[1],-gamm[0])-1)/gamm[0]-1/gamm[2] > -1] = gamm[2];
+    }
+    gamm[3] = gamm[2]*(1/gamm[0]-1);
+    gamm[2] /= gamm[1];
+  }
+  gamm[4] = 1 / (gamm[1]/2*SQR(gamm[2]) - gamm[3]*(1-gamm[2]) +
+		(1-pow(gamm[2],1+gamm[0]))*(1+gamm[3])/(1+gamm[0])) - 1;
+
   memcpy (out_cam, rgb_cam, sizeof out_cam);
   raw_color |= colors == 1 || document_mode ||
 		output_color < 1 || output_color > 5;
@@ -7935,11 +7960,7 @@ void CLASS convert_to_rgb()
     oprof[pbody[5]/4+2] = strlen(name[output_color-1]) + 1;
     memcpy ((char *)oprof+pbody[8]+8, pwhite, sizeof pwhite);
     if (output_bps == 8)
-#ifdef SRGB_GAMMA
-      pcurve[3] = 0x2330000;
-#else
-      pcurve[3] = 0x1f00000;
-#endif
+      pcurve[3] = (short)(256/gamm[4]+0.5) << 16;
     for (i=4; i < 7; i++)
       memcpy ((char *)oprof+pbody[i*3+2], pcurve, sizeof pcurve);
     pseudoinverse ((double (*)[3]) out_rgb[output_color-1], inverse, 3);
@@ -8082,11 +8103,7 @@ void CLASS gamma_lut (uchar lut[0x10000])
   for (i=0; i < 0x10000; i++) {
     r = i / white;
     val = 256 * ( !use_gamma ? r :
-#ifdef SRGB_GAMMA
-	r <= 0.00304 ? r*12.92 : pow(r,2.5/6)*1.055-0.055 );
-#else
-	r <= 0.018 ? r*4.5 : pow(r,0.45)*1.099-0.099 );
-#endif
+	r <= gamm[2] ? r*gamm[1] : pow(r,gamm[0])*(1+gamm[3])-gamm[3]);
     if (val > 255) val = 255;
     lut[i] = val;
   }
@@ -8328,6 +8345,7 @@ int CLASS main (int argc, char **argv)
     puts(_("-j        Don't stretch or rotate raw pixels"));
     puts(_("-W        Don't automatically brighten the image"));
     puts(_("-b <num>  Adjust brightness (default = 1.0)"));
+    puts(_("-g <p ts> Set custom gamma curve (default = 2.222 4.5)"));
     puts(_("-q [0-3]  Set the interpolation quality"));
     puts(_("-h        Half-size color image (twice as fast as \"-q 0\")"));
     puts(_("-f        Interpolate RGGB as four colors"));
@@ -8341,8 +8359,8 @@ int CLASS main (int argc, char **argv)
   argv[argc] = "";
   for (arg=1; (((opm = argv[arg][0]) - 2) | 2) == '+'; ) {
     opt = argv[arg++][1];
-    if ((cp = strchr (sp="nbrkStqmHAC", opt)))
-      for (i=0; i < "11411111142"[cp-sp]-'0'; i++)
+    if ((cp = strchr (sp="nbrkStqmHACg", opt)))
+      for (i=0; i < "114111111422"[cp-sp]-'0'; i++)
 	if (!isdigit(argv[arg+i][0])) {
 	  fprintf (stderr,_("Non-numeric argument to \"-%c\"\n"), opt);
 	  return 1;
@@ -8354,6 +8372,8 @@ int CLASS main (int argc, char **argv)
 	   FORC4 user_mul[c] = atof(argv[arg++]);  break;
       case 'C':  aber[0] = 1 / atof(argv[arg++]);
 		 aber[2] = 1 / atof(argv[arg++]);  break;
+      case 'g':  gamm[0] = 1 / atof(argv[arg++]);
+		 gamm[1] =     atof(argv[arg++]);  break;
       case 'k':  user_black  = atoi(argv[arg++]);  break;
       case 'S':  user_sat    = atoi(argv[arg++]);  break;
       case 't':  user_flip   = atoi(argv[arg++]);  break;
