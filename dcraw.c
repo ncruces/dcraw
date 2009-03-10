@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.420 $
-   $Date: 2009/03/03 18:58:23 $
+   $Revision: 1.421 $
+   $Date: 2009/03/10 00:53:36 $
  */
 
-#define VERSION "8.92"
+#define VERSION "8.93"
 
 #define _GNU_SOURCE
 #define _USE_MATH_DEFINES
@@ -823,7 +823,7 @@ int CLASS ljpeg_start (struct jhead *jh, int info_only)
   int c, tag, len;
   uchar data[0x10000], *dp;
 
-  init_decoder();
+  if (!info_only) init_decoder();
   memset (jh, 0, sizeof *jh);
   FORC(6) jh->huff[c] = free_decode;
   jh->restart = INT_MAX;
@@ -1108,17 +1108,31 @@ void CLASS adobe_dng_load_raw_nc()
   free (pixel);
 }
 
+void CLASS pentax_tree()
+{
+  ushort bit[2][13];
+  struct decode *cur;
+  int c, i, j;
+
+  init_decoder();
+  FORC(13) bit[0][c] = get2();
+  FORC(13) bit[1][c] = fgetc(ifp) & 15;
+  FORC(13) {
+    cur = first_decode;
+    for (i=0; i < bit[1][c]; i++) {
+      j = bit[0][c] >> (11-i) & 1;
+      if (!cur->branch[j]) cur->branch[j] = ++free_decode;
+      cur = cur->branch[j];
+    }
+    cur->leaf = c;
+  }
+}
+
 void CLASS pentax_k10_load_raw()
 {
-  static const uchar pentax_tree[2][30] =
-  { { 0,2,3,1,1,1,1,1,1,2,0,0,0,0,0,0, 3,4,2,5,1,6,0,7,8,9,10,11,12 },
-    { 0,2,3,1,1,1,1,1,1,2,0,0,0,0,0,0, 1,2,0,3,4,5,6,7,8,9,10,11,12 } };
   int row, col, diff;
   ushort vpred[2][2] = {{0,0},{0,0}}, hpred[2];
 
-  init_decoder();
-  row = !strcmp(model,"K2000") || !strcmp(model,"K-m");
-  make_decoder (pentax_tree[row], 0);
   getbits(-1);
   for (row=0; row < height; row++)
     for (col=0; col < raw_width; col++) {
@@ -4619,6 +4633,10 @@ void CLASS parse_makernote (int base, int uptag)
       black = (get2()+get2()+get2()+get2())/4;
     if (tag == 0x201 && len == 4)
       goto get2_rggb;
+    if (tag == 0x220 && len == 53) {
+      fseek (ifp, 14, SEEK_CUR);
+      pentax_tree();
+    }
     if (tag == 0x401 && len == 4) {
       black = (get4()+get4()+get4()+get4())/4;
     }
@@ -7628,6 +7646,8 @@ c603:
       colors = 1;
       filters = 0;
     }
+    if (!strcmp(model+4,"20X"))
+      strcpy (cdesc, "MYCY");
     if (strstr(model,"DC25")) {
       strcpy (model, "DC25");
       data_offset = 15424;
