@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.67 $
-   $Date: 2008/12/06 21:59:59 $
+   $Revision: 1.68 $
+   $Date: 2009/03/10 00:58:51 $
  */
 
 #include <stdio.h>
@@ -239,7 +239,7 @@ void parse_makernote (int base, int level)
     fseek (ifp, -10, SEEK_CUR);
 
   entries = get2();
-  if (entries > 100) return;
+  if (entries > 127) return;
   puts("  MakerNote:");
   while (entries--) {
     save = ftell(ifp);
@@ -564,7 +564,7 @@ void parse_riff (int level)
     end = ftell(ifp) + size;
     fread (type, 4, 1, ifp);
     printf (" type %.4s:\n", type);
-    while (ftell(ifp) < end)
+    while (ftell(ifp)+7 < end)
       parse_riff (level+1);
   } else {
     save = ftell(ifp);
