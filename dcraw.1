@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "March 3, 2009"
+.TH dcraw 1 "May 14, 2009"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -220,8 +220,12 @@ If you prefer sRGB gamma, use
 .BR -g\ 2.4\ 12.92 .
 For a simple power curve, set the toe slope to zero.
 .TP
+.B -6
+Write sixteen bits per sample instead of eight.
+.TP
 .B -4
-Write 16-bit linear samples (fixed white level, no gamma).
+Linear 16-bit, same as
+.BR -6\ -W\ -g\ 1\ 1 .
 .TP
 .B -T
 Write TIFF with metadata instead of PGM/PPM/PAM.
