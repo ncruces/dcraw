@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.422 $
-   $Date: 2009/05/14 19:59:33 $
+   $Revision: 1.423 $
+   $Date: 2009/05/15 03:35:39 $
  */
 
 #define VERSION "8.94"
@@ -347,12 +347,12 @@ void CLASS read_shorts (ushort *pixel, int count)
     swab (pixel, pixel, count*2);
 }
 
-void CLASS canon_black (double dark[2])
+void CLASS canon_black (double dark[2], int nblack)
 {
   int c, diff, row, col;
 
-  if (raw_width < width+4) return;
-  FORC(2) dark[c] /= (raw_width-width-2) * height >> 1;
+  if (!nblack) return;
+  FORC(2) dark[c] /= nblack >> 1;
   if ((diff = dark[0] - dark[1]))
     for (row=0; row < height; row++)
       for (col=1; col < width; col+=2)
@@ -738,7 +738,7 @@ int CLASS canon_has_lowbits()
 void CLASS canon_compressed_load_raw()
 {
   ushort *pixel, *prow;
-  int nblocks, lowbits, i, row, r, col, save, val;
+  int nblocks, lowbits, i, row, r, col, save, val, nblack=0;
   unsigned irow, icol;
   struct decode *decode, *dindex;
   int block, diffbuf[64], leaf, len, diff, carry=0, pnum=0, base[2];
@@ -802,13 +802,13 @@ void CLASS canon_compressed_load_raw()
 	icol = col - left_margin;
 	if (icol < width)
 	  BAYER(irow,icol) = pixel[r*raw_width+col];
-	else if (col > 1)
-	  dark[icol & 1] += pixel[r*raw_width+col];
+	else if (col > 1 && (unsigned) (col-left_margin+2) > width+3)
+	  dark[icol & 1] += (nblack++,pixel[r*raw_width+col]);
       }
     }
   }
   free (pixel);
-  canon_black (dark);
+  canon_black (dark, nblack);
 }
 
 /*
@@ -927,7 +927,7 @@ ushort * CLASS ljpeg_row (int jrow, struct jhead *jh)
 
 void CLASS lossless_jpeg_load_raw()
 {
-  int jwide, jrow, jcol, val, jidx, i, j, row=0, col=0;
+  int jwide, jrow, jcol, val, jidx, i, j, row=0, col=0, nblack=0;
   double dark[2] = { 0,0 };
   struct jhead jh;
   int min=INT_MAX;
@@ -957,15 +957,15 @@ void CLASS lossless_jpeg_load_raw()
 	if ((unsigned) (col-left_margin) < width) {
 	  BAYER(row-top_margin,col-left_margin) = val;
 	  if (min > val) min = val;
-	} else if (col > 1)
-	  dark[(col-left_margin) & 1] += val;
+	} else if (col > 1 && (unsigned) (col-left_margin+2) > width+3)
+	  dark[(col-left_margin) & 1] += (nblack++,val);
       }
       if (++col >= raw_width)
 	col = (row++,0);
     }
   }
   free (jh.row);
-  canon_black (dark);
+  canon_black (dark, nblack);
   if (!strcasecmp(make,"KODAK"))
     black = min;
 }
@@ -6466,6 +6466,8 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 9082,-2907,-925,-6119,13377,3058,-1797,2641,5609 } },
     { "Panasonic DMC-G1", 15, 0xfff,
 	{ 8199,-2065,-1056,-8124,16156,2033,-2458,3022,7220 } },
+    { "Panasonic DMC-GH1", 15, 0xfff,	/* DJC */
+	{ 7808,-2387,-480,-2859,10002,2857,-1001,2012,4915 } },
     { "Phase One H 20", 0, 0,		/* DJC */
 	{ 1313,1855,-109,-6715,15908,808,-327,1840,6020 } },
     { "Phase One P 2", 0, 0,
@@ -7544,12 +7546,18 @@ lx3:	filters = 0x16161616;
 	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-LX1");  break;
       case 4060:
+	if (!strcmp(model,"DMC-GH1")) goto gh1;
 	width = 3982;
 	if (height == 2250) goto lx3;
 	width = 4018;
 	filters = 0x49494949;
 	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-G1");  break;
+      case 4172:
+      case 4396:
+gh1:	width -= 28;
+	filters = 0x49494949;
+	adobe_coeff ("Panasonic","DMC-GH1");  break;
       case 4290:
 	height += 38;
 	left_margin = -14;
