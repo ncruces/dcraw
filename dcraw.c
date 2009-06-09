@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.423 $
-   $Date: 2009/05/15 03:35:39 $
+   $Revision: 1.424 $
+   $Date: 2009/06/09 05:43:45 $
  */
 
-#define VERSION "8.94"
+#define VERSION "8.95"
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -573,7 +573,7 @@ void CLASS canon_a5_load_raw()
    getbits(-1) initializes the buffer
    getbits(n) where 0 <= n <= 25 returns an n-bit integer
  */
-unsigned CLASS getbits (int nbits)
+unsigned CLASS getbithuff (int nbits, ushort *huff)
 {
   static unsigned bitbuf=0;
   static int vbits=0, reset=0;
@@ -581,22 +581,24 @@ unsigned CLASS getbits (int nbits)
 
   if (nbits == -1)
     return bitbuf = vbits = reset = 0;
-  if (nbits == 0 || reset) return 0;
-  while (vbits < nbits) {
-    if ((c = fgetc(ifp)) == EOF) derror();
-    if ((reset = zero_after_ff && c == 0xff && fgetc(ifp))) return 0;
+  if (nbits == 0 || vbits < 0) return 0;
+  while (!reset && vbits < nbits && (c = fgetc(ifp)) != EOF &&
+    !(reset = zero_after_ff && c == 0xff && fgetc(ifp))) {
     bitbuf = (bitbuf << 8) + (uchar) c;
     vbits += 8;
   }
-  vbits -= nbits;
-  return bitbuf << (32-nbits-vbits) >> (32-nbits);
+  c = bitbuf << (32-vbits) >> (32-nbits);
+  if (huff) {
+    vbits -= huff[c] >> 8;
+    c = (uchar) huff[c];
+  } else
+    vbits -= nbits;
+  if (vbits < 0) derror();
+  return c;
 }
 
-void CLASS init_decoder()
-{
-  memset (first_decode, 0, sizeof first_decode);
-  free_decode = first_decode;
-}
+#define getbits(n) getbithuff(n,0)
+#define gethuff(h) getbithuff(*h,h+1)
 
 /*
    Construct a decode tree according the specification in *source.
@@ -624,33 +626,31 @@ void CLASS init_decoder()
 	1111110		0x0b
 	1111111		0xff
  */
-uchar * CLASS make_decoder (const uchar *source, int level)
+ushort * CLASS make_decoder_ref (const uchar **source)
 {
-  struct decode *cur;
-  static int leaf;
-  int i, next;
+  int max, len, h, i, j;
+  const uchar *count;
+  ushort *huff;
 
-  if (level==0) leaf=0;
-  cur = free_decode++;
-  if (free_decode > first_decode+2048) {
-    fprintf (stderr,_("%s: decoder table overflow\n"), ifname);
-    longjmp (failure, 2);
-  }
-  for (i=next=0; i <= leaf && next < 16; )
-    i += source[next++];
-  if (i > leaf) {
-    if (level < next) {
-      cur->branch[0] = free_decode;
-      make_decoder (source, level+1);
-      cur->branch[1] = free_decode;
-      make_decoder (source, level+1);
-    } else
-      cur->leaf = source[16 + leaf++];
-  }
-  return (uchar *) source + 16 + leaf;
+  count = (*source += 16) - 17;
+  for (max=16; max && !count[max]; max--);
+  huff = (ushort *) calloc (1 + (1 << max), sizeof *huff);
+  merror (huff, "make_decoder()");
+  huff[0] = max;
+  for (h=len=1; len <= max; len++)
+    for (i=0; i < count[len]; i++, ++*source)
+      for (j=0; j < 1 << (max-len); j++)
+	if (h <= 1 << max)
+	  huff[h++] = len << 8 | **source;
+  return huff;
 }
 
-void CLASS crw_init_tables (unsigned table)
+ushort * CLASS make_decoder (const uchar *source)
+{
+  return make_decoder_ref (&source);
+}
+
+void CLASS crw_init_tables (unsigned table, ushort *huff[2])
 {
   static const uchar first_tree[3][29] = {
     { 0,1,4,2,3,1,2,0,0,0,0,0,0,0,0,0,
@@ -708,10 +708,8 @@ void CLASS crw_init_tables (unsigned table)
       0xe2,0x82,0xf1,0xa3,0xc2,0xa1,0xc1,0xe3,0xa2,0xe1,0xff,0xff  }
   };
   if (table > 2) table = 2;
-  init_decoder();
-  make_decoder ( first_tree[table], 0);
-  second_decode = free_decode;
-  make_decoder (second_tree[table], 0);
+  huff[0] = make_decoder ( first_tree[table]);
+  huff[1] = make_decoder (second_tree[table]);
 }
 
 /*
@@ -737,15 +735,13 @@ int CLASS canon_has_lowbits()
 
 void CLASS canon_compressed_load_raw()
 {
-  ushort *pixel, *prow;
-  int nblocks, lowbits, i, row, r, col, save, val, nblack=0;
+  ushort *pixel, *prow, *huff[2];
+  int nblocks, lowbits, i, c, row, r, col, save, val, nblack=0;
   unsigned irow, icol;
-  struct decode *decode, *dindex;
   int block, diffbuf[64], leaf, len, diff, carry=0, pnum=0, base[2];
   double dark[2] = { 0,0 };
-  uchar c;
 
-  crw_init_tables (tiff_compress);
+  crw_init_tables (tiff_compress, huff);
   pixel = (ushort *) calloc (raw_width*8, sizeof *pixel);
   merror (pixel, "canon_compressed_load_raw()");
   lowbits = canon_has_lowbits();
@@ -757,12 +753,8 @@ void CLASS canon_compressed_load_raw()
     nblocks = MIN (8, raw_height-row) * raw_width >> 6;
     for (block=0; block < nblocks; block++) {
       memset (diffbuf, 0, sizeof diffbuf);
-      decode = first_decode;
       for (i=0; i < 64; i++ ) {
-	for (dindex=decode; dindex->branch[0]; )
-	  dindex = dindex->branch[getbits(1)];
-	leaf = dindex->leaf;
-	decode = second_decode;
+	leaf = gethuff(huff[i > 0]);
 	if (leaf == 0 && i) break;
 	if (leaf == 0xff) continue;
 	i  += leaf >> 4;
@@ -808,6 +800,7 @@ void CLASS canon_compressed_load_raw()
     }
   }
   free (pixel);
+  FORC(2) free (huff[c]);
   canon_black (dark, nblack);
 }
 
@@ -817,18 +810,16 @@ void CLASS canon_compressed_load_raw()
  */
 struct jhead {
   int bits, high, wide, clrs, sraw, psv, restart, vpred[6];
-  struct CLASS decode *huff[6];
-  ushort *row;
+  ushort *huff[6], *free[4], *row;
 };
 
 int CLASS ljpeg_start (struct jhead *jh, int info_only)
 {
   int c, tag, len;
-  uchar data[0x10000], *dp;
+  uchar data[0x10000];
+  const uchar *dp;
 
-  if (!info_only) init_decoder();
   memset (jh, 0, sizeof *jh);
-  FORC(6) jh->huff[c] = free_decode;
   jh->restart = INT_MAX;
   fread (data, 2, 1, ifp);
   if (data[1] != 0xd8) return 0;
@@ -850,10 +841,8 @@ int CLASS ljpeg_start (struct jhead *jh, int info_only)
 	break;
       case 0xffc4:
 	if (info_only) break;
-	for (dp = data; dp < data+len && *dp < 4; ) {
-	  jh->huff[*dp] = free_decode;
-	  dp = make_decoder (++dp, 0);
-	}
+	for (dp = data; dp < data+len && (c = *dp++) < 4; )
+	  jh->free[c] = jh->huff[c] = make_decoder_ref (&dp);
 	break;
       case 0xffda:
 	jh->psv = data[1+data[0]*2];
@@ -864,6 +853,7 @@ int CLASS ljpeg_start (struct jhead *jh, int info_only)
     }
   } while (tag != 0xffda);
   if (info_only) return 1;
+  FORC(5) if (!jh->huff[c+1]) jh->huff[c+1] = jh->huff[c];
   if (jh->sraw) {
     FORC(4)        jh->huff[2+c] = jh->huff[1];
     FORC(jh->sraw) jh->huff[1+c] = jh->huff[0];
@@ -873,13 +863,18 @@ int CLASS ljpeg_start (struct jhead *jh, int info_only)
   return zero_after_ff = 1;
 }
 
-int CLASS ljpeg_diff (struct decode *dindex)
+void CLASS ljpeg_end (struct jhead *jh)
+{
+  int c;
+  FORC4 if (jh->free[c]) free (jh->free[c]);
+  free (jh->row);
+}
+
+int CLASS ljpeg_diff (ushort *huff)
 {
   int len, diff;
 
-  while (dindex->branch[0])
-    dindex = dindex->branch[getbits(1)];
-  len = dindex->leaf;
+  len = gethuff(huff);
   if (len == 16 && (!dng_version || dng_version >= 0x1010000))
     return -32768;
   diff = getbits(len);
@@ -895,9 +890,11 @@ ushort * CLASS ljpeg_row (int jrow, struct jhead *jh)
 
   if (jrow * jh->wide % jh->restart == 0) {
     FORC(6) jh->vpred[c] = 1 << (jh->bits-1);
-    if (jrow)
+    if (jrow) {
+      fseek (ifp, -2, SEEK_CUR);
       do mark = (mark << 8) + (c = fgetc(ifp));
       while (c != EOF && mark >> 4 != 0xffd);
+    }
     getbits(-1);
   }
   FORC3 row[c] = jh->row + jh->wide*jh->clrs*((jrow+c) & 1);
@@ -964,7 +961,7 @@ void CLASS lossless_jpeg_load_raw()
 	col = (row++,0);
     }
   }
-  free (jh.row);
+  ljpeg_end (&jh);
   canon_black (dark, nblack);
   if (!strcasecmp(make,"KODAK"))
     black = min;
@@ -1033,7 +1030,7 @@ void CLASS canon_sraw_load_raw()
     }
     FORC3 rp[c] = CLIP(pix[c] * sraw_mul[c] >> 10);
   }
-  free (jh.row);
+  ljpeg_end (&jh);
   maximum = 0x3fff;
 }
 
@@ -1086,7 +1083,7 @@ void CLASS adobe_dng_load_raw_lj()
     fseek (ifp, save+4, SEEK_SET);
     if ((tcol += tile_width) >= raw_width)
       trow += tile_length + (tcol = 0);
-    free (jh.row);
+    ljpeg_end (&jh);
   }
 }
 
@@ -1111,35 +1108,24 @@ void CLASS adobe_dng_load_raw_nc()
   free (pixel);
 }
 
-void CLASS pentax_tree()
-{
-  ushort bit[2][13];
-  struct decode *cur;
-  int c, i, j;
-
-  init_decoder();
-  FORC(13) bit[0][c] = get2();
-  FORC(13) bit[1][c] = fgetc(ifp) & 15;
-  FORC(13) {
-    cur = first_decode;
-    for (i=0; i < bit[1][c]; i++) {
-      j = bit[0][c] >> (11-i) & 1;
-      if (!cur->branch[j]) cur->branch[j] = ++free_decode;
-      cur = cur->branch[j];
-    }
-    cur->leaf = c;
-  }
-}
-
 void CLASS pentax_k10_load_raw()
 {
-  int row, col, diff;
+  ushort bit[2][13], huff[4097];
+  int row, col, diff, c, i;
   ushort vpred[2][2] = {{0,0},{0,0}}, hpred[2];
 
+  fseek (ifp, meta_offset, SEEK_SET);
+  FORC(13) bit[0][c] = get2();
+  FORC(13) bit[1][c] = fgetc(ifp);
+  FORC(13)
+    for (i=bit[0][c]; i <= ((bit[0][c]+(4096 >> bit[1][c])-1) & 4095); )
+      huff[++i] = bit[1][c] << 8 | c;
+  huff[0] = 12;
+  fseek (ifp, data_offset, SEEK_SET);
   getbits(-1);
   for (row=0; row < height; row++)
     for (col=0; col < raw_width; col++) {
-      diff = ljpeg_diff (first_decode);
+      diff = ljpeg_diff (huff);
       if (col < 2) hpred[col] = vpred[row & 1][col] += diff;
       else	   hpred[col & 1] += diff;
       if (col < width)
@@ -1163,17 +1149,16 @@ void CLASS nikon_compressed_load_raw()
       8,0x5c,0x4b,0x3a,0x29,7,6,5,4,3,2,1,0,13,14 },
     { 0,1,4,2,2,3,1,2,0,0,0,0,0,0,0,0,	/* 14-bit lossless */
       7,6,8,5,9,4,10,3,11,12,2,0,1,13,14 } };
-  struct decode *dindex;
-  ushort ver0, ver1, vpred[2][2], hpred[2], csize;
-  int i, min, max, step=0, huff=0, split=0, row, col, len, shl, diff;
+  ushort *huff, ver0, ver1, vpred[2][2], hpred[2], csize;
+  int i, min, max, step=0, tree=0, split=0, row, col, len, shl, diff;
 
   fseek (ifp, meta_offset, SEEK_SET);
   ver0 = fgetc(ifp);
   ver1 = fgetc(ifp);
   if (ver0 == 0x49 || ver1 == 0x58)
     fseek (ifp, 2110, SEEK_CUR);
-  if (ver0 == 0x46) huff = 2;
-  if (tiff_bps == 14) huff += 3;
+  if (ver0 == 0x46) tree = 2;
+  if (tiff_bps == 14) tree += 3;
   read_shorts (vpred[0], 4);
   max = 1 << tiff_bps & 0x7fff;
   if ((csize = get2()) > 1)
@@ -1189,21 +1174,19 @@ void CLASS nikon_compressed_load_raw()
   } else if (ver0 != 0x46 && csize <= 0x4001)
     read_shorts (curve, max=csize);
   while (curve[max-2] == curve[max-1]) max--;
-  init_decoder();
-  make_decoder (nikon_tree[huff], 0);
+  huff = make_decoder (nikon_tree[tree]);
   fseek (ifp, data_offset, SEEK_SET);
   getbits(-1);
   for (min=row=0; row < height; row++) {
     if (split && row == split) {
-      init_decoder();
-      make_decoder (nikon_tree[huff+1], 0);
+      free (huff);
+      huff = make_decoder (nikon_tree[tree+1]);
       max += (min = 16) << 1;
     }
     for (col=0; col < raw_width; col++) {
-      for (dindex=first_decode; dindex->branch[0]; )
-	dindex = dindex->branch[getbits(1)];
-      len = dindex->leaf & 15;
-      shl = dindex->leaf >> 4;
+      i = gethuff(huff);
+      len = i & 15;
+      shl = i >> 4;
       diff = ((getbits(len-shl) << 1) + 1) << shl >> 1;
       if ((diff & (1 << (len-1))) == 0)
 	diff -= (1 << len) - !shl;
@@ -1214,6 +1197,7 @@ void CLASS nikon_compressed_load_raw()
 	BAYER(row,col-left_margin) = curve[LIM((short)hpred[col & 1],0,0x3fff)];
     }
   }
+  free (huff);
 }
 
 /*
@@ -1628,20 +1612,29 @@ void CLASS phase_one_load_raw()
   phase_one_correct();
 }
 
-unsigned CLASS ph1_bits (int nbits)
+unsigned CLASS ph1_bithuff (int nbits, ushort *huff)
 {
   static UINT64 bitbuf=0;
   static int vbits=0;
+  unsigned c;
 
   if (nbits == -1)
     return bitbuf = vbits = 0;
   if (nbits == 0) return 0;
-  if ((vbits -= nbits) < 0) {
+  if (vbits < nbits) {
     bitbuf = bitbuf << 32 | get4();
     vbits += 32;
   }
-  return bitbuf << (64-nbits-vbits) >> (64-nbits);
+  c = bitbuf << (64-vbits) >> (64-nbits);
+  if (huff) {
+    vbits -= huff[c] >> 8;
+    return (uchar) huff[c];
+  }
+  vbits -= nbits;
+  return c;
 }
+#define ph1_bits(n) ph1_bithuff(n,0)
+#define ph1_huff(h) ph1_bithuff(*h,h+1)
 
 void CLASS phase_one_load_raw_c()
 {
@@ -1697,32 +1690,27 @@ void CLASS phase_one_load_raw_c()
 void CLASS hasselblad_load_raw()
 {
   struct jhead jh;
-  struct decode *dindex;
-  int row, col, pred[2], len[2], diff, i;
+  int row, col, pred[2], len[2], diff, c;
 
   if (!ljpeg_start (&jh, 0)) return;
-  free (jh.row);
   order = 0x4949;
   ph1_bits(-1);
   for (row=-top_margin; row < height; row++) {
     pred[0] = pred[1] = 0x8000;
     for (col=-left_margin; col < raw_width-left_margin; col+=2) {
-      for (i=0; i < 2; i++) {
-	for (dindex=jh.huff[0]; dindex->branch[0]; )
-	  dindex = dindex->branch[ph1_bits(1)];
-	len[i] = dindex->leaf;
-      }
-      for (i=0; i < 2; i++) {
-	diff = ph1_bits(len[i]);
-	if ((diff & (1 << (len[i]-1))) == 0)
-	  diff -= (1 << len[i]) - 1;
+      FORC(2) len[c] = ph1_huff(jh.huff[0]);
+      FORC(2) {
+	diff = ph1_bits(len[c]);
+	if ((diff & (1 << (len[c]-1))) == 0)
+	  diff -= (1 << len[c]) - 1;
 	if (diff == 65535) diff = -32768;
-	pred[i] += diff;
-	if (row >= 0 && (unsigned)(col+i) < width)
-	  BAYER(row,col+i) = pred[i];
+	pred[c] += diff;
+	if (row >= 0 && (unsigned)(col+c) < width)
+	  BAYER(row,col+c) = pred[c];
       }
     }
   }
+  ljpeg_end (&jh);
   maximum = 0xffff;
 }
 
@@ -1928,9 +1916,13 @@ void CLASS panasonic_load_raw()
 
 void CLASS olympus_e410_load_raw()
 {
-  int row, col, nbits, sign, low, high, i, w, n, nw;
+  ushort huff[4096];
+  int row, col, nbits, sign, low, high, i, c, w, n, nw;
   int acarry[2][3], *carry, pred, diff;
 
+  huff[n=0] = 0xc0c;
+  for (i=12; i--; )
+    FORC(2048 >> i) huff[++n] = (i+1) << 8 | i;
   fseek (ifp, 7, SEEK_CUR);
   getbits(-1);
   for (row=0; row < height; row++) {
@@ -1939,11 +1931,9 @@ void CLASS olympus_e410_load_raw()
       carry = acarry[col & 1];
       i = 2 * (carry[2] < 3);
       for (nbits=2+i; (ushort) carry[0] >> (nbits+i); nbits++);
-      sign = getbits(1) * -1;
-      low  = getbits(2);
-      for (high=0; high < 12; high++)
-	if (getbits(1)) break;
-      if (high == 12)
+      low = (sign = getbits(3)) & 3;
+      sign = sign << 29 >> 31;
+      if ((high = getbithuff(12,huff)) == 12)
 	high = getbits(16-nbits) >> 1;
       carry[0] = (high << nbits) | getbits(nbits);
       diff = (carry[0] ^ sign) + carry[1];
@@ -2083,28 +2073,16 @@ void CLASS quicktake_100_load_raw()
   maximum = 0x3ff;
 }
 
-const int * CLASS make_decoder_int (const int *source, int level)
-{
-  struct decode *cur;
+#define radc_token(tree) ((signed char) getbithuff(8,huff[tree]))
 
-  cur = free_decode++;
-  if (level < source[0]) {
-    cur->branch[0] = free_decode;
-    source = make_decoder_int (source, level+1);
-    cur->branch[1] = free_decode;
-    source = make_decoder_int (source, level+1);
-  } else {
-    cur->leaf = source[1];
-    source += 2;
-  }
-  return source;
-}
+#define FORYX for (y=1; y < 3; y++) for (x=col+1; x >= col; x--)
 
-int CLASS radc_token (int tree)
+#define PREDICTOR (c ? (buf[c][y-1][x] + buf[c][y][x+1]) / 2 \
+: (buf[c][y-1][x+1] + 2*buf[c][y-1][x] + buf[c][y][x+1]) / 4)
+
+void CLASS kodak_radc_load_raw()
 {
-  int t;
-  static struct decode *dstart[18], *dindex;
-  static const int *s, source[] = {
+  static const char src[] = {
     1,1, 2,3, 3,4, 4,2, 5,7, 6,5, 7,6, 7,8,
     1,0, 2,1, 3,3, 4,4, 5,2, 6,7, 7,6, 8,5, 8,8,
     2,1, 2,3, 3,0, 3,2, 3,4, 4,6, 5,5, 6,7, 6,8,
@@ -2124,30 +2102,7 @@ int CLASS radc_token (int tree)
     2,-1, 2,13, 2,26, 3,39, 4,-16, 5,55, 6,-37, 6,76,
     2,-26, 2,-13, 2,1, 3,-39, 4,16, 5,-55, 6,-76, 6,37
   };
-
-  if (free_decode == first_decode)
-    for (s=source, t=0; t < 18; t++) {
-      dstart[t] = free_decode;
-      s = make_decoder_int (s, 0);
-    }
-  if (tree == 18) {
-    if (kodak_cbpp == 243)
-      return (getbits(6) << 2) + 2;	/* most DC50 photos */
-    else
-      return (getbits(5) << 3) + 4;	/* DC40, Fotoman Pixtura */
-  }
-  for (dindex = dstart[tree]; dindex->branch[0]; )
-    dindex = dindex->branch[getbits(1)];
-  return dindex->leaf;
-}
-
-#define FORYX for (y=1; y < 3; y++) for (x=col+1; x >= col; x--)
-
-#define PREDICTOR (c ? (buf[c][y-1][x] + buf[c][y][x+1]) / 2 \
-: (buf[c][y-1][x+1] + 2*buf[c][y-1][x] + buf[c][y][x+1]) / 4)
-
-void CLASS kodak_radc_load_raw()
-{
+  ushort huff[19][256];
   int row, col, tree, nreps, rep, step, i, c, s, r, x, y, val;
   short last[3] = { 16,16,16 }, mul[3], buf[3][3][386];
   static const ushort pt[] =
@@ -2157,7 +2112,11 @@ void CLASS kodak_radc_load_raw()
     for (c=pt[i-2]; c <= pt[i]; c++)
       curve[c] = (float)
 	(c-pt[i-2]) / (pt[i]-pt[i-2]) * (pt[i+1]-pt[i-1]) + pt[i-1] + 0.5;
-  init_decoder();
+  for (s=i=0; i < sizeof src; i+=2)
+    FORC(256 >> src[i])
+      huff[0][s++] = src[i] << 8 | (uchar) src[i+1];
+  s = kodak_cbpp == 243 ? 2 : 3;
+  FORC(256) huff[18][c] = (8-s) << 8 | c >> s << s | 1 << (s-1);
   getbits(-1);
   for (i=0; i < sizeof(buf)/sizeof(short); i++)
     buf[0][0][i] = 2048;
@@ -2177,7 +2136,7 @@ void CLASS kodak_radc_load_raw()
 	  if ((tree = radc_token(tree))) {
 	    col -= 2;
 	    if (tree == 8)
-	      FORYX buf[c][y][x] = radc_token(tree+10) * mul[c];
+	      FORYX buf[c][y][x] = (uchar) radc_token(18) * mul[c];
 	    else
 	      FORYX buf[c][y][x] = radc_token(tree+10) * 16 + PREDICTOR;
 	  } else
@@ -2349,22 +2308,17 @@ void CLASS kodak_262_load_raw()
   static const uchar kodak_tree[2][26] =
   { { 0,1,5,1,1,2,0,0,0,0,0,0,0,0,0,0, 0,1,2,3,4,5,6,7,8,9 },
     { 0,3,1,1,1,1,1,2,0,0,0,0,0,0,0,0, 0,1,2,3,4,5,6,7,8,9 } };
-  struct decode *decode[2];
+  ushort *huff[2];
   uchar *pixel;
-  int *strip, ns, i, row, col, chess, pi=0, pi1, pi2, pred, val;
+  int *strip, ns, c, row, col, chess, pi=0, pi1, pi2, pred, val;
 
-  init_decoder();
-  for (i=0; i < 2; i++) {
-    decode[i] = free_decode;
-    make_decoder (kodak_tree[i], 0);
-  }
+  FORC(2) huff[c] = make_decoder (kodak_tree[c]);
   ns = (raw_height+63) >> 5;
   pixel = (uchar *) malloc (raw_width*32 + ns*4);
   merror (pixel, "kodak_262_load_raw()");
   strip = (int *) (pixel + raw_width*32);
   order = 0x4d4d;
-  for (i=0; i < ns; i++)
-    strip[i] = get4();
+  FORC(ns) strip[c] = get4();
   for (row=0; row < raw_height; row++) {
     if ((row & 31) == 0) {
       fseek (ifp, strip[row >> 5], SEEK_SET);
@@ -2380,7 +2334,7 @@ void CLASS kodak_262_load_raw()
       if (pi2 < 0) pi2 = pi1;
       if (pi1 < 0 && col > 1) pi1 = pi2 = pi-2;
       pred = (pi1 < 0) ? 0 : (pixel[pi1] + pixel[pi2]) >> 1;
-      pixel[pi] = val = pred + ljpeg_diff (decode[chess]);
+      pixel[pi] = val = pred + ljpeg_diff (huff[chess]);
       if (val >> 8) derror();
       val = curve[pixel[pi++]];
       if ((unsigned) (col-left_margin) < width)
@@ -2389,6 +2343,7 @@ void CLASS kodak_262_load_raw()
     }
   }
   free (pixel);
+  FORC(2) free (huff[c]);
   if (raw_width > width)
     black /= (raw_width - width) * height;
 }
@@ -2560,16 +2515,19 @@ void CLASS sony_load_raw()
 
 void CLASS sony_arw_load_raw()
 {
-  int col, row, len, diff, sum=0;
+  ushort huff[32768];
+  static const ushort tab[18] =
+  { 0xf11,0xf10,0xe0f,0xd0e,0xc0d,0xb0c,0xa0b,0x90a,0x809,
+    0x708,0x607,0x506,0x405,0x304,0x303,0x300,0x202,0x201 };
+  int i, c, n, col, row, len, diff, sum=0;
 
+  for (n=i=0; i < 18; i++)
+    FORC(32768 >> (tab[i] >> 8)) huff[n++] = tab[i];
   getbits(-1);
   for (col = raw_width; col--; )
     for (row=0; row < raw_height+1; row+=2) {
       if (row == raw_height) row = 1;
-      len = 4 - getbits(2);
-      if (len == 3 && getbits(1)) len = 0;
-      if (len == 4)
-	while (len < 17 && !getbits(1)) len++;
+      len = getbithuff(15,huff);
       diff = getbits(len);
       if ((diff & (1 << (len-1))) == 0)
 	diff -= (1 << len) - 1;
@@ -2761,7 +2719,8 @@ void CLASS foveon_decoder (unsigned size, unsigned code)
   if (!code) {
     for (i=0; i < size; i++)
       huff[i] = get4();
-    init_decoder();
+    memset (first_decode, 0, sizeof first_decode);
+    free_decode = first_decode;
   }
   cur = free_decode++;
   if (free_decode > first_decode+2048) {
@@ -4629,10 +4588,8 @@ void CLASS parse_makernote (int base, int uptag)
       black = (get2()+get2()+get2()+get2())/4;
     if (tag == 0x201 && len == 4)
       goto get2_rggb;
-    if (tag == 0x220 && len == 53) {
-      fseek (ifp, 14, SEEK_CUR);
-      pentax_tree();
-    }
+    if (tag == 0x220 && len == 53)
+      meta_offset = ftell(ifp) + 14;
     if (tag == 0x401 && len == 4) {
       black = (get4()+get4()+get4()+get4())/4;
     }
@@ -6064,6 +6021,8 @@ void CLASS adobe_coeff (const char *make, const char *model)
     const char *prefix;
     short black, maximum, trans[12];
   } table[] = {
+    { "AGFAPHOTO DC-833m", 0, 0,	/* DJC */
+	{ 11438,-3762,-1115,-2409,9914,2497,-1227,2295,5300 } },
     { "Apple QuickTake", 0, 0,		/* DJC */
 	{ 21392,-5653,-3353,2406,8010,-415,7166,1427,2078 } },
     { "Canon EOS D2000", 0, 0,
@@ -6170,6 +6129,8 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 10013,-2214,-1111,-3650,11589,2062,342,685,3617 } },
     { "Canon PowerShot SX110 IS", 0, 0,	/* DJC */
 	{ 14134,-5576,-1527,-1991,10719,1273,-1158,1929,3581 } },
+    { "CASIO EX-S20", 0, 0,		/* DJC */
+	{ 11634,-3924,-1128,-4968,12954,2015,-1588,2648,7206 } },
     { "CINE 650", 0, 0,
 	{ 3390,480,-500,-800,3610,340,-550,2336,1192 } },
     { "CINE 660", 0, 0,
@@ -6476,8 +6437,12 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 4516,-245,-37,-7020,14976,2173,-3206,4671,7087 } },
     { "Phase One P 45", 0, 0,
 	{ 5053,-24,-117,-5684,14076,1702,-2619,4492,5849 } },
+    { "Phase One P65", 0, 0,		/* DJC */
+	{ 8522,1268,-1916,-7706,16350,1358,-2397,4344,4923 } },
     { "SAMSUNG GX-1", 0, 0,
 	{ 10504,-2438,-1189,-8603,16207,2531,-1022,863,12242 } },
+    { "SAMSUNG S85", 0, 0,		/* DJC */
+	{ 11885,-3968,-1473,-4214,12299,1916,-835,1655,5549 } },
     { "Sinar", 0, 0,			/* DJC */
 	{ 16442,-2956,-2422,-2877,12128,750,-1136,6066,4559 } },
     { "SONY DSC-F828", 491, 0,
@@ -6621,6 +6586,7 @@ void CLASS identify()
     {  6054400, "CASIO",    "QV-R41"          ,1 },
     {  7530816, "CASIO",    "QV-R51"          ,1 },
     {  7684000, "CASIO",    "QV-4000"         ,1 },
+    {  2937856, "CASIO",    "EX-S20"          ,1 },
     {  4948608, "CASIO",    "EX-S100"         ,1 },
     {  7542528, "CASIO",    "EX-Z50"          ,1 },
     {  7753344, "CASIO",    "EX-Z55"          ,1 },
@@ -6631,6 +6597,7 @@ void CLASS identify()
     {  4841984, "PENTAX",   "Optio S"         ,1 },
     {  6114240, "PENTAX",   "Optio S4"        ,1 },  /* or S4i, CASIO EX-Z4 */
     { 10702848, "PENTAX",   "Optio 750Z"      ,1 },
+    { 15980544, "AGFAPHOTO","DC-833m"         ,1 },
     { 16098048, "SAMSUNG",  "S85"             ,1 },
     { 16215552, "SAMSUNG",  "S85"             ,1 },
     { 12582980, "Sinar",    ""                ,0 },
@@ -7171,16 +7138,12 @@ cp_e2500:
     width  = 2064;
     load_raw = &CLASS packed_12_load_raw;
     load_flags = 30;
-    pre_mul[0] = 1.818;
-    pre_mul[2] = 1.618;
     if (!timestamp) nikon_3700();
     if (model[0] == 'E' && atoi(model+1) < 3700)
       filters = 0x49494949;
     if (!strcmp(model,"Optio 33WR")) {
       flip = 1;
       filters = 0x16161616;
-      pre_mul[0] = 1.331;
-      pre_mul[2] = 1.820;
     }
   } else if (fsize == 5869568) {
     height = 1710;
@@ -7289,16 +7252,12 @@ konica_400z:
       load_raw = &CLASS eight_bit_load_raw;
       cam_mul[0] *= 4;
       cam_mul[2] *= 4;
-      pre_mul[0] = 1.391;
-      pre_mul[2] = 1.188;
     } else {
       height = 1544;
       width  = 2068;
       raw_width = 3136;
       load_raw = &CLASS packed_12_load_raw;
       maximum = 0xf7c;
-      pre_mul[0] = 1.137;
-      pre_mul[2] = 1.453;
     }
   } else if (fsize == 6114240) {
     height = 1737;
@@ -7306,14 +7265,19 @@ konica_400z:
     raw_width = 3520;
     load_raw = &CLASS packed_12_load_raw;
     maximum = 0xf7a;
-    pre_mul[0] = 1.980;
-    pre_mul[2] = 1.570;
   } else if (!strcmp(model,"Optio 750Z")) {
     height = 2302;
     width  = 3072;
     load_raw = &CLASS packed_12_load_raw;
     load_flags = 30;
-  } else if (!strcmp(model,"S85")) {
+  } else if (!strcmp(model,"DC-833m")) {
+    height = 2448;
+    width  = 3264;
+    order = 0x4949;
+    filters = 0x61616161;
+    load_raw = &CLASS unpacked_load_raw;
+    maximum = 0xfc00;
+  } else if (!strncmp(model,"S85",3)) {
     height = 2448;
     width  = 3264;
     raw_width = fsize/height/2;
@@ -7327,16 +7291,12 @@ konica_400z:
     flip = 2;
     filters = 0x16161616;
     black = 16;
-    pre_mul[0] = 1.097;
-    pre_mul[2] = 1.128;
   } else if (!strcmp(model,"KAI-0340")) {
     height = 477;
     width  = 640;
     order = 0x4949;
     data_offset = 3840;
     load_raw = &CLASS unpacked_load_raw;
-    pre_mul[0] = 1.561;
-    pre_mul[2] = 2.454;
   } else if (!strcmp(model,"N95")) {
     height = raw_height - (top_margin = 2);
   } else if (!strcmp(model,"531C")) {
@@ -7344,7 +7304,6 @@ konica_400z:
     width  = 1600;
     load_raw = &CLASS unpacked_load_raw;
     filters = 0x49494949;
-    pre_mul[1] = 1.218;
   } else if (!strcmp(model,"F-080C")) {
     height = 768;
     width  = 1024;
@@ -7397,8 +7356,6 @@ konica_400z:
     filters = 0x61616161;
     load_raw = &CLASS unpacked_load_raw;
     maximum = 0x3ff;
-    pre_mul[0] = 1.717;
-    pre_mul[2] = 1.138;
     fseek (ifp, 0x300000, SEEK_SET);
     if ((order = guess_byte_order(0x10000)) == 0x4d4d) {
       height -= (top_margin = 16);
@@ -7797,15 +7754,11 @@ c603:
     }
     filters = 0x16161616;
     load_raw = &CLASS rollei_load_raw;
-    pre_mul[0] = 1.8;
-    pre_mul[2] = 1.3;
   } else if (!strcmp(model,"PC-CAM 600")) {
     height = 768;
     data_offset = width = 1024;
     filters = 0x49494949;
     load_raw = &CLASS eight_bit_load_raw;
-    pre_mul[0] = 1.14;
-    pre_mul[2] = 2.73;
   } else if (!strcmp(model,"QV-2000UX")) {
     height = 1208;
     width  = 1632;
@@ -7834,45 +7787,36 @@ c603:
     height = 1926;
     width  = 2580;
     raw_width = 3904;
-    pre_mul[0] = 1.340;
-    pre_mul[2] = 1.672;
+  } else if (!strcmp(model,"EX-S20")) {
+    height = 1208;
+    width  = 1620;
+    raw_width = 2432;
+    flip = 3;
   } else if (!strcmp(model,"EX-S100")) {
     height = 1544;
     width  = 2058;
     raw_width = 3136;
-    pre_mul[0] = 1.631;
-    pre_mul[2] = 1.106;
   } else if (!strcmp(model,"EX-Z50")) {
     height = 1931;
     width  = 2570;
     raw_width = 3904;
-    pre_mul[0] = 2.529;
-    pre_mul[2] = 1.185;
   } else if (!strcmp(model,"EX-Z55")) {
     height = 1960;
     width  = 2570;
     raw_width = 3904;
-    pre_mul[0] = 1.520;
-    pre_mul[2] = 1.316;
   } else if (!strcmp(model,"EX-P505")) {
     height = 1928;
     width  = 2568;
     raw_width = 3852;
     maximum = 0xfff;
-    pre_mul[0] = 2.07;
-    pre_mul[2] = 1.88;
   } else if (fsize == 9313536) {	/* EX-P600 or QV-R61 */
     height = 2142;
     width  = 2844;
     raw_width = 4288;
-    pre_mul[0] = 1.797;
-    pre_mul[2] = 1.219;
   } else if (!strcmp(model,"EX-P700")) {
     height = 2318;
     width  = 3082;
     raw_width = 4672;
-    pre_mul[0] = 1.758;
-    pre_mul[2] = 1.504;
   }
   if (!model[0])
     sprintf (model, "%dx%d", width, height);
