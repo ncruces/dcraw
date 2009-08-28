@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.68 $
-   $Date: 2009/03/10 00:58:51 $
+   $Revision: 1.69 $
+   $Date: 2009/08/28 22:52:20 $
  */
 
 #include <stdio.h>
@@ -357,6 +357,7 @@ int parse_tiff_ifd (int base, int level)
       case 29185: sony_length = get4();  break;
       case 29217: sony_key    = get4();  break;
       case 33424:
+      case 65024:
 	puts("Kodak private data:");
 	fseek (ifp, get4()+base, SEEK_SET);
 	parse_tiff_ifd (base, level+1);
