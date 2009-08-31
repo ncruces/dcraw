@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.427 $
-   $Date: 2009/08/28 23:09:34 $
+   $Revision: 1.428 $
+   $Date: 2009/08/31 15:23:49 $
  */
 
 #define VERSION "8.97"
@@ -7120,7 +7120,7 @@ canon_cr2:
   } else if (!strncmp(model,"D2X",3)) {
     if (width == 3264) width -= 32;
     else width -= 8;
-  } else if (!strcmp(model,"D300")) {
+  } else if (!strncmp(model,"D300",4)) {
     width -= 32;
   } else if (!strcmp(model,"COOLPIX P6000")) {
     load_flags = 24;
