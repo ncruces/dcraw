@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.430 $
-   $Date: 2009/09/19 05:00:03 $
+   $Revision: 1.431 $
+   $Date: 2009/09/22 16:06:07 $
  */
 
 #define VERSION "8.98"
@@ -270,7 +270,7 @@ void CLASS derror()
     else
       fprintf (stderr,_("Corrupt data near 0x%llx\n"), (INT64) ftello(ifp));
   }
-  data_error = 1;
+  data_error++;
 }
 
 ushort CLASS sget2 (uchar *s)
@@ -7306,6 +7306,8 @@ konica_400z:
       maximum = 0x3df;
       order = 0x4d4d;
     }
+  } else if (!strcmp(model,"*ist D")) {
+    data_error = -1;
   } else if (!strcmp(model,"*ist DS")) {
     height -= 2;
   } else if (!strcmp(model,"K20D")) {
