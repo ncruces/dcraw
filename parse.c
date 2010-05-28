@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.69 $
-   $Date: 2009/08/28 22:52:20 $
+   $Revision: 1.70 $
+   $Date: 2010/05/28 01:38:56 $
  */
 
 #include <stdio.h>
@@ -300,6 +300,7 @@ void parse_exif (int base, int level)
 }
 
 void parse_mos(int level);
+void parse_minolta (int base);
 
 void sony_decrypt (unsigned *data, int len, int start, int key)
 {
@@ -334,6 +335,7 @@ int parse_tiff_ifd (int base, int level)
     slen = count;
     if (slen > 128) slen = 128;
     tiff_dump (base, tag, type, count, level);
+    if (type == 13) tag = 0x14a;
     switch (tag) {
       case 0x10f:			/* Make tag */
 	fgets (make, slen, ifp);
@@ -356,6 +358,9 @@ int parse_tiff_ifd (int base, int level)
       case 29184: sony_offset = get4();  break;
       case 29185: sony_length = get4();  break;
       case 29217: sony_key    = get4();  break;
+      case 29264:
+	parse_minolta (ftell(ifp));
+	break;
       case 33424:
       case 65024:
 	puts("Kodak private data:");
@@ -386,9 +391,9 @@ int parse_tiff_ifd (int base, int level)
 	is_dng = 1;
 	break;
       case 50740:
-	if (count != 4 || type != 1) break;
-	puts("Sony SR2 private IFD:");
-	fseek (ifp, get4()+base, SEEK_SET);
+	if (is_dng) break;
+	parse_minolta (i = get4()+base);
+	fseek (ifp, i, SEEK_SET);
 	parse_tiff_ifd (base, level+1);
     }
     fseek (ifp, save+12, SEEK_SET);
@@ -429,20 +434,26 @@ void parse_tiff (int base)
   }
 }
 
-void parse_minolta()
+void parse_minolta (int base)
 {
-  int data_offset, save, tag, len;
+  unsigned offset, save, len, j;
+  char tag[4];
 
-  fseek (ifp, 4, SEEK_SET);
-  data_offset = get4() + 8;
-  while ((save=ftell(ifp)) < data_offset) {
-    tag = get4();
+  fseek (ifp, base, SEEK_SET);
+  if (fgetc(ifp) || fgetc(ifp)-'M' || fgetc(ifp)-'R') return;
+  order = fgetc(ifp) * 0x101;
+  offset = base + get4() + 8;
+  while ((save=ftell(ifp)) < offset) {
+    fread (tag, 1, 4, ifp);
     len = get4();
-    printf ("Tag %c%c%c offset %06x length %06x\n",
-	tag>>16, tag>>8, tag, save, len);
-    switch (tag) {
-      case 0x545457:				/* TTW */
-	parse_tiff (ftell(ifp));
+    printf ("Minolta tag %3.3s offset %06x length %06x", tag+1, save, len);
+    if (!strncmp (tag+1,"TTW",3)) {
+      putchar ('\n');
+      parse_tiff (ftell(ifp));
+    } else {
+      for (j = 0; j < len/2 && j < 128; j++)
+        printf ("%c%04x",(j & 15) || len < 9 ? ' ':'\n', get2());
+      putchar ('\n');
     }
     fseek (ifp, save+len+8, SEEK_SET);
   }
@@ -967,13 +978,15 @@ void identify()
   } else if (!memcmp (head,"NDF0",4)) {
     parse_tiff (12);
   } else if (!memcmp (head,"\0MRM",4)) {
-    parse_minolta();
+    parse_minolta (0);
   } else if (!memcmp (head,"FUJIFILM",8)) {
     fseek (ifp, 84, SEEK_SET);
     toff = get4();
     tlen = get4();
     parse_fuji (92);
     if (toff > 120) parse_fuji (120);
+    fseek (ifp, 100, SEEK_SET);
+    parse_tiff (get4());
     parse_tiff (toff+12);
   } else if (!memcmp (head,"RIFF",4)) {
     fseek (ifp, 0, SEEK_SET);
