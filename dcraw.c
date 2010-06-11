@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.434 $
-   $Date: 2010/05/30 15:57:43 $
+   $Revision: 1.435 $
+   $Date: 2010/06/11 07:03:46 $
  */
 
-#define VERSION "9.01"
+#define VERSION "9.02"
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -4771,7 +4771,7 @@ void CLASS parse_kodak_ifd (int base)
   unsigned entries, tag, type, len, save;
   int i, c, wbi=-2, wbtemp=6500;
   float mul[3]={1,1,1}, num;
-  static const int wbtag[]={ 0xfa25,0xfa28,0xfa27,0xfa29,-1,-1,0xfa2a };
+  static const int wbtag[] = { 64037,64040,64039,64041,-1,-1,64042 };
 
   entries = get2();
   if (entries > 1024) return;
@@ -4794,9 +4794,11 @@ void CLASS parse_kodak_ifd (int base)
       }
     if (tag == 2317) linear_table (len);
     if (tag == 6020) iso_speed = getint(type);
-    if (tag == 0xfa0d) wbi = fgetc(ifp);
+    if (tag == 64013) wbi = fgetc(ifp);
     if ((unsigned) wbi < 7 && tag == wbtag[wbi])
       FORC3 cam_mul[c] = get4();
+    if (tag == 64019) width = getint(type);
+    if (tag == 64020) height = (getint(type)+1) & -2;
     fseek (ifp, save, SEEK_SET);
   }
 }
@@ -5149,6 +5151,12 @@ guess_cfa_pc:
 		      (filters << 2 & 0x88888888)) & filters << 1;
 	FORC4 cblack[filters >> (c << 1) & 3] = dblack[c];
 	black = 0;
+	break;
+      case 50715:			/* BlackLevelDeltaH */
+      case 50716:			/* BlackLevelDeltaV */
+	for (num=i=0; i < len; i++)
+	  num += getreal(type);
+	black += num/len + 0.5;
 	break;
       case 50717:			/* WhiteLevel */
 	maximum = getint(type);
@@ -6378,9 +6386,13 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 8785,-2529,-1033,-7639,15624,2112,-1783,2300,7817 } },
     { "OLYMPUS E-520", 0, 0xfd2,
 	{ 8344,-2322,-1020,-7596,15635,2048,-1748,2269,7287 } },
-    { "OLYMPUS E-620", 0, 0xfb9,
+    { "OLYMPUS E-600", 0, 0xfaf,
+	{ 8453,-2198,-1092,-7609,15681,2008,-1725,2337,7824 } },
+    { "OLYMPUS E-620", 0, 0xfaf,
 	{ 8453,-2198,-1092,-7609,15681,2008,-1725,2337,7824 } },
     { "OLYMPUS E-P1", 0, 0xffd,
+	{ 8343,-2050,-1021,-7715,15705,2103,-1831,2380,8235 } },
+    { "OLYMPUS E-P2", 0, 0xffd,
 	{ 8343,-2050,-1021,-7715,15705,2103,-1831,2380,8235 } },
     { "OLYMPUS E-PL1", 0, 0,
 	{ 11408,-4289,-1215,-4286,12385,2118,-387,1467,7787 } },
@@ -6454,7 +6466,7 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 10113,-3400,-1114,-4765,12683,2317,-377,1437,6710 } },
     { "Panasonic DMC-G1", 15, 0xfff,
 	{ 8199,-2065,-1056,-8124,16156,2033,-2458,3022,7220 } },
-    { "Panasonic DMC-G2", 0, 0,
+    { "Panasonic DMC-G2", 15, 0xf3c,
 	{ 10113,-3400,-1114,-4765,12683,2317,-377,1437,6710 } },
     { "Panasonic DMC-GF1", 15, 0xf92,
 	{ 7888,-1902,-1011,-8106,16085,2099,-2353,2866,7330 } },
@@ -6494,7 +6506,9 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 6038,-1484,-578,-9146,16746,2513,-875,746,7217 } },
     { "SONY DSLR-A380", 0, 0,
 	{ 6038,-1484,-579,-9145,16746,2512,-875,746,7218 } },
-    { "SONY DSLR-A5", 126, 0,
+    { "SONY DSLR-A450", 128, 0xfeb,
+	{ 4950,-580,-103,-5228,12542,3029,-709,1435,7371 } },
+    { "SONY DSLR-A5", 128, 0xfeb,
 	{ 4950,-580,-103,-5228,12542,3029,-709,1435,7371 } },
     { "SONY DSLR-A700", 126, 0,
 	{ 5775,-805,-359,-8574,16295,2391,-1943,2341,7249 } },
@@ -7585,6 +7599,7 @@ wb550:
       load_raw = &CLASS unpacked_load_raw;
       load_flags = 4;
     }
+    zero_is_bad = 1;
     switch (width) {
       case 2568:
 	adobe_coeff ("Panasonic","DMC-LC1");  break;
@@ -7598,7 +7613,6 @@ wb550:
 	  top_margin = 13;
 	  filters = 0x49494949;
 	}
-	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-FZ8");  break;
       case 3213:
 	width -= 27;
@@ -7606,11 +7620,9 @@ wb550:
 	width -= 10;
 	load_flags = 2;
 	filters = 0x49494949;
-	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-L1");  break;
       case 3304:
 	width -= 17;
-	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-FZ30");  break;
       case 3330:
 	width += 43;
@@ -7622,7 +7634,6 @@ wb550:
 	if (height > 2480)
 	    height = 2480 - (top_margin = 10);
 	filters = 0x49494949;
-	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-FZ18");  break;
       case 3690:
 	height -= 2;
@@ -7634,7 +7645,6 @@ wb550:
 	  top_margin = 15;
 	else filters = 0x49494949;
 	left_margin += 17;
-	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-FZ50");  break;
       case 3710:
 	width = 3682;
@@ -7653,7 +7663,6 @@ lx3:	filters = 0x16161616;
 	width -= 22;
 	left_margin = 6;
 	load_flags = 2;
-	zero_is_bad = 1;
 	adobe_coeff ("Panasonic","DMC-LX1");  break;
       case 4060:
 	width = 3982;
@@ -7665,9 +7674,7 @@ lx3:	filters = 0x16161616;
 	  adobe_coeff ("Panasonic","DMC-FZ35");  break;
 	}
 	filters = 0x49494949;
-	if (!strcmp(model,"DMC-GH1")) break;
-	zero_is_bad = 1;
-	adobe_coeff ("Panasonic","DMC-G1");  break;
+	break;
       case 4172:
       case 4396:
 	width -= 28;
@@ -7790,14 +7797,7 @@ c603:
       read_shorts (curve, 256);
     } else gamma_curve (0, 3.875, 1, 255);
     load_raw = &CLASS eight_bit_load_raw;
-  } else if (!strcmp(model,"EASYSHARE Z1015 IS")) {
-    height = 2742;
-    width  = 3664;
-    goto ezshare;
-  } else if (!strcmp(model,"EasyShare Z980")) {
-    height = 3006;
-    width  = 4016;
-ezshare:
+  } else if (!strncasecmp(model,"EasyShare",9)) {
     data_offset = 0x15000;
     load_raw = &CLASS packed_load_raw;
   } else if (!strcasecmp(make,"KODAK")) {
@@ -8717,8 +8717,8 @@ int CLASS main (int argc, const char **argv)
     } else if (!is_raw)
       fprintf (stderr,_("Cannot decode file %s\n"), ifname);
     if (!is_raw) goto next;
-    shrink = filters &&
-	(half_size || threshold || aber[0] != 1 || aber[2] != 1);
+    shrink = filters && (half_size ||
+	((threshold || aber[0] != 1 || aber[2] != 1) && !identify_only));
     iheight = (height + shrink) >> shrink;
     iwidth  = (width  + shrink) >> shrink;
     if (identify_only) {
