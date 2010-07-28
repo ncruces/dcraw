@@ -1,12 +1,12 @@
 /*
    Raw Photo Parser
-   Copyright 2004-2006 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 2004-2010 by Dave Coffin, dcoffin a cybercom o net
 
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.70 $
-   $Date: 2010/05/28 01:38:56 $
+   $Revision: 1.71 $
+   $Date: 2010/07/28 21:07:00 $
  */
 
 #include <stdio.h>
@@ -240,7 +240,7 @@ void parse_makernote (int base, int level)
 
   entries = get2();
   if (entries > 127) return;
-  puts("  MakerNote:");
+  printf ("%*sMakerNote:\n", level*2-2, "");
   while (entries--) {
     save = ftell(ifp);
     tag  = get2();
@@ -285,7 +285,7 @@ void parse_exif (int base, int level)
 {
   int entries, tag, type, count, save;
 
-  puts("EXIF table:");
+  printf ("%*sEXIF table:\n", level*2-2, "");
   entries = get2();
   while (entries--) {
     save = ftell(ifp);
@@ -301,6 +301,19 @@ void parse_exif (int base, int level)
 
 void parse_mos(int level);
 void parse_minolta (int base);
+void parse_tiff (int base, int level);
+
+void parse_thumb (int base, int level)
+{
+  int i=order;
+  order = 0x4d4d;
+  fseek (ifp, base, SEEK_SET);
+  if (get4()==0xffd8ffe1 && get2() && get4()==0x45786966 && !get2()) {
+    printf ("%*sEmbedded JPEG:\n", level*2, "");
+    parse_tiff (ftell(ifp), level+1);
+  }
+  order = i;
+}
 
 void sony_decrypt (unsigned *data, int len, int start, int key)
 {
@@ -337,16 +350,16 @@ int parse_tiff_ifd (int base, int level)
     tiff_dump (base, tag, type, count, level);
     if (type == 13) tag = 0x14a;
     switch (tag) {
-      case 0x10f:			/* Make tag */
+      case 271:				/* Make tag */
 	fgets (make, slen, ifp);
 	break;
-      case 0x110:			/* Model tag */
+      case 272:				/* Model tag */
 	fgets (model, slen, ifp);
 	break;
       case 33405:			/* Model2 tag */
 	fgets (model2, slen, ifp);
 	break;
-      case 0x14a:			/* SubIFD tag */
+      case 330:				/* SubIFD tag */
 	save2 = ftell(ifp);
 	for (i=0; i < count; i++) {
 	  printf ("SubIFD #%d:\n", i+1);
@@ -354,6 +367,13 @@ int parse_tiff_ifd (int base, int level)
 	  fseek (ifp, get4()+base, SEEK_SET);
 	  parse_tiff_ifd (base, level+1);
 	}
+	break;
+      case 273:				/* StripOffset */
+      case 513:				/* JpegIFOffset */
+      case 61447:
+	fseek (ifp, get4()+base, SEEK_SET);
+      case 46:
+	parse_thumb (ftell(ifp), level);
 	break;
       case 29184: sony_offset = get4();  break;
       case 29185: sony_length = get4();  break;
@@ -419,7 +439,7 @@ int parse_tiff_ifd (int base, int level)
 /*
    Parse a TIFF file looking for camera model and decompress offsets.
  */
-void parse_tiff (int base)
+void parse_tiff (int base, int level)
 {
   int doff, ifd=0;
 
@@ -429,8 +449,8 @@ void parse_tiff (int base)
   get2();
   while ((doff = get4())) {
     fseek (ifp, doff+base, SEEK_SET);
-    printf ("IFD #%d:\n", ifd++);
-    if (parse_tiff_ifd (base, 0)) break;
+    printf ("%*sIFD #%d:\n", level*2, "", ifd++);
+    if (parse_tiff_ifd (base, level)) break;
   }
 }
 
@@ -449,7 +469,7 @@ void parse_minolta (int base)
     printf ("Minolta tag %3.3s offset %06x length %06x", tag+1, save, len);
     if (!strncmp (tag+1,"TTW",3)) {
       putchar ('\n');
-      parse_tiff (ftell(ifp));
+      parse_tiff (ftell(ifp),0);
     } else {
       for (j = 0; j < len/2 && j < 128; j++)
         printf ("%c%04x",(j & 15) || len < 9 ? ' ':'\n', get2());
@@ -553,7 +573,7 @@ int parse_jpeg (int offset)
     hlen  = get4();
     if (get4() == 0x48454150)		/* "HEAP" */
       parse_ciff (save+hlen, len-hlen, 0);
-    parse_tiff (save+6);
+    parse_tiff (save+6,0);
     fseek (ifp, save+len, SEEK_SET);
   }
   return 1;
@@ -968,15 +988,15 @@ void identify()
   if ((cp = memmem (head, 32, "MMMM", 4)) ||
       (cp = memmem (head, 32, "IIII", 4))) {
     parse_phase_one (cp-head);
-    if (cp-head) parse_tiff (0);
+    if (cp-head) parse_tiff (0,0);
   } else if (order == 0x4949 || order == 0x4d4d) {
     if (!memcmp(head+6,"HEAPCCDR",8)) {
       parse_ciff (hlen, fsize - hlen, 0);
       fseek (ifp, hlen, SEEK_SET);
     } else
-      parse_tiff (0);
+      parse_tiff (0,0);
   } else if (!memcmp (head,"NDF0",4)) {
-    parse_tiff (12);
+    parse_tiff (12,0);
   } else if (!memcmp (head,"\0MRM",4)) {
     parse_minolta (0);
   } else if (!memcmp (head,"FUJIFILM",8)) {
@@ -986,8 +1006,8 @@ void identify()
     parse_fuji (92);
     if (toff > 120) parse_fuji (120);
     fseek (ifp, 100, SEEK_SET);
-    parse_tiff (get4());
-    parse_tiff (toff+12);
+    parse_tiff (get4(),0);
+    parse_thumb (toff,0);
   } else if (!memcmp (head,"RIFF",4)) {
     fseek (ifp, 0, SEEK_SET);
     parse_riff(0);
