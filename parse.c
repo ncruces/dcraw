@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.72 $
-   $Date: 2010/12/17 03:16:26 $
+   $Revision: 1.73 $
+   $Date: 2011/05/11 03:29:49 $
  */
 
 #include <stdio.h>
@@ -221,19 +221,21 @@ void parse_makernote (int base, int level)
   } else if (!strcmp (buf,"OLYMPUS")) {
     base = ftell(ifp)-10;
     fseek (ifp, -2, SEEK_CUR);
-    order = get2();
-    val = get2();
-  } else if (!strncmp (buf,"FUJIFILM",8) ||
-	     !strncmp (buf,"SONY",4) ||
+    order = get2();  get2();
+  } else if (!strncmp (buf,"SONY",4) ||
 	     !strcmp  (buf,"Panasonic")) {
-    order = 0x4949;
+    goto nf;
+  } else if (!strncmp (buf,"FUJIFILM",8)) {
+    base = ftell(ifp)-10;
+nf: order = 0x4949;
     fseek (ifp,  2, SEEK_CUR);
   } else if (!strcmp (buf,"OLYMP") ||
 	     !strcmp (buf,"LEICA") ||
 	     !strcmp (buf,"Ricoh") ||
 	     !strcmp (buf,"EPSON"))
     fseek (ifp, -2, SEEK_CUR);
-  else if (!strcmp (buf,"AOC"))
+  else if (!strcmp (buf,"AOC") ||
+	   !strcmp (buf,"QVC"))
     fseek (ifp, -4, SEEK_CUR);
   else {
     fseek (ifp, -10, SEEK_CUR);
@@ -444,7 +446,7 @@ int parse_tiff_ifd (int base, int level)
  */
 void parse_tiff (int base, int level)
 {
-  int doff, ifd=0;
+  int doff, ifd=0, sorder=order;
 
   fseek (ifp, base, SEEK_SET);
   order = get2();
@@ -455,6 +457,7 @@ void parse_tiff (int base, int level)
     printf ("%*sIFD #%d:\n", level*2, "", ifd++);
     if (parse_tiff_ifd (base, level)) break;
   }
+  order = sorder;
 }
 
 void parse_minolta (int base)
@@ -839,7 +842,7 @@ void parse_fuji (int offset)
 
   fseek (ifp, offset, SEEK_SET);
   if (!(len = get4())) return;
-  printf ("Fuji table at %d:\n",len);
+  printf ("Fuji Image %c:\n", offset < 100 ? 'S':'R');
   fseek (ifp, len, SEEK_SET);
   entries = get4();
   if (entries > 255) return;
@@ -1007,9 +1010,13 @@ void identify()
     toff = get4();
     tlen = get4();
     parse_fuji (92);
-    if (toff > 120) parse_fuji (120);
     fseek (ifp, 100, SEEK_SET);
     parse_tiff (get4(),0);
+    if (toff > 120) {
+      parse_fuji (120);
+      fseek (ifp, 128, SEEK_SET);
+      parse_tiff (get4(),0);
+    }
     parse_thumb (toff,0);
   } else if (!memcmp (head,"RIFF",4)) {
     fseek (ifp, 0, SEEK_SET);
