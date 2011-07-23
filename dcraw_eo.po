@@ -4,10 +4,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 8.94\n"
+"Project-Id-Version: dcraw 9.10\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2009-03-14 21:22-0500\n"
+"PO-Revision-Date: 2011-07-23 17:00-0400\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -88,8 +88,14 @@ msgstr "Legas pridatumon el %s ...\n"
 msgid "Failed to read metadata from %s\n"
 msgstr "Ne povis legi pridatumon el %s\n"
 
+msgid "%s: Tail is missing, parsing from head...\n"
+msgstr "%s: Mankas vosto, necesas legi de kapo...\n"
+
 msgid "%s: You must link dcraw with libjpeg!!\n"
 msgstr "%s: Necesas bindi dcraw-on kun libjpeg!!\n"
+
+msgid "%s: You must link dcraw with %s!!\n"
+msgstr "%s: Necesas bindi dcraw-on kun %s!!\n"
 
 msgid "%s has no embedded profile.\n"
 msgstr "%s ne havas internan profilon.\n"
