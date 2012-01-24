@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.73 $
-   $Date: 2011/05/11 03:29:49 $
+   $Revision: 1.74 $
+   $Date: 2012/01/24 07:15:43 $
  */
 
 #include <stdio.h>
@@ -87,6 +87,42 @@ double get_double()
   for (i=0; i < 8; i++)
     u.c[i ^ rev] = fgetc(ifp);
   return u.d;
+}
+
+unsigned getbithuff (int nbits, const ushort *huff)
+{
+  static unsigned bitbuf=0;
+  static int vbits=0, reset=0;
+  unsigned c;
+
+  if (nbits == -1)
+    return bitbuf = vbits = reset = 0;
+  if (nbits == 0 || vbits < 0) return 0;
+  while (vbits < nbits && (c = fgetc(ifp)) != EOF) {
+    bitbuf = (bitbuf << 8) + (uchar) c;
+    vbits += 8;
+  }
+  c = bitbuf << (32-vbits) >> (32-nbits);
+  if (huff) {
+    vbits -= huff[c] >> 8;
+    c = (uchar) huff[c];
+  } else
+    vbits -= nbits;
+  return c;
+}
+
+#define getbits(n) getbithuff(n,0)
+#define gethuff(h) getbithuff(*h,h+1)
+
+int ljpeg_diff (ushort *huff)
+{
+  int len, diff;
+
+  len = gethuff(huff);
+  diff = getbits(len);
+  if ((diff & (1 << (len-1))) == 0)
+    diff -= (1 << len) - 1;
+  return diff;
 }
 
 void tiff_dump(int base, int tag, int type, int count, int level)
@@ -692,8 +728,9 @@ void get_utf8 (int offset, char *buf, int len)
 void parse_foveon()
 {
   unsigned entries, off, len, tag, save, i, j, k, pent, poff[256][2];
-  char name[128], value[128], camf[0x20000], *pos, *cp, *dp;
-  unsigned val, key, type, num, ndim, dim[3];
+  char name[128], value[128], *camf, *pos, *cp, *dp;
+  unsigned val, wide, high, row, col, diff, type, num, ndim, dim[3];
+  ushort huff[258], vpred[2][2], hpred[2];
 
   order = 0x4949;			/* Little-endian */
   fseek (ifp, -4, SEEK_END);
@@ -730,26 +767,51 @@ void parse_foveon()
 	order = 0x4949;
 	break;
       case 0x464d4143:			/* CAMF */
-	printf ("type %d, ", get4());
-	get4();
-	for (i=0; i < 4; i++)
-	  putchar(fgetc(ifp));
-	val = get4();
-	printf (" version %d.%d:\n",val >> 16, val & 0xffff);
-	key = get4();
-	if ((len -= 28) > 0x20000)
-	  len = 0x20000;
-	fread (camf, 1, len, ifp);
-	for (i=0; i < len; i++) {
-	  key = (key * 1597 + 51749) % 244944;
-	  val = key * (INT64) 301593171 >> 24;
-	  camf[i] ^= ((((key << 8) - val) >> 1) + val) >> 17;
+	type = get4();
+	printf ("type %d\n", type);
+	get4(); get4();
+	wide = get4();
+	high = get4();
+	if (type == 2) {
+	  camf = malloc (len -= 28);
+	  fread (camf, 1, len, ifp);
+	  for (i=0; i < len; i++) {
+	    high = (high * 1597 + 51749) % 244944;
+	    val = high * (INT64) 301593171 >> 24;
+	    camf[i] ^= ((((high << 8) - val) >> 1) + val) >> 17;
+	  }
+	} else if (type == 4) {
+	  camf = malloc (len = wide*high*3/2);
+	  memset (huff, 0xff, sizeof huff);
+	  huff[0] = 8;
+	  for (i=0; i < 13; i++) {
+	    tag = getc(ifp);
+	    val = getc(ifp);
+	    for (j=0; j < 256 >> tag; )
+	      huff[val+ ++j] = tag << 8 | i;
+	  }
+	  fseek (ifp, 6, SEEK_CUR);
+	  getbits(-1);
+	  vpred[0][0] = vpred[0][1] =
+	  vpred[1][0] = vpred[1][1] = 512;
+	  for (j=row=0; row < high; row++) {
+	    for (col=0; col < wide; col++) {
+	      diff = ljpeg_diff(huff);
+	      if (col < 2) hpred[col] = vpred[row & 1][col] += diff;
+	      else         hpred[col & 1] += diff;
+	      if (col & 1) {
+		camf[j++] = hpred[0] >> 4;
+		camf[j++] = hpred[0] << 4 | hpred[1] >> 8;
+		camf[j++] = hpred[1];
+	      }
+	    }
+	  }
+	} else {
+	  printf ("Unknown CAMF type %d\n", type);
+	  break;
 	}
 	for (pos=camf; (unsigned) (pos-camf) < len; pos += sget4(pos+8)) {
-	  if (strncmp (pos, "CMb", 3)) {
-	    printf("Bad CAMF tag \"%.4s\"\n", pos);
-	    break;
-	  }
+	  if (strncmp (pos, "CMb", 3)) goto done;
 	  val = sget4(pos+4);
 	  printf ("  %4.4s version %d.%d: ", pos, val >> 16, val & 0xffff);
 	  switch (pos[3]) {
@@ -812,6 +874,7 @@ void parse_foveon()
 	      printf ("\n");
 	  }
 	}
+done:	free (camf);
 	break;
       case 0x504f5250:			/* PROP */
 	printf ("entries %d, ", pent=get4());
