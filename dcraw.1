@@ -1,7 +1,7 @@
 .\"
 .\" Man page for dcraw
 .\"
-.\" Copyright (c) 2009 by David Coffin
+.\" Copyright (c) 2012 by David Coffin
 .\"
 .\" You may distribute without restriction.
 .\"
@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "May 14, 2009"
+.TH dcraw 1 "February 2, 2012"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -48,6 +48,12 @@ shows metadata.
 .B dcraw
 cannot decode JPEG files!!
 .SH REPAIR OPTIONS
+.TP
+.B -I
+Read the raw pixels from standard input in CPU byte order with
+no header.  Use
+.B dcraw -E -4
+to get the raw pixel values.
 .TP
 .B -P deadpixels.txt
 Read the dead pixel list from this file instead of ".badpixels".
@@ -176,7 +182,12 @@ Good for photographing black-and-white documents.
 .B -D
 Same as
 .BR -d ,
-but totally raw (no color scaling).
+but with the original unscaled pixel values.
+.TP
+.B -E
+Same as
+.BR -D ,
+but masked pixels are not cropped.
 .TP
 .B -h
 Output a half-size color image.  Twice as fast as
