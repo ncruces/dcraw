@@ -1,12 +1,12 @@
 /*
    Raw Photo Parser
-   Copyright 2004-2010 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 2004-2014 by Dave Coffin, dcoffin a cybercom o net
 
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.74 $
-   $Date: 2012/01/24 07:15:43 $
+   $Revision: 1.75 $
+   $Date: 2014/01/14 20:40:01 $
  */
 
 #include <stdio.h>
@@ -254,10 +254,12 @@ void parse_makernote (int base, int level)
     val = get2();		/* should be 42 decimal */
     offset = get4();
     fseek (ifp, offset-8, SEEK_CUR);
-  } else if (!strcmp (buf,"OLYMPUS")) {
+  } else if (!strcmp (buf,"OLYMPUS") ||
+	     !strcmp (buf,"PENTAX ")) {
     base = ftell(ifp)-10;
     fseek (ifp, -2, SEEK_CUR);
-    order = get2();  get2();
+    order = get2();
+    if (buf[0] == 'O') get2();
   } else if (!strncmp (buf,"SONY",4) ||
 	     !strcmp  (buf,"Panasonic")) {
     goto nf;
@@ -369,8 +371,8 @@ void sony_decrypt (unsigned *data, int len, int start, int key)
     for (p=0; p < 127; p++)
       pad[p] = htonl(pad[p]);
   }
-  while (len--)
-    *data++ ^= pad[p++ & 127] = pad[(p+1) & 127] ^ pad[(p+65) & 127];
+  while (len-- && p++)
+    *data++ ^= pad[(p-1) & 127] = pad[p & 127] ^ pad[(p+64) & 127];
 }
 
 int parse_tiff_ifd (int base, int level)
