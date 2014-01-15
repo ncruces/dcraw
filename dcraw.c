@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.457 $
-   $Date: 2014/01/14 21:54:46 $
+   $Revision: 1.458 $
+   $Date: 2014/01/15 00:24:09 $
  */
 
 #define DCRAW_VERSION "9.20"
@@ -7681,6 +7681,9 @@ void CLASS identify()
     {  6166488,2864,2152, 0, 0, 0, 0, 0,0x94,0,0,"Kodak","C603",3160 },
     {   460800, 640, 480, 0, 0, 0, 0, 0,0x00,0,0,"Kodak","C603" },
     {  9116448,2848,2134, 0, 0, 0, 0, 0,0x00,0,0,"Kodak","C603" },
+    { 12241200,4040,3030, 2, 0, 0,13, 0,0x49,0,0,"Kodak","12MP" },
+    { 12272756,4040,3030, 2, 0, 0,13, 0,0x49,0,0,"Kodak","12MP",31556 },
+    { 18000000,4000,3000, 0, 0, 0, 0, 0,0x00,0,0,"Kodak","12MP" },
     {   614400, 640, 480, 0, 3, 0, 0,64,0x94,0,0,"Kodak","KAI-0340" },
     {  3884928,1608,1207, 0, 0, 0, 0,96,0x16,0,0,"Micron","2010",3212 },
     {  1138688,1534, 986, 0, 0, 0, 0, 0,0x61,0,0,"Minolta","RD175",513 },
@@ -8476,10 +8479,11 @@ konica_400z:
     height -= top_margin = 4;
     width -= left_margin = 32;
     gamma_curve (0, 7, 1, 255);
-  } else if (!strcmp(model,"C603") || !strcmp(model,"C330")) {
+  } else if (!strcmp(model,"C603") || !strcmp(model,"C330")
+	|| !strcmp(model,"12MP")) {
     order = 0x4949;
     if (filters && data_offset) {
-      fseek (ifp, 168, SEEK_SET);
+      fseek (ifp, data_offset < 4096 ? 168 : 5252, SEEK_SET);
       read_shorts (curve, 256);
     } else gamma_curve (0, 3.875, 1, 255);
     load_raw = filters ? &CLASS eight_bit_load_raw
