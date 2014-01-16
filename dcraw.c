@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.458 $
-   $Date: 2014/01/15 00:24:09 $
+   $Revision: 1.459 $
+   $Date: 2014/01/16 21:27:02 $
  */
 
 #define DCRAW_VERSION "9.20"
@@ -80,7 +80,7 @@ typedef unsigned long long UINT64;
 #include <jpeglib.h>		/* Decode compressed Kodak DC120 photos */
 #endif				/* and Adobe Lossy DNGs */
 #ifndef NO_LCMS
-#include <lcms.h>		/* Support color profiles */
+#include <lcms2.h>		/* Support color profiles */
 #endif
 #ifdef LOCALEDIR
 #include <libintl.h>
@@ -8678,7 +8678,6 @@ void CLASS apply_profile (const char *input, const char *output)
   FILE *fp;
   unsigned size;
 
-  cmsErrorAction (LCMS_ERROR_SHOW);
   if (strcmp (input, "embed"))
     hInProfile = cmsOpenProfileFromFile (input, "r");
   else if (profile_length) {
