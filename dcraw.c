@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.464 $
-   $Date: 2014/06/13 23:01:50 $
+   $Revision: 1.465 $
+   $Date: 2014/06/28 23:32:30 $
  */
 
 #define DCRAW_VERSION "9.21"
@@ -3876,8 +3876,8 @@ void CLASS colorcheck()
     { 0.310, 0.316, 9.0 },		// Neutral 3.5
     { 0.310, 0.316, 3.1 } };		// Black
   double gmb_cam[NSQ][4], gmb_xyz[NSQ][3];
-  double inverse[NSQ][3], cam_xyz[4][3], num;
-  int c, i, j, k, sq, row, col, count[4];
+  double inverse[NSQ][3], cam_xyz[4][3], balance[4], num;
+  int c, i, j, k, sq, row, col, pass, count[4];
 
   memset (gmb_cam, 0, sizeof gmb_cam);
   for (sq=0; sq < NSQ; sq++) {
@@ -3886,7 +3886,8 @@ void CLASS colorcheck()
       for (col=cut[sq][2]; col < cut[sq][2]+cut[sq][0]; col++) {
 	c = FC(row,col);
 	if (c >= colors) c -= 2;
-	gmb_cam[sq][c] += BAYER(row,col);
+	gmb_cam[sq][c] += BAYER2(row,col);
+	BAYER2(row,col) = black + (BAYER2(row,col)-black)/2;
 	count[c]++;
       }
     FORCC gmb_cam[sq][c] = gmb_cam[sq][c]/count[c] - black;
@@ -3896,11 +3897,16 @@ void CLASS colorcheck()
 		(1 - gmb_xyY[sq][0] - gmb_xyY[sq][1]) / gmb_xyY[sq][1];
   }
   pseudoinverse (gmb_xyz, inverse, NSQ);
-  for (raw_color = i=0; i < colors; i++)
-    for (j=0; j < 3; j++)
-      for (cam_xyz[i][j] = k=0; k < NSQ; k++)
-	cam_xyz[i][j] += gmb_cam[k][i] * inverse[k][j];
-  cam_xyz_coeff (rgb_cam, cam_xyz);
+  for (pass=0; pass < 2; pass++) {
+    for (raw_color = i=0; i < colors; i++)
+      for (j=0; j < 3; j++)
+	for (cam_xyz[i][j] = k=0; k < NSQ; k++)
+	  cam_xyz[i][j] += gmb_cam[k][i] * inverse[k][j];
+    cam_xyz_coeff (rgb_cam, cam_xyz);
+    FORCC balance[c] = pre_mul[c] * gmb_cam[20][c];
+    for (sq=0; sq < NSQ; sq++)
+      FORCC gmb_cam[sq][c] *= balance[c];
+  }
   if (verbose) {
     printf ("    { \"%s %s\", %d,\n\t{", make, model, black);
     num = 10000 / (cam_xyz[1][0] + cam_xyz[1][1] + cam_xyz[1][2]);
