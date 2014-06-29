@@ -19,11 +19,11 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.465 $
-   $Date: 2014/06/28 23:32:30 $
+   $Revision: 1.466 $
+   $Date: 2014/06/29 21:25:57 $
  */
 
-#define DCRAW_VERSION "9.21"
+#define DCRAW_VERSION "9.22"
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -7277,7 +7277,11 @@ void CLASS adobe_coeff (const char *make, const char *model)
     { "Nikon COOLPIX P7800", 200, 0,
 	{ 10321,-3920,-931,-2750,11146,1824,-442,1545,5539 } },
     { "Nikon 1 V3", 200, 0,
-	{ 6588,-1305,-693,-3277,10987,2634,-355,2016,5106 } },
+	{ 5958,-1559,-571,-4021,11453,2939,-634,1548,5087 } },
+    { "Nikon 1 J4", 200, 0,
+	{ 5958,-1559,-571,-4021,11453,2939,-634,1548,5087 } },
+    { "Nikon 1 S2", 200, 0,
+	{ 6612,-1342,-618,-3338,11055,2623,-174,1792,5075 } },
     { "Nikon 1 V2", 0, 0,
 	{ 6588,-1305,-693,-3277,10987,2634,-355,2016,5106 } },
     { "Nikon 1 J3", 0, 0,
@@ -7514,6 +7518,8 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 7780,-2410,-806,-3913,11724,2484,-1018,2390,5298 } },
     { "Panasonic DMC-GH3", 15, 0,
 	{ 6559,-1752,-491,-3672,11407,2586,-962,1875,5130 } },
+    { "Panasonic DMC-GH4", 15, 0,
+	{ 7122,-2108,-512,-3155,11201,2231,-541,1423,5045 } },
     { "Panasonic DMC-GM1", 15, 0,
 	{ 6770,-1895,-744,-5232,13145,2303,-1664,2691,5703 } },
     { "Panasonic DMC-GX1", 15, 0,
@@ -7614,6 +7620,10 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 5413,-1162,-365,-5665,13098,2866,-608,1179,8440 } },
     { "Sony DSLR-A900", 128, 0,
 	{ 5209,-1072,-397,-8845,16120,2919,-1618,1803,8654 } },
+    { "Sony ILCA-77M2", 128, 0,
+	{ 5991,-1732,-443,-4100,11989,2381,-704,1467,5992 } },
+    { "Sony ILCE-7S", 128, 0,
+	{ 5838,-1430,-246,-3497,11477,2297,-748,1885,5778 } },
     { "Sony ILCE-7R", 128, 0,
 	{ 4913,-541,-202,-6130,13513,2906,-1564,2151,7183 } },
     { "Sony ILCE-7", 128, 0,
@@ -8693,6 +8703,8 @@ konica_400z:
     adobe_coeff ("Sony","DSC-R1");
     width = 3925;
     order = 0x4d4d;
+  } else if (!strcmp(make,"Sony") && raw_width == 4288) {
+    width -= 32;
   } else if (!strcmp(make,"Sony") && raw_width == 4928) {
     if (height < 3280) width -= 8;
   } else if (!strcmp(make,"Sony") && raw_width == 5504) {
