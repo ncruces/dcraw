@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.466 $
-   $Date: 2014/06/29 21:25:57 $
+   $Revision: 1.467 $
+   $Date: 2014/07/03 21:19:24 $
  */
 
 #define DCRAW_VERSION "9.22"
@@ -113,7 +113,7 @@ typedef unsigned long long UINT64;
 FILE *ifp, *ofp;
 short order;
 const char *ifname;
-char *meta_data, xtrans[6][6];
+char *meta_data, xtrans[6][6], xtrans_abs[6][6];
 char cdesc[5], desc[512], make[64], model[64], model2[64], artist[64];
 float flash_used, canon_ev, iso_speed, shutter, aperture, focal_len;
 time_t timestamp;
@@ -254,7 +254,7 @@ int CLASS fcol (int row, int col)
     { 0,3,1,0,0,2,0,3,2,1,3,1,1,3,1,3 } };
 
   if (filters == 1) return filter[(row+top_margin)&15][(col+left_margin)&15];
-  if (filters == 9) return xtrans[(row+top_margin+6)%6][(col+left_margin+6)%6];
+  if (filters == 9) return xtrans[(row+6) % 6][(col+6) % 6];
   return FC(row,col);
 }
 
@@ -4457,7 +4457,7 @@ void CLASS cielab (ushort rgb[3], short lab[3])
 }
 
 #define TS 512		/* Tile Size */
-#define fcol(row,col) xtrans[(row+top_margin+6)%6][(col+left_margin+6)%6]
+#define fcol(row,col) xtrans[(row+6) % 6][(col+6) % 6]
 
 /*
    Frank Markesteijn's algorithm for Fuji X-Trans sensors
@@ -5682,8 +5682,7 @@ int CLASS parse_tiff_ifd (int base)
 	break;
       case 33422:			/* CFAPattern */
 	if (filters == 9) {
-	  FORC(36)
-	    xtrans[(c/6+top_margin)%6][(c+left_margin)%6] = fgetc(ifp) & 3;
+	  FORC(36) xtrans[0][c] = fgetc(ifp) & 3;
 	  break;
 	}
       case 64777:			/* Kodak P-series */
@@ -6502,7 +6501,7 @@ void CLASS parse_fuji (int offset)
       fuji_width = !(fgetc(ifp) & 8);
     } else if (tag == 0x131) {
       filters = 9;
-      FORC(36) xtrans[0][35-c] = fgetc(ifp) & 3;
+      FORC(36) xtrans_abs[0][35-c] = fgetc(ifp) & 3;
     } else if (tag == 0x2ff0) {
       FORC4 cam_mul[c ^ 1] = get2();
     } else if (tag == 0xc000) {
@@ -7224,6 +7223,8 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 8139,-2171,-663,-8747,16541,2295,-1925,2008,8093 } },
     { "Nikon D70", 0, 0,
 	{ 7732,-2422,-789,-8238,15884,2498,-859,783,7330 } },
+    { "Nikon D810", 596, 0,		/* DJC */
+	{ 6502,-2328,154,-4249,9943,4307,-1303,2538,8108 } },
     { "Nikon D800", 0, 0,
 	{ 7866,-2108,-555,-4869,12483,2681,-1176,2069,7501 } },
     { "Nikon D80", 0, 0,
@@ -7476,6 +7477,8 @@ void CLASS adobe_coeff (const char *make, const char *model)
 	{ 10148,-3743,-991,-2837,11366,1659,-701,1893,4899 } },
     { "Leica D-LUX 6", 15, 0,
 	{ 10148,-3743,-991,-2837,11366,1659,-701,1893,4899 } },
+    { "Panasonic DMC-FZ1000", 15, 0,	/* DJC */
+	{ 5686,-2219,-68,-4143,9912,4232,-1244,2246,5917 } },
     { "Panasonic DMC-FZ100", 15, 0xfff,
 	{ 16197,-6146,-1761,-2393,10765,1869,366,2238,5248 } },
     { "Leica V-LUX 2", 15, 0xfff,
@@ -8458,6 +8461,9 @@ canon_a5:
       filters = 0x16161616;
     }
     if (fuji_layout) raw_width *= is_raw;
+    if (filters == 9)
+      FORC(36) xtrans[0][c] =
+	xtrans_abs[(c/6+top_margin) % 6][(c+left_margin) % 6];
   } else if (!strcmp(model,"KD-400Z")) {
     height = 1712;
     width  = 2312;
