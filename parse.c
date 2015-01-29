@@ -1,12 +1,12 @@
 /*
    Raw Photo Parser
-   Copyright 2004-2014 by Dave Coffin, dcoffin a cybercom o net
+   Copyright 2004-2015 by Dave Coffin, dcoffin a cybercom o net
 
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.75 $
-   $Date: 2014/01/14 20:40:01 $
+   $Revision: 1.76 $
+   $Date: 2015/01/29 22:38:09 $
  */
 
 #include <stdio.h>
@@ -1030,6 +1030,114 @@ void parse_phase_one (int base)
   }
 }
 
+void parse_uuid (int level)
+{
+  unsigned i, len, tag;
+  char buf[0x8000];
+
+  for (;;) {
+    len = get2();
+    tag = get2();
+    if (!len) break;
+    printf ("%*stag = 0x%x, len=%d, ", level*2, "", tag, len);
+    switch (tag >> 12) {
+      case 1:
+	if (len-4 < sizeof buf) {
+	  fread (buf, 1,len-4, ifp);
+	  printf ("\"%.*s\"", len-4, buf);
+	}
+	break;
+      case 2:
+	for (i=4; i < len; i+=4)
+	  printf ("%f ",int_to_float(get4()));
+	break;
+      default:
+	for (i=4; i < len; i++)
+	  printf ("%02x", getc(ifp));
+    }
+    putchar ('\n');
+  }
+}
+
+void parse_redcine (off_t base, int level)
+{
+  unsigned i, len, tag, ulen, utag;
+  char c, ctag[4], buf[0x8000];
+
+  do {
+    fseeko (ifp, base, SEEK_SET);
+    len = get4();
+    tag = get4();
+    if (feof(ifp)) break;
+    for (i=0; i < 4; i++) {
+      ctag[i] = tag >> ((3-i) << 3);
+      if (!isprint(ctag[i])) ctag[i] = '.';
+    }
+    printf ("%*soff=0x%llx, len=%d, tag=0x%x \"%.4s\"\n",
+      level*2, "", (INT64) base, len, tag, ctag);
+    switch (tag) {
+      case 0x52454431:			/* RED1 */
+	fseek (ifp, 59, SEEK_CUR);
+	fread (buf, 1, 256, ifp);
+	printf ("  Original name: %s\n", buf);
+	break;
+      case 0x52454432:			/* RED2 */
+	fseek (ifp, 18, SEEK_CUR);
+      case 0x52444901:			/* RDI */
+	fseek (ifp, 88, SEEK_CUR);
+	parse_uuid (level+1);
+	base = -(-(base+len) & -4096);
+	continue;
+#if 0
+      case 0x52454441:			/* REDA */
+	fread (buf, 1, sizeof buf, ifp);
+	fwrite (buf+24, 1, len-32, stdout);
+	break;
+#endif
+      case 0x52454456:			/* REDV */
+	printf ("  seq = %d, time = %d\n", get4(), get4());
+	parse_redcine (base+20, level+1);
+	break;
+      case 0x75756964:			/* uuid */
+	fseek (ifp, 16, SEEK_CUR);
+	parse_uuid (level+1);
+    }
+    base += len;
+  } while (len);
+}
+
+void parse_qt (int level, int end)
+{
+  unsigned i, lcase, size, save;
+  char tag[4], buf[64];
+
+  order = 0x4d4d;
+  while (ftell(ifp)+7 < end) {
+    save = ftell(ifp);
+    if ((size = get4()) < 8) return;
+    fread (tag, 4, 1, ifp);
+    printf ("%*.4s size %d", level*4+4, tag, size);
+    for (lcase=1, i=0; i < 4; i++)
+      if (!islower(tag[i])) lcase = 0;
+    if (lcase && memcmp(tag,"ftyp",4) && memcmp(tag,"tkhd",4)
+	      && memcmp(tag,"mdat",4)
+	|| !memcmp(tag,"CNOP",4) || !memcmp(tag,"CNTH",4)) {
+      putchar ('\n');
+      parse_qt (level+1, save+size);
+    } else if (!memcmp(tag,"CNDA",4)) {
+      puts (" *** parsing JPEG thumbnail ...");
+      parse_jpeg (ftell(ifp));
+    } else {
+      fread (buf, 1, 40, ifp);
+      printf (" : ");
+      for (i=0; i < 40 && i < size-8; i++)
+	putchar (isprint(buf[i]) ? buf[i] : '.');
+      putchar ('\n');
+    }
+    fseek (ifp, save+size, SEEK_SET);
+  }
+}
+
 char *memmem (char *haystack, size_t haystacklen,
               char *needle, size_t needlelen)
 {
@@ -1086,7 +1194,12 @@ void identify()
   } else if (!memcmp (head,"RIFF",4)) {
     fseek (ifp, 0, SEEK_SET);
     parse_riff(0);
-  } else if (!memcmp (head,"DSC-Image",9))
+  } else if (!memcmp (head+4,"ftypqt   ",9)) {
+    fseek (ifp, 0, SEEK_SET);
+    parse_qt (0, fsize);
+  } else if (!memcmp (head+4,"RED",3))
+    parse_redcine(0,0);
+  else if (!memcmp (head,"DSC-Image",9))
     parse_rollei();
   else if (!memcmp (head,"FOVb",4))
     parse_foveon();
