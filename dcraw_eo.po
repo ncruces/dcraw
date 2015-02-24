@@ -1,13 +1,13 @@
 # Esperanto translation of dcraw messages.
-# (c) 2009 Dave Coffin dcoffin a cybercom o net
+# (c) 2015 Dave Coffin dcoffin a cybercom o net
 # Distribute freely.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: dcraw 9.10\n"
+"Project-Id-Version: dcraw 9.24\n"
 "Report-Msgid-Bugs-To: dcoffin a cybercom o net\n"
 "POT-Creation-Date: 2006-12-21 22:45-0500\n"
-"PO-Revision-Date: 2011-07-23 17:00-0400\n"
+"PO-Revision-Date: 2015-02-24 18:30-0500\n"
 "Last-Translator: Dave Coffin <dcoffin a cybercom o net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -30,6 +30,9 @@ msgstr "Aplikas korektojn de Phase One...\n"
 
 msgid "%s: incorrect JPEG dimensions\n"
 msgstr "%s: malĝustaj JPEG-dimensioj\n"
+
+msgid "%s has unknown CAMF type %d.\n"
+msgstr "%s havas nekonatan CAMF specon %d.\n"
 
 msgid "%s: \"%s\" matrix not found!\n"
 msgstr "%s: \"%s\" matrico ne trovita!\n"
@@ -70,6 +73,9 @@ msgstr "Interpolado VNG...\n"
 msgid "PPG interpolation...\n"
 msgstr "Interpolado PPG...\n"
 
+msgid "%d-pass X-Trans interpolation...\n"
+msgstr "Interpolado X-Trans kun %d pasoj...\n"
+
 msgid "AHD interpolation...\n"
 msgstr "Interpolado AHD...\n"
 
@@ -90,9 +96,6 @@ msgstr "Ne povis legi pridatumon el %s\n"
 
 msgid "%s: Tail is missing, parsing from head...\n"
 msgstr "%s: Mankas vosto, necesas legi de kapo...\n"
-
-msgid "%s: You must link dcraw with libjpeg!!\n"
-msgstr "%s: Necesas bindi dcraw-on kun libjpeg!!\n"
 
 msgid "%s: You must link dcraw with %s!!\n"
 msgstr "%s: Necesas bindi dcraw-on kun %s!!\n"
@@ -231,9 +234,6 @@ msgstr "-6        Skribu 16-bite anstataŭ 8-bite"
 
 msgid "-4        Linear 16-bit, same as \"-6 -W -g 1 1\""
 msgstr "-4        Linie 16-bite, same kiel \"-6 -W -g 1 1\""
-
-msgid "-4        Write 16-bit linear instead of 8-bit with gamma"
-msgstr "-4        Skribu 16-bite linie anstataŭ 8-bite kun gamo"
 
 msgid "-T        Write TIFF instead of PPM"
 msgstr "-T        Skribu TIFF-on anstataŭ PPM"
