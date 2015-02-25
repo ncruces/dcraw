@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.472 $
-   $Date: 2015/02/23 23:15:48 $
+   $Revision: 1.473 $
+   $Date: 2015/02/25 18:18:18 $
  */
 
 #define DCRAW_VERSION "9.24"
@@ -5388,6 +5388,8 @@ get2_rggb:
       fseek (ifp, i, SEEK_CUR);
       FORC4 sraw_mul[c ^ (c >> 1)] = get2();
     }
+    if (tag == 0x4021 && get4() && get4())
+      FORC4 cam_mul[c] = 1024;
     if (tag == 0xa021)
       FORC4 cam_mul[c ^ (c >> 1)] = get4();
     if (tag == 0xa028)
