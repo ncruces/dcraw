@@ -1,7 +1,7 @@
 .\"
 .\" Man page for dcraw
 .\"
-.\" Copyright (c) 2012 by David Coffin
+.\" Copyright (c) 2015 by David Coffin
 .\"
 .\" You may distribute without restriction.
 .\"
@@ -9,7 +9,7 @@
 .\" dcoffin a cybercom o net
 .\" http://www.cybercom.net/~dcoffin
 .\"
-.TH dcraw 1 "February 2, 2012"
+.TH dcraw 1 "March 3, 2015"
 .LO 1
 .SH NAME
 dcraw - command-line decoder for raw digital photos
@@ -139,10 +139,10 @@ The default is
 .B +M
 if
 .B -w
-is set,
+is set or the photo is in DNG format,
 .B -M
-otherwise.
-This option only affects Olympus, Leaf, and Phase One cameras.
+otherwise. Besides DNG,
+this option only affects Olympus, Leaf, and Phase One cameras.
 .TP
 .B -o [0-5]
 Select the output colorspace when the
@@ -271,7 +271,7 @@ row, and UNIX time of death for one pixel.  For example:
 1285 1067 0           # don't know when this pixel died
 .fi
 .sp 1
-These coordinates are before any cropping or rotation, so use
+These coordinates are before any stretching or rotation, so use
 .B dcraw -j -t 0
 to locate dead pixels.
 .SH "SEE ALSO"
