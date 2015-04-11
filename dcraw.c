@@ -19,8 +19,8 @@
    *If you have not modified dcraw.c in any way, a link to my
    homepage qualifies as "full source code".
 
-   $Revision: 1.474 $
-   $Date: 2015/04/10 20:54:50 $
+   $Revision: 1.475 $
+   $Date: 2015/04/11 00:08:36 $
  */
 
 #define DCRAW_VERSION "9.25"
@@ -2172,12 +2172,12 @@ void CLASS kodak_radc_load_raw()
 	(c-pt[i-2]) / (pt[i]-pt[i-2]) * (pt[i+1]-pt[i-1]) + pt[i-1] + 0.5;
   for (s=i=0; i < sizeof src; i+=2)
     FORC(256 >> src[i])
-      huff[0][s++] = src[i] << 8 | (uchar) src[i+1];
+      ((ushort *)huff)[s++] = src[i] << 8 | (uchar) src[i+1];
   s = kodak_cbpp == 243 ? 2 : 3;
   FORC(256) huff[18][c] = (8-s) << 8 | c >> s << s | 1 << (s-1);
   getbits(-1);
   for (i=0; i < sizeof(buf)/sizeof(short); i++)
-    buf[0][0][i] = 2048;
+    ((short *)buf)[i] = 2048;
   for (row=0; row < height; row+=4) {
     FORC3 mul[c] = getbits(6);
     FORC3 {
@@ -2186,7 +2186,7 @@ void CLASS kodak_radc_load_raw()
       x = ~(-1 << (s-1));
       val <<= 12-s;
       for (i=0; i < sizeof(buf[0])/sizeof(short); i++)
-	buf[c][0][i] = (buf[c][0][i] * val + x) >> s;
+	((short *)buf[c])[i] = (((short *)buf[c])[i] * val + x) >> s;
       last[c] = mul[c];
       for (r=0; r <= !c; r++) {
 	buf[c][1][width/2] = buf[c][2][width/2] = mul[c] << 7;
@@ -2761,7 +2761,7 @@ void CLASS samsung3_load_raw()
     fseek (ifp, (data_offset-ftell(ifp)) & 15, SEEK_CUR);
     ph1_bits(-1);
     mag = 0; pmode = 7;
-    FORC(6) lent[0][c] = row < 2 ? 7:4;
+    FORC(6) ((ushort *)lent)[c] = row < 2 ? 7:4;
     prow[ row & 1] = &RAW(row-1,1-((row & 1) << 1));	// green
     prow[~row & 1] = &RAW(row-2,0);			// red and blue
     for (tab=0; tab+15 < raw_width; tab+=16) {
@@ -2918,10 +2918,10 @@ void CLASS smal_v9_load_raw()
 
   fseek (ifp, 67, SEEK_SET);
   offset = get4();
-  nseg = fgetc(ifp);
+  nseg = (uchar) fgetc(ifp);
   fseek (ifp, offset, SEEK_SET);
   for (i=0; i < nseg*2; i++)
-    seg[0][i] = get4() + data_offset*(i & 1);
+    ((unsigned *)seg)[i] = get4() + data_offset*(i & 1);
   fseek (ifp, 78, SEEK_SET);
   holes = fgetc(ifp);
   fseek (ifp, 88, SEEK_SET);
@@ -3384,8 +3384,8 @@ void CLASS foveon_interpolate()
   black = (float (*)[3]) calloc (height, sizeof *black);
   for (row=0; row < height; row++) {
     for (i=0; i < 6; i++)
-      ddft[0][0][i] = ddft[1][0][i] +
-	row / (height-1.0) * (ddft[2][0][i] - ddft[1][0][i]);
+      ((float *)ddft[0])[i] = ((float *)ddft[1])[i] +
+	row / (height-1.0) * (((float *)ddft[2])[i] - ((float *)ddft[1])[i]);
     FORC3 black[row][c] =
 	( foveon_avg (image[row*width]+c, dscr[0], cfilt) +
 	  foveon_avg (image[row*width]+c, dscr[1], cfilt) * 3
@@ -3430,8 +3430,8 @@ void CLASS foveon_interpolate()
 
   for (row=0; row < height; row++) {
     for (i=0; i < 6; i++)
-      ddft[0][0][i] = ddft[1][0][i] +
-	row / (height-1.0) * (ddft[2][0][i] - ddft[1][0][i]);
+      ((float *)ddft[0])[i] = ((float *)ddft[1])[i] +
+	row / (height-1.0) * (((float *)ddft[2])[i] - ((float *)ddft[1])[i]);
     pix = image[row*width];
     memcpy (prev, pix, sizeof prev);
     frow = row / (height-1.0) * (dim[2]-1);
@@ -4211,13 +4211,13 @@ skip_block: ;
   }
   size = iheight*iwidth;
   for (i=0; i < size*4; i++) {
-    if (!(val = image[0][i])) continue;
+    if (!(val = ((ushort *)image)[i])) continue;
     if (cblack[4] && cblack[5])
       val -= cblack[6 + i/4 / iwidth % cblack[4] * cblack[5] +
 			i/4 % iwidth % cblack[5]];
     val -= cblack[i & 3];
     val *= scale_mul[i & 3];
-    image[0][i] = CLIP(val);
+    ((ushort *)image)[i] = CLIP(val);
   }
   if ((aber[0] != 1 || aber[2] != 1) && colors == 3) {
     if (verbose)
@@ -5529,12 +5529,12 @@ void CLASS parse_mos (int offset)
     }
     if (!strcmp(data,"icc_camera_to_tone_matrix")) {
       for (i=0; i < 9; i++)
-	romm_cam[0][i] = int_to_float(get4());
+	((float *)romm_cam)[i] = int_to_float(get4());
       romm_coeff (romm_cam);
     }
     if (!strcmp(data,"CaptProf_color_matrix")) {
       for (i=0; i < 9; i++)
-	fscanf (ifp, "%f", &romm_cam[0][i]);
+	fscanf (ifp, "%f", (float *)romm_cam + i);
       romm_coeff (romm_cam);
     }
     if (!strcmp(data,"CaptProf_number_of_planes"))
@@ -5824,7 +5824,7 @@ int CLASS parse_tiff_ifd (int base)
 	break;
       case 33422:			/* CFAPattern */
 	if (filters == 9) {
-	  FORC(36) xtrans[0][c] = fgetc(ifp) & 3;
+	  FORC(36) ((char *)xtrans)[c] = fgetc(ifp) & 3;
 	  break;
 	}
       case 64777:			/* Kodak P-series */
@@ -6061,7 +6061,7 @@ guess_cfa_pc:
 	break;
       case 50830:			/* MaskedAreas */
 	for (i=0; i < len && i < 32; i++)
-	  mask[0][i] = getint(type);
+	  ((int *)mask)[i] = getint(type);
 	black = 0;
 	break;
       case 51009:			/* OpcodeList2 */
@@ -6585,7 +6585,7 @@ void CLASS parse_phase_one (int base)
       case 0x100:  flip = "0653"[data & 3]-'0';  break;
       case 0x106:
 	for (i=0; i < 9; i++)
-	  romm_cam[0][i] = getreal(11);
+	  ((float *)romm_cam)[i] = getreal(11);
 	romm_coeff (romm_cam);
 	break;
       case 0x107:
@@ -6924,7 +6924,7 @@ void CLASS parse_foveon()
 	off += pent*8 + 24;
 	if ((unsigned) pent > 256) pent=256;
 	for (i=0; i < pent*2; i++)
-	  poff[0][i] = off + get4()*2;
+	  ((int *)poff)[i] = off + get4()*2;
 	for (i=0; i < pent; i++) {
 	  foveon_gets (poff[i][0], name, 64);
 	  foveon_gets (poff[i][1], value, 64);
@@ -7914,7 +7914,7 @@ void CLASS adobe_coeff (const char *make, const char *model)
       if (table[i].maximum) maximum = (ushort) table[i].maximum;
       if (table[i].trans[0]) {
 	for (raw_color = j=0; j < 12; j++)
-	  cam_xyz[0][j] = table[i].trans[j] / 10000.0;
+	  ((double *)cam_xyz)[j] = table[i].trans[j] / 10000.0;
 	cam_xyz_coeff (rgb_cam, cam_xyz);
       }
       break;
@@ -8736,7 +8736,7 @@ canon_a5:
     }
     if (fuji_layout) raw_width *= is_raw;
     if (filters == 9)
-      FORC(36) xtrans[0][c] =
+      FORC(36) ((char *)xtrans)[c] =
 	xtrans_abs[(c/6+top_margin) % 6][(c+left_margin) % 6];
   } else if (!strcmp(model,"KD-400Z")) {
     height = 1712;
