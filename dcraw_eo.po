@@ -187,8 +187,8 @@ msgstr "-H [0-9]  Traktu brilaĵojn (0=tondu, 1=ne tondu, 2=miksu, 3+=rekonstruu
 msgid "-t [0-7]  Flip image (0=none, 3=180, 5=90CCW, 6=90CW)"
 msgstr "-t [0-7]  Turnu bildon (0=ne turnu, 3=180, 5=90mal, 6=90dek)"
 
-msgid "-o [0-5]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"
-msgstr "-o [0-5]  Eliga kolorspaco (raw,sRGB,Adobe,Wide,ProPhoto,XYZ)"
+msgid "-o [0-6]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ,ACES)"
+msgstr "-o [0-6]  Eliga kolorspaco (raw,sRGB,Adobe,Wide,ProPhoto,XYZ,ACES)"
 
 msgid "-o <file> Apply output ICC profile from file"
 msgstr "-o <dos>  Apliku eligan ICC-profilon el dosiero"
