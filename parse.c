@@ -5,8 +5,8 @@
    This program displays raw metadata for all raw photo formats.
    It is free for all uses.
 
-   $Revision: 1.77 $
-   $Date: 2015/02/14 00:17:36 $
+   $Revision: 1.78 $
+   $Date: 2018/06/01 21:26:34 $
  */
 
 #include <stdio.h>
@@ -1110,6 +1110,47 @@ void parse_redcine (off_t base, int level)
   } while (len);
 }
 
+void parse_crx (int level, int end)
+{
+  int i, uuid[4], size, save;
+  char tag[4], buf[400];
+
+  while ((save = ftell(ifp)) < end) {
+    order = 0x4d4d;
+    size = get4();
+    if (size < 8 || save+size > end) {
+      fseek (ifp, -4, SEEK_CUR);
+      fread (buf, 1, 400, ifp);
+      printf (" =");
+      for (i=0; i < 400 && i < end-save; i++)
+        printf ("%s%02x",i & 3 ? "":" ",buf[i] & 255);
+      fseek (ifp, end, SEEK_SET);
+      return;
+    }
+    fread (tag, 4, 1, ifp);
+    printf ("\n%*.4s size %d", level*2+4, tag, size);
+    memset (uuid, 0, 16);
+    if (!memcmp(tag,"uuid",4)) {
+      for (i=0; i < 4; i++) uuid[i] = get4();
+      fseek (ifp, -16, SEEK_CUR);
+      printf(" = ");
+      for (i=0; i < 16; i++)
+	printf ("%s%02x",(0x550 >> i) & 1 ? "-":"", fgetc(ifp));
+    }
+    if (!memcmp(tag,"stsd",4))
+      fseek (ifp, 8, SEEK_CUR);
+    if (!memcmp(tag,"CMT",3)) {
+      putchar ('\n');
+      parse_tiff (ftell(ifp),level+1);
+    } else parse_crx (level+1, save+size);
+    fseek (ifp, save+size, SEEK_SET);
+  }
+  if (!level) {
+    printf ("Finished parsing at offset 0x%lx, ",ftell(ifp));
+    printf ("mdat %sfound\n", get4() == 0x6d646174 ? "":"not ");
+  }
+}
+
 void parse_qt (int level, int end)
 {
   unsigned i, lcase, size, save;
@@ -1198,6 +1239,9 @@ void identify()
   } else if (!memcmp (head,"RIFF",4)) {
     fseek (ifp, 0, SEEK_SET);
     parse_riff(0);
+  } else if (!memcmp (head+4,"ftypcrx ",8)) {
+    fseek (ifp, 0, SEEK_SET);
+    parse_crx (0, fsize);
   } else if (!memcmp (head+4,"ftypqt   ",9)) {
     fseek (ifp, 0, SEEK_SET);
     parse_qt (0, fsize);
