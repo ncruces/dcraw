@@ -1396,10 +1396,12 @@ void CLASS jpeg_thumb();
 void CLASS ppm_thumb()
 {
   char *thumb;
-  thumb_length = thumb_width*thumb_height*3;
+  colors = thumb_misc >> 5;
+  thumb_length = thumb_width*thumb_height*colors;
   thumb = (char *) malloc (thumb_length);
   merror (thumb, "ppm_thumb()");
-  fprintf (ofp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
+  fprintf (ofp, "P%d\n%d %d\n255\n",
+    5 + (colors >> 1), thumb_width, thumb_height);
   tread  (thumb, 1, thumb_length, ifp);
   twrite (thumb, 1, thumb_length, ofp);
   free (thumb);
@@ -1409,13 +1411,15 @@ void CLASS ppm16_thumb()
 {
   int i;
   char *thumb;
-  thumb_length = thumb_width*thumb_height*3;
+  colors = thumb_misc >> 5;
+  thumb_length = thumb_width*thumb_height*colors;
   thumb = (char *) calloc (thumb_length, 2);
   merror (thumb, "ppm16_thumb()");
   read_shorts ((ushort *) thumb, thumb_length);
   for (i=0; i < thumb_length; i++)
     thumb[i] = ((ushort *) thumb)[i] >> 8;
-  fprintf (ofp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
+  fprintf (ofp, "P%d\n%d %d\n255\n",
+    5 + (colors >> 1), thumb_width, thumb_height);
   twrite (thumb, 1, thumb_length, ofp);
   free (thumb);
 }
@@ -6276,9 +6280,6 @@ void CLASS apply_tiff()
     tiff_ifd[i].shutter = shutter;
   }
   for (i=0; i < tiff_nifds; i++) {
-    if (max_samp < tiff_ifd[i].samples)
-	max_samp = tiff_ifd[i].samples;
-    if (max_samp > 3) max_samp = 3;
     os = raw_width*raw_height;
     ns = tiff_ifd[i].width*tiff_ifd[i].height;
     if (tiff_bps) {
@@ -6391,6 +6392,12 @@ void CLASS apply_tiff()
       || (tiff_bps == 8 && strncmp(make,"Phase",5) &&
 	  !strcasestr(make,"Kodak") && !strstr(model2,"DEBUG RAW")))
       is_raw = 0;
+  for (i=0; i < tiff_nifds; i++)
+    if (i != raw) {
+      if (max_samp < tiff_ifd[i].samples && tiff_ifd[i].comp != 34892)
+	  max_samp = tiff_ifd[i].samples;
+      if (max_samp > 3) max_samp = 3;
+    }
   for (i=0; i < tiff_nifds; i++)
     if (i != raw && tiff_ifd[i].samples == max_samp &&
 	tiff_ifd[i].bps>0 && tiff_ifd[i].bps < 33 &&
