@@ -1,0 +1,37 @@
+# .badpixels file for my Canon PowerShot G2, serial no. 4624504380
+# dcraw will use this file if run in the same directory, or in any
+# subdirectory.
+
+# Always use "dcraw -d -j -t 0" when locating bad pixels!!
+
+# Format is: pixel column, pixel row, UNIX time of death
+
+# This pixel went bad between August 1 and 4, 2002
+ 962   91 1028350000
+# This pixel went bad between January 9 and 30, 2003
+ 902  877 1043000000
+
+# These are only visible in low light, so I haven't dated them:
+ 621  943 0
+1285 1067 0
+1286 1067 0
+2181 1532 0
+
+# I swept these up 4/19/2005
+ 763   36 1110000000
+1827  466 1110000000
+
+# low light
+ 198 1288 1110000000
+ 346  328 1110000000
+ 429  273 1110000000
+ 621  943 1110000000
+ 624  874 1110000000
+ 848  400 1110000000
+1682 1686 1110000000
+1892 1250 1110000000
+2234  484 1110000000
+2242  618 1110000000
+
+ 555  698 1135100000	# December 20-21, 2005
+ 640  157 1139000000	# February 2-5, 2006
