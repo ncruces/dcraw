@@ -37,6 +37,10 @@ int main (int argc, char **argv)
   for (arg=1; arg < argc; arg++) {
     status = 1;
     fp = fopen (argv[arg], "rb");
+    if (!fp) {
+      fprintf(stderr, "Cannot open file!\n");
+      return 2;
+    }
     fseek (fp, 0, SEEK_END);
     size = ftell(fp);
     buffer = malloc (size + strlen(argv[arg]) + 10);
