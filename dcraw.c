@@ -284,8 +284,10 @@ void CLASS derror()
 {
   if (!data_error) {
     fprintf (stderr, "%s: ", ifname);
-    if (feof(ifp))
+    if (feof(ifp)) {
       fprintf (stderr,_("Unexpected end of file\n"));
+      longjmp (failure, 1);
+    }
     else
       fprintf (stderr,_("Corrupt data near 0x%llx\n"), (INT64) ftello(ifp));
   }
