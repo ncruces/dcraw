@@ -8345,8 +8345,14 @@ float CLASS find_green (int bps, int bite, int off0, int off1)
 {
   UINT64 bitbuf=0;
   int vbits, col, i, c;
-  ushort img[2][2064];
+  ushort *img;
   double sum[]={0,0};
+
+#define IMG2D(row,col) \
+  img[(row)*width+(col)]
+
+  img = (ushort *) malloc(2*width*sizeof(ushort));
+  merror (img, "find_green()");
 
   FORC(2) {
     fseek (ifp, c ? off1:off0, SEEK_SET);
@@ -8356,13 +8362,14 @@ float CLASS find_green (int bps, int bite, int off0, int off1)
 	for (i=0; i < bite; i+=8)
 	  bitbuf |= (unsigned) (fgetc(ifp) << i);
       }
-      img[c][col] = bitbuf << (64-bps-vbits) >> (64-bps);
+      IMG2D(c,col) = bitbuf << (64-bps-vbits) >> (64-bps);
     }
   }
   FORC(width-1) {
-    sum[ c & 1] += ABS(img[0][c]-img[1][c+1]);
-    sum[~c & 1] += ABS(img[1][c]-img[0][c+1]);
+    sum[ c & 1] += ABS(IMG2D(0,c)-IMG2D(1,c+1));
+    sum[~c & 1] += ABS(IMG2D(1,c)-IMG2D(0,c+1));
   }
+  free(img);
   return 100 * log(sum[0]/sum[1]);
 }
 
