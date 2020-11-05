@@ -879,6 +879,9 @@ int CLASS ljpeg_diff (ushort *huff)
 {
   int len, diff;
 
+  if(!huff)
+    longjmp (failure, 2);
+
   len = gethuff(huff);
   if (len == 16 && (!dng_version || dng_version >= 0x1010000))
     return -32768;
@@ -934,6 +937,10 @@ void CLASS lossless_jpeg_load_raw()
   ushort *rp;
 
   if (!ljpeg_start (&jh, 0)) return;
+
+  if(jh.wide<1 || jh.high<1 || jh.clrs<1 || jh.bits <1)
+    longjmp (failure, 2);
+
   jwide = jh.wide * jh.clrs;
 
   for (jrow=0; jrow < jh.high; jrow++) {
@@ -953,6 +960,8 @@ void CLASS lossless_jpeg_load_raw()
       }
       if (raw_width == 3984 && (col -= 2) < 0)
 	col += (row--,raw_width);
+      if(row>raw_height)
+	longjmp (failure, 3);
       if ((unsigned) row < raw_height) RAW(row,col) = val;
       if (++col >= raw_width)
 	col = (row++,0);
@@ -5847,6 +5856,7 @@ int CLASS parse_tiff_ifd (int base)
 	  data_offset = get4()+base;
 	  ifd++;  break;
 	}
+	if(len > 1000) len=1000; /* 1000 SubIFDs is enough */
 	while (len--) {
 	  i = ftell(ifp);
 	  fseek (ifp, get4()+base, SEEK_SET);
@@ -6204,9 +6214,12 @@ void CLASS apply_tiff()
   if (thumb_offset) {
     fseek (ifp, thumb_offset, SEEK_SET);
     if (ljpeg_start (&jh, 1)) {
-      thumb_misc   = jh.bits;
-      thumb_width  = jh.wide;
-      thumb_height = jh.high;
+      if((unsigned)jh.bits<17 && (unsigned)jh.wide < 0x10000 && (unsigned)jh.high < 0x10000)
+	{
+	  thumb_misc   = jh.bits;
+	  thumb_width  = jh.wide;
+	  thumb_height = jh.high;
+	}
     }
   }
   for (i=tiff_nifds; i--; ) {
@@ -6225,7 +6238,8 @@ void CLASS apply_tiff()
       ns *= tiff_ifd[i].bps;
     }
     if ((tiff_ifd[i].comp != 6 || tiff_ifd[i].samples != 3) &&
-	(tiff_ifd[i].width | tiff_ifd[i].height) < 0x10000 &&
+	((unsigned)tiff_ifd[i].width | (unsigned)tiff_ifd[i].height) < 0x10000 &&
+	(unsigned)tiff_ifd[i].bps < 33 && (unsigned)tiff_ifd[i].samples < 13 &&
 	 ns && ((ns > os && (ties = 1)) ||
 		(ns == os && shot_select == ties++))) {
       raw_width     = tiff_ifd[i].width;
@@ -6331,6 +6345,8 @@ void CLASS apply_tiff()
       is_raw = 0;
   for (i=0; i < tiff_nifds; i++)
     if (i != raw && tiff_ifd[i].samples == max_samp &&
+	tiff_ifd[i].bps>0 && tiff_ifd[i].bps < 33 &&
+	((unsigned)tiff_ifd[i].width | (unsigned)tiff_ifd[i].height) < 0x10000 &&
 	tiff_ifd[i].width * tiff_ifd[i].height / (SQR(tiff_ifd[i].bps)+1) >
 	      thumb_width *       thumb_height / (SQR(thumb_misc)+1)
 	&& tiff_ifd[i].comp != 34892) {
