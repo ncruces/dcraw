@@ -1,3 +1,17 @@
+Mirror of Dave Coffin's dcraw
+=============================
+
+This repository contains an unofficial mirror of Dave Coffin's dcraw with full version history.
+
+Branches:
+- **master**: Dave Coffin's code, this [README.md](README.md), and [LICENSE](LICENSE). No other changes.
+- **debian**: adds Debian testing patches.
+- **ncruces-grayscale**: adds support for some grayscale thumbnails.
+- **ncruces-windows**: adds various hacks to make unicode paths work on Windows.
+
+The rest of this [README.md](README.md) is a markdown translation of Dave Coffin's dcraw [website](https://dechifro.org/dcraw/).
+
+
 Decoding raw digital photos in Linux
 ====================================
 
@@ -29,6 +43,8 @@ I can be reached by sending e-mail to cybercom dot net with the username "dcoffi
 ### My Code
 
 Unless otherwise noted in the source code, these programs are free for all uses, although I would like to receive credit for them. Donations are welcome too, if you're making money from my code.  
+
+[![Donate](https://www.paypal.com/en_US/i/btn/btn_donate_SM.gif)](https://www.paypal.com/donate/?business=dcoffin@cybercom.net&item_name=Support%20for%20dcraw)
 
 **Note to Linux distributors:** The only executable files that should be installed by a dcraw package are "dcraw", "clean\_crw", and maybe "fuji\_green", "fujiturn", and "fujiturn16". My shell scripts are dangerous and should only be installed in a "doc" directory without execute permission.
 
