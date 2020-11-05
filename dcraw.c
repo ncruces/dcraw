@@ -2923,6 +2923,14 @@ void CLASS smal_decode_segment (unsigned seg[2][2], int holes)
       diff = diff ? -diff : 0x80;
     if (ftell(ifp) + 12 >= seg[1][1])
       diff = 0;
+    if(pix>=raw_width*raw_height) {
+      /* Debian specific patch for bug #864168.
+         The patch is applied by hand according to:
+        https://github.com/LibRaw/LibRaw/commit/89d065424f09b788f443734d44857289489ca9e2
+       */
+      fprintf (stderr,_("Unexpected end of file\n"));
+      longjmp (failure, 2);
+    }
     raw_image[pix] = pred[pix & 1] += diff;
     if (!(pix & 1) && HOLE(pix / raw_width)) pix += 2;
   }
