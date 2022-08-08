@@ -6,8 +6,9 @@ This repository contains an unofficial mirror of Dave Coffin's dcraw with full v
 Branches:
 - **master**: Dave Coffin's code, this [README.md](README.md), and [LICENSE](LICENSE). No other changes.
 - **debian**: adds Debian testing patches.
-- **ncruces-grayscale**: adds support for some grayscale thumbnails.
-- **ncruces-windows**: adds various hacks to make unicode paths work on Windows.
+- **ncruces-dev**: improves DNG support and avoids creating temporary files.
+- **ncruces-win**: adds various hacks to make unicode paths work on Windows.
+- **ncruces-wasm**: adds various hacks to run on WASI-compliant runtimes.
 
 The rest of this [README.md](README.md) is a markdown translation of Dave Coffin's dcraw [website](https://dechifro.org/dcraw/).
 
