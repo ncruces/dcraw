@@ -251,8 +251,8 @@ int CLASS fcol (int row, int col)
   return FC(row,col);
 }
 
-#ifndef __GLIBC__
-char *my_memmem (char *haystack, size_t haystacklen,
+#ifdef WIN32
+char *memmem (char *haystack, size_t haystacklen,
 	      char *needle, size_t needlelen)
 {
   char *c;
@@ -261,8 +261,7 @@ char *my_memmem (char *haystack, size_t haystacklen,
       return c;
   return 0;
 }
-#define memmem my_memmem
-char *my_strcasestr (char *haystack, const char *needle)
+char *strcasestr (char *haystack, const char *needle)
 {
   char *c;
   for (c = haystack; *c; c++)
@@ -270,7 +269,6 @@ char *my_strcasestr (char *haystack, const char *needle)
       return c;
   return 0;
 }
-#define strcasestr my_strcasestr
 #endif
 
 void CLASS merror (void *ptr, const char *where)
@@ -320,6 +318,20 @@ void CLASS twrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
     perror(line);
     exit(1);
   }
+}
+
+static FILE *fopenbuf (void *buf, size_t size)
+{
+#if defined(WIN32) || defined(__CYGWIN__)
+  FILE *f = tmpfile();
+  if (f) {
+    twrite(buf, size, 1, f);
+    tseek(f, 0, SEEK_SET);
+  }
+  return f;
+#else
+  return fmemopen(buf, size, "r");
+#endif
 }
 
 ushort CLASS sget2 (uchar *s)
@@ -6202,9 +6214,7 @@ guess_cfa_pc:
     tread (buf, sony_length, 1, ifp);
     sony_decrypt (buf, sony_length/4, 1, sony_key);
     sfp = ifp;
-    if ((ifp = tmpfile())) {
-      twrite (buf, sony_length, 1, ifp);
-      tseek (ifp, 0, SEEK_SET);
+    if ((ifp = fopenbuf(buf, sony_length))) {
       parse_tiff_ifd (-sony_offset);
       fclose (ifp);
     }
