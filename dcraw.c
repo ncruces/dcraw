@@ -35,7 +35,6 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
-#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -140,6 +139,14 @@ const float d65_white[3] = { 0.950456, 1, 1.088754 };
 int histogram[4][0x2000];
 void (*write_thumb)(), (*write_fun)();
 void (*load_raw)(), (*thumb_load_raw)();
+
+typedef struct{} jmp_buf;
+static int setjmp(jmp_buf env) { return 0; }
+static __attribute__((noreturn)) void longjmp(jmp_buf env, int val) {
+  if (fileno(ifp) > 2) fclose(ifp);
+  if (fileno(ofp) > 2) fclose(ofp);
+  exit(1);
+}
 jmp_buf failure;
 
 struct decode {
