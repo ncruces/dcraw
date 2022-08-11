@@ -2415,10 +2415,10 @@ void CLASS lossy_dng_load_raw()
   struct jpeg_decompress_struct cinfo;
   struct jpeg_error_mgr jerr;
   JSAMPARRAY buf;
-  JSAMPLE (*pixel)[3];
+  JSAMPLE (*pixel)[colors];
   unsigned sorder=order, ntags, opcode, deg, i, j, c;
   unsigned save=data_offset-4, trow=0, tcol=0, row, col;
-  ushort cur[3][256];
+  ushort cur[colors][256];
   double coeff[9], tot;
 
   if (meta_offset) {
@@ -2444,7 +2444,7 @@ void CLASS lossy_dng_load_raw()
     order = sorder;
   } else {
     gamma_curve (1/2.4, 12.92, 1, 255);
-    FORC3 memcpy (cur[c], curve, sizeof cur[0]);
+    FORCC memcpy (cur[c], curve, sizeof cur[0]);
   }
   cinfo.err = jpeg_std_error (&jerr);
   jpeg_create_decompress (&cinfo);
@@ -2456,13 +2456,19 @@ void CLASS lossy_dng_load_raw()
     jpeg_read_header (&cinfo, TRUE);
     jpeg_start_decompress (&cinfo);
     buf = (*cinfo.mem->alloc_sarray)
-	((j_common_ptr) &cinfo, JPOOL_IMAGE, cinfo.output_width*3, 1);
+	((j_common_ptr) &cinfo, JPOOL_IMAGE, cinfo.output_width*colors, 1);
     while (cinfo.output_scanline < cinfo.output_height &&
 	(row = trow + cinfo.output_scanline) < height) {
       jpeg_read_scanlines (&cinfo, buf, 1);
-      pixel = (JSAMPLE (*)[3]) buf[0];
-      for (col=0; col < cinfo.output_width && tcol+col < width; col++) {
-	FORC3 image[row*width+tcol+col][c] = cur[c][pixel[col][c]];
+      pixel = (JSAMPLE (*)[colors]) buf[0];
+      if (colors == 1) {
+	for (col=0; col < cinfo.output_width && tcol+col < width; col++) {
+	  raw_image[row*width+tcol+col] = cur[0][pixel[col][0]];
+	}
+      } else {
+	for (col=0; col < cinfo.output_width && tcol+col < width; col++) {
+	  FORC3 image[row*width+tcol+col][c] = cur[c][pixel[col][c]];
+	}
       }
     }
     jpeg_abort_decompress (&cinfo);
