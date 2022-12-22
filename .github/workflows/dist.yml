@@ -6,21 +6,16 @@ on:
 jobs:
 
   build:
-    strategy:
-      matrix:
-        platform: [ubuntu, macos]
-
-    runs-on: ${{ matrix.platform }}-latest
+    runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v3
-    - uses: ilammy/setup-nasm@v1
 
     - name: Build artifact
       run: ./build.sh
+      shell: bash
 
     - name: Upload artifact
       uses: actions/upload-artifact@v3
       with:
-        name: dcraw-${{ matrix.platform }}.tgz
-        path: dcraw.tgz
+        path: dcraw-windows.zip
