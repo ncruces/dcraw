@@ -10115,6 +10115,30 @@ void CLASS jpeg_thumb()
   free (thumb);
 }
 
+void CLASS jpeg_offset()
+{
+  char thumb[12];
+  ushort exif[5];
+  struct tiff_hdr th;
+
+  tread (thumb, 1, 12, ifp);
+  fputc (0xff, ofp);
+  fputc (0xd8, ofp);
+  if (strcmp (thumb+6, "Exif")) {
+    memcpy (exif, "\xff\xe1  Exif\0\0", 10);
+    exif[1] = htons (8 + sizeof th);
+    twrite (exif, 1, sizeof exif, ofp);
+    tiff_head (&th, 0);
+    twrite (&th, 1, sizeof th, ofp);
+  }
+  
+  fputc (0xff, ofp);
+  fputc (0xd9, ofp);
+  UINT64 bin[] = {thumb_offset+2, thumb_length-2};
+  twrite (&bin, sizeof(UINT64), 2, ofp);
+  twrite ("OFfSeTLeNgtH", 1, 12, ofp);
+}
+
 void CLASS write_ppm_tiff()
 {
   struct tiff_hdr th;
@@ -10274,7 +10298,7 @@ int CLASS main (int argc, const char **argv)
       case 'P':  bpfile     = argv[arg++];  break;
       case 'K':  dark_frame = argv[arg++];  break;
       case 'z':  timestamp_only    = 1;  break;
-      case 'e':  thumbnail_only    = 1;  break;
+      case 'e':  thumbnail_only++;       break;
       case 'i':  identify_only     = 1;  break;
       case 'c':  write_to_stdout   = 1;  break;
       case 'v':  verbose           = 1;  break;
@@ -10551,6 +10575,8 @@ thumbnail:
       write_ext = ".tiff";
     else
       write_ext = ".pgm\0.ppm\0.ppm\0.pam" + colors*5-5;
+    if (thumbnail_only > 1 && write_fun == &CLASS jpeg_thumb)
+      write_fun = &CLASS jpeg_offset;
     ofname = (char *) malloc (strlen(ifname) + 64);
     merror (ofname, "main()");
     if (write_to_stdout)
