@@ -9,5 +9,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Placeholder
-      run: true
+    - uses: actions/checkout@v4
+
+    - name: Build artifact
+      run: ./build.sh
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        path: dcraw.wasm.gz
