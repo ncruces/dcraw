@@ -4,47 +4,17 @@ set -Eeuo pipefail
 
 JVER=2.1.5.1
 if [ ! -d "libjpeg-turbo-$JVER" ]; then
-  url="https://downloads.sourceforge.net/project/libjpeg-turbo/$JVER/libjpeg-turbo-$JVER.tar.gz"
-  curl -sL "$url" | tar xz
+  url="https://downloads.sourceforge.net/project/libjpeg-turbo/$JVER/libjpeg-turbo-$JVER-gcc64.exe"
+  mkdir "libjpeg-turbo-$JVER"
+  pushd "libjpeg-turbo-$JVER"
+  curl -sL "$url" > archive.7z
+  7z x archive.7z
+  popd
 fi
 
-if [[ "$OSTYPE" == "darwin"* ]]; then
+gcc -O3 -o dcraw.exe dcraw.c -lws2_32 -DNO_JASPER -DNO_LCMS \
+    -I"libjpeg-turbo-$JVER/include" "libjpeg-turbo-$JVER/lib/libjpeg.dll.a"
 
-mkdir -p build_arm
-pushd build_arm
-cmake -G"Unix Makefiles" "../libjpeg-turbo-$JVER" \
-  -D"CMAKE_OSX_DEPLOYMENT_TARGET=11" \
-  -D"CMAKE_OSX_ARCHITECTURES=arm64"
-make -j jpeg-static
-cc -O3 -o dcraw ../dcraw.c -DNO_JASPER -DNO_LCMS \
-   -I. -I"../libjpeg-turbo-$JVER" libjpeg.a \
-   --target=arm64-apple-macos11
-popd
+cp "libjpeg-turbo-$JVER/bin/libjpeg-62.dll" .
 
-mkdir -p build_x86
-pushd build_x86
-cmake -G"Unix Makefiles" "../libjpeg-turbo-$JVER" \
-  -D"CMAKE_OSX_DEPLOYMENT_TARGET=10.13" \
-  -D"CMAKE_OSX_ARCHITECTURES=x86_64"
-make -j jpeg-static
-cc -O3 -o dcraw ../dcraw.c -DNO_JASPER -DNO_LCMS \
-   -I. -I"../libjpeg-turbo-$JVER" libjpeg.a \
-   --target=x86_64-apple-macos10.13
-popd
-
-lipo -create -output dcraw build_arm/dcraw build_x86/dcraw
-
-else
-
-mkdir -p build
-
-pushd build
-cmake -G"Unix Makefiles" "../libjpeg-turbo-$JVER"
-make -j jpeg-static
-cc -O3 -o ../dcraw ../dcraw.c -lm -DNO_JASPER -DNO_LCMS \
-   -I. -I"../libjpeg-turbo-$JVER" libjpeg.a
-popd
-
-fi
-
-tar c dcraw | gzip -9 > dcraw.tgz
+7z a -mx9 dcraw-windows.zip dcraw.exe libjpeg-62.dll
