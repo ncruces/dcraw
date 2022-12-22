@@ -10398,6 +10398,7 @@ int CLASS main (int argc, const char **argv)
       printf (_("Number of raw images: %d\n"), is_raw);
       if (pixel_aspect != 1)
 	printf (_("Pixel Aspect Ratio: %0.6f\n"), pixel_aspect);
+      printf (_("Orientation: %c\n"), "12435867"[flip]);
       if (thumb_offset)
 	printf (_("Thumb size:  %4d x %d\n"), thumb_width, thumb_height);
       printf (_("Full size:   %4d x %d\n"), raw_width, raw_height);
